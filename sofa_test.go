@@ -243,12 +243,12 @@ func TestParseDimensionSizeErrors(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
-		{"", true},                    // empty string
-		{"not a number", true},        // invalid number
-		{"abc def ghi", true},         // no number at end
-		{"   ", true},                 // whitespace only
-		{"valid text 123", false},     // valid
-		{"This is text 42", false},    // valid
+		{"", true},                 // empty string
+		{"not a number", true},     // invalid number
+		{"abc def ghi", true},      // no number at end
+		{"   ", true},              // whitespace only
+		{"valid text 123", false},  // valid
+		{"This is text 42", false}, // valid
 	}
 
 	for _, tt := range tests {

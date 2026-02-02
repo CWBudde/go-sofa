@@ -2,8 +2,9 @@
 // By default, exports metadata and dimensions only. Use --include-ir to include impulse response data.
 //
 // Usage:
-//   sofa2json [--include-ir] <file.sofa>       # process single file
-//   sofa2json [--include-ir]                   # process all .sofa files in current directory
+//
+//	sofa2json [--include-ir] <file.sofa>       # process single file
+//	sofa2json [--include-ir]                   # process all .sofa files in current directory
 //
 // Output is written to <filename>.json (replacing .sofa extension).
 package main
@@ -76,7 +77,7 @@ func processSofaFile(filename string, includeIR bool) error {
 
 	// Write to output file
 	outFile := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".json"
-	if err := os.WriteFile(outFile, data, 0644); err != nil {
+	if err := os.WriteFile(outFile, data, 0o644); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 

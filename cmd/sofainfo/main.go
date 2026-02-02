@@ -2,8 +2,9 @@
 // It displays AES69 global attributes, dimensions, and basic audio parameters.
 //
 // Usage:
-//   sofainfo <file.sofa>       # process single file
-//   sofainfo                   # process all .sofa files in current directory
+//
+//	sofainfo <file.sofa>       # process single file
+//	sofainfo                   # process all .sofa files in current directory
 package main
 
 import (
