@@ -391,3 +391,377 @@ func (f *File) IRPeakdB(m, r int) float64 {
 	}
 	return 20 * math.Log10(peak)
 }
+
+// Save writes the SOFA file to the specified path.
+// It validates the File struct before writing and creates a fully compliant
+// SOFA file with netCDF-4/HDF5 dimension scales.
+//
+// The file is created from scratch each time, ensuring no corruption of the original.
+// All required SOFA attributes and datasets are written, along with optional fields
+// if present in the File struct.
+//
+// Returns an error if:
+//   - Validation fails (missing required fields, invalid dimensions, etc.)
+//   - HDF5 file creation fails
+//   - Any write operation fails
+func (f *File) Save(path string) error {
+	// Validate the File struct before writing
+	if err := f.validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Create HDF5 file for writing
+	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
+	if err != nil {
+		return fmt.Errorf("create HDF5 file: %w", err)
+	}
+	defer fw.Close()
+
+	// Write global attributes to root group
+	if err := f.writeGlobalAttrs(fw); err != nil {
+		return fmt.Errorf("write global attributes: %w", err)
+	}
+
+	// Write dimension-scale datasets (M, R, E, N) with netCDF attributes
+	dimScales := map[string]int{
+		"/M": f.M,
+		"/R": f.R,
+		"/E": f.E,
+		"/N": f.N,
+	}
+	for name, size := range dimScales {
+		if err := writeDimensionScale(fw, name, size); err != nil {
+			return fmt.Errorf("write dimension %s: %w", name, err)
+		}
+	}
+
+	// Write spatial position datasets
+	if err := writePositionDataset(fw, "/ListenerPosition", f.ListenerPositions); err != nil {
+		return fmt.Errorf("write ListenerPosition: %w", err)
+	}
+	if err := writePositionDataset(fw, "/ReceiverPosition", f.ReceiverPositions); err != nil {
+		return fmt.Errorf("write ReceiverPosition: %w", err)
+	}
+	if err := writePositionDataset(fw, "/SourcePosition", f.SourcePositions); err != nil {
+		return fmt.Errorf("write SourcePosition: %w", err)
+	}
+	if err := writePositionDataset(fw, "/EmitterPosition", f.EmitterPositions); err != nil {
+		return fmt.Errorf("write EmitterPosition: %w", err)
+	}
+
+	// Write listener orientation vectors
+	if err := writeVector3Dataset(fw, "/ListenerUp", []Vector3{f.ListenerUp}); err != nil {
+		return fmt.Errorf("write ListenerUp: %w", err)
+	}
+	if err := writeVector3Dataset(fw, "/ListenerView", []Vector3{f.ListenerView}); err != nil {
+		return fmt.Errorf("write ListenerView: %w", err)
+	}
+
+	// Write audio data
+	if err := f.writeAudioDatasets(fw); err != nil {
+		return fmt.Errorf("write audio data: %w", err)
+	}
+
+	return nil
+}
+
+// validate checks that the File struct contains all required fields
+// and that dimensions are consistent.
+func (f *File) validate() error {
+	// Check required string attributes
+	if f.Conventions != "SOFA" {
+		return fmt.Errorf("Conventions must be \"SOFA\", got %q", f.Conventions)
+	}
+	if f.Version == "" {
+		return fmt.Errorf("Version is required")
+	}
+	if f.SOFAConventions == "" {
+		return fmt.Errorf("SOFAConventions is required")
+	}
+	if f.DataType == "" {
+		return fmt.Errorf("DataType is required")
+	}
+
+	// Check dimensions are non-zero
+	if f.M <= 0 {
+		return fmt.Errorf("M must be > 0, got %d", f.M)
+	}
+	if f.R <= 0 {
+		return fmt.Errorf("R must be > 0, got %d", f.R)
+	}
+	if f.E <= 0 {
+		return fmt.Errorf("E must be > 0, got %d", f.E)
+	}
+	if f.N <= 0 {
+		return fmt.Errorf("N must be > 0, got %d", f.N)
+	}
+
+	// Check ImpulseResponses dimensions
+	if len(f.ImpulseResponses) != f.M {
+		return fmt.Errorf("ImpulseResponses length %d does not match M=%d",
+			len(f.ImpulseResponses), f.M)
+	}
+	for i, mr := range f.ImpulseResponses {
+		if len(mr) != f.R {
+			return fmt.Errorf("ImpulseResponses[%d] length %d does not match R=%d",
+				i, len(mr), f.R)
+		}
+		for j, n := range mr {
+			if len(n) != f.N {
+				return fmt.Errorf("ImpulseResponses[%d][%d] length %d does not match N=%d",
+					i, j, len(n), f.N)
+			}
+		}
+	}
+
+	// Check SamplingRate dimension (must be M or 1 for scalar)
+	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
+		return fmt.Errorf("SamplingRate length %d must be M=%d or 1",
+			len(f.SamplingRate), f.M)
+	}
+
+	// Check Delay dimension
+	if len(f.Delay) != f.M && len(f.Delay) != 0 {
+		return fmt.Errorf("Delay length %d must be M=%d or 0 (optional)",
+			len(f.Delay), f.M)
+	}
+
+	// Check position array dimensions
+	if len(f.ListenerPositions) != f.M && len(f.ListenerPositions) != 0 {
+		return fmt.Errorf("ListenerPositions length %d must be M=%d or 0",
+			len(f.ListenerPositions), f.M)
+	}
+	if len(f.ReceiverPositions) != f.R && len(f.ReceiverPositions) != 0 {
+		return fmt.Errorf("ReceiverPositions length %d must be R=%d or 0",
+			len(f.ReceiverPositions), f.R)
+	}
+	if len(f.SourcePositions) != f.M && len(f.SourcePositions) != 0 {
+		return fmt.Errorf("SourcePositions length %d must be M=%d or 0",
+			len(f.SourcePositions), f.M)
+	}
+	if len(f.EmitterPositions) != f.E && len(f.EmitterPositions) != 0 {
+		return fmt.Errorf("EmitterPositions length %d must be E=%d or 0",
+			len(f.EmitterPositions), f.E)
+	}
+
+	return nil
+}
+
+// writeGlobalAttrs writes all AES69 global attributes to the root group.
+func (f *File) writeGlobalAttrs(fw *hdf5.FileWriter) error {
+	root, err := fw.RootGroup()
+	if err != nil {
+		return fmt.Errorf("get root group: %w", err)
+	}
+
+	// Helper to write attribute only if non-empty
+	writeAttr := func(name, value string) error {
+		if value != "" {
+			return root.WriteAttribute(name, value)
+		}
+		return nil
+	}
+
+	// Required attributes
+	if err := root.WriteAttribute("Conventions", f.Conventions); err != nil {
+		return err
+	}
+	if err := root.WriteAttribute("Version", f.Version); err != nil {
+		return err
+	}
+	if err := root.WriteAttribute("SOFAConventions", f.SOFAConventions); err != nil {
+		return err
+	}
+	if err := root.WriteAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion); err != nil {
+		return err
+	}
+	if err := root.WriteAttribute("DataType", f.DataType); err != nil {
+		return err
+	}
+
+	// Optional attributes
+	if err := writeAttr("Title", f.Title); err != nil {
+		return err
+	}
+	if err := writeAttr("DateCreated", f.DateCreated); err != nil {
+		return err
+	}
+	if err := writeAttr("DateModified", f.DateModified); err != nil {
+		return err
+	}
+	if err := writeAttr("APIName", f.APIName); err != nil {
+		return err
+	}
+	if err := writeAttr("APIVersion", f.APIVersion); err != nil {
+		return err
+	}
+	if err := writeAttr("AuthorContact", f.AuthorContact); err != nil {
+		return err
+	}
+	if err := writeAttr("Organization", f.Organization); err != nil {
+		return err
+	}
+	if err := writeAttr("License", f.License); err != nil {
+		return err
+	}
+	if err := writeAttr("ApplicationName", f.ApplicationName); err != nil {
+		return err
+	}
+	if err := writeAttr("ApplicationVersion", f.ApplicationVersion); err != nil {
+		return err
+	}
+	if err := writeAttr("Comment", f.Comment); err != nil {
+		return err
+	}
+	if err := writeAttr("History", f.History); err != nil {
+		return err
+	}
+	if err := writeAttr("References", f.References); err != nil {
+		return err
+	}
+	if err := writeAttr("Origin", f.Origin); err != nil {
+		return err
+	}
+	if err := writeAttr("RoomType", f.RoomType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeAudioDatasets writes Data.IR, Data.SamplingRate, and Data.Delay.
+func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
+	// Write Data.IR as [M][R][N] float64
+	irFlat := flattenIR(f.ImpulseResponses)
+	irDS, err := fw.CreateDataset("/Data.IR", hdf5.Float64,
+		[]uint64{uint64(f.M), uint64(f.R), uint64(f.N)})
+	if err != nil {
+		return fmt.Errorf("create Data.IR dataset: %w", err)
+	}
+	if err := irDS.Write(irFlat); err != nil {
+		return fmt.Errorf("write Data.IR data: %w", err)
+	}
+
+	// Write Data.SamplingRate
+	srDS, err := fw.CreateDataset("/Data.SamplingRate", hdf5.Float64,
+		[]uint64{uint64(len(f.SamplingRate))})
+	if err != nil {
+		return fmt.Errorf("create Data.SamplingRate dataset: %w", err)
+	}
+	if err := srDS.Write(f.SamplingRate); err != nil {
+		return fmt.Errorf("write Data.SamplingRate data: %w", err)
+	}
+
+	// Write Data.Delay (if present)
+	if len(f.Delay) > 0 {
+		delayDS, err := fw.CreateDataset("/Data.Delay", hdf5.Float64,
+			[]uint64{uint64(len(f.Delay))})
+		if err != nil {
+			return fmt.Errorf("create Data.Delay dataset: %w", err)
+		}
+		if err := delayDS.Write(f.Delay); err != nil {
+			return fmt.Errorf("write Data.Delay data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// flattenIR converts [M][R][N]float64 to []float64 in row-major order.
+func flattenIR(ir [][][]float64) []float64 {
+	if len(ir) == 0 {
+		return nil
+	}
+	m := len(ir)
+	r := len(ir[0])
+	n := len(ir[0][0])
+
+	flat := make([]float64, m*r*n)
+	idx := 0
+	for i := 0; i < m; i++ {
+		for j := 0; j < r; j++ {
+			copy(flat[idx:idx+n], ir[i][j])
+			idx += n
+		}
+	}
+	return flat
+}
+
+// flattenVector3s converts []Vector3 to []float64 (X,Y,Z,X,Y,Z,...).
+func flattenVector3s(vecs []Vector3) []float64 {
+	flat := make([]float64, len(vecs)*3)
+	for i, v := range vecs {
+		flat[i*3] = v.X
+		flat[i*3+1] = v.Y
+		flat[i*3+2] = v.Z
+	}
+	return flat
+}
+
+// writeDimensionScale writes a netCDF dimension-scale dataset with proper attributes.
+func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
+	// Create dataset with single float64 value
+	ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{1})
+	if err != nil {
+		return fmt.Errorf("create dimension dataset: %w", err)
+	}
+
+	// Write the dimension size as a float64 value
+	if err := ds.Write([]float64{float64(size)}); err != nil {
+		return fmt.Errorf("write dimension value: %w", err)
+	}
+
+	// Write netCDF dimension-scale attributes
+	if err := ds.WriteAttribute("CLASS", "DIMENSION_SCALE"); err != nil {
+		return fmt.Errorf("write CLASS attribute: %w", err)
+	}
+
+	// NetCDF NAME format: "This is a netCDF dimension but not a netCDF variable.     <size>"
+	nameAttr := fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.     %d", size)
+	if err := ds.WriteAttribute("NAME", nameAttr); err != nil {
+		return fmt.Errorf("write NAME attribute: %w", err)
+	}
+
+	return nil
+}
+
+// writePositionDataset writes a position dataset as [N×3] float64 array.
+func writePositionDataset(fw *hdf5.FileWriter, name string, positions []Vector3) error {
+	if len(positions) == 0 {
+		// Skip if no positions provided
+		return nil
+	}
+
+	ds, err := fw.CreateDataset(name, hdf5.Float64,
+		[]uint64{uint64(len(positions)), 3})
+	if err != nil {
+		return fmt.Errorf("create dataset: %w", err)
+	}
+
+	data := flattenVector3s(positions)
+	if err := ds.Write(data); err != nil {
+		return fmt.Errorf("write data: %w", err)
+	}
+
+	return nil
+}
+
+// writeVector3Dataset writes a Vector3 dataset (for orientations like ListenerUp).
+func writeVector3Dataset(fw *hdf5.FileWriter, name string, vecs []Vector3) error {
+	if len(vecs) == 0 {
+		return nil
+	}
+
+	ds, err := fw.CreateDataset(name, hdf5.Float64,
+		[]uint64{uint64(len(vecs)), 3})
+	if err != nil {
+		return fmt.Errorf("create dataset: %w", err)
+	}
+
+	data := flattenVector3s(vecs)
+	if err := ds.Write(data); err != nil {
+		return fmt.Errorf("write data: %w", err)
+	}
+
+	return nil
+}
