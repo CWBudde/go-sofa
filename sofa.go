@@ -678,8 +678,8 @@ func flattenIR(ir [][][]float64) []float64 {
 
 	flat := make([]float64, m*r*n)
 	idx := 0
-	for i := 0; i < m; i++ {
-		for j := 0; j < r; j++ {
+	for i := range m {
+		for j := range r {
 			copy(flat[idx:idx+n], ir[i][j])
 			idx += n
 		}

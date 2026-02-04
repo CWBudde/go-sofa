@@ -272,12 +272,179 @@ All workflows use concurrency control to cancel previous runs, leverage Go modul
 
 ---
 
-## Phase 5 — Optional / Future
+## Phase 5 — SOFA Write Support 🟡 In Progress
 
-- [ ] **SOFA write**: create `.sofa` files from Go structs (using
-      go-hdf5's write support).
-- [ ] **SOFA 2.0**: spherical harmonics receiver representation
-      (AES69-2022).
+**Status**: 🟡 ~70% Complete - Blocked by go-hdf5 limitation
+
+**Goal**: Enable full round-trip capability: read a SOFA file, modify it, and save it back.
+
+### Design Decisions ✅
+
+- **API**: `func (f *File) Save(path string) error` on existing `File` struct
+- **Approach**: Create new file from scratch each time (simple, safe, no corruption risk)
+- **Validation**: Strict validation of all required SOFA fields before writing
+- **netCDF Compliance**: Full netCDF-4/HDF5 dimension-scale metadata for ecosystem compatibility
+
+### Implementation Progress
+
+#### ✅ Completed
+
+1. **Validation Method** ([sofa.go:470-548](sofa.go))
+   - `validate()` checks all required fields (Conventions, Version, SOFAConventions, DataType)
+   - Validates dimensions M, R, E, N > 0
+   - Validates IR array dimensions match M×R×N
+   - Validates SamplingRate and Delay array lengths
+   - Validates position array dimensions
+   - **Tests**: `TestSaveValidation` (11 test cases, all passing)
+
+2. **Helper Functions** ([sofa.go:670-767](sofa.go))
+   - `flattenIR()` - converts [M][R][N]float64 to []float64
+   - `flattenVector3s()` - converts []Vector3 to []float64
+   - `writeDimensionScale()` - writes netCDF dimension-scale datasets
+   - `writePositionDataset()` - writes position datasets (N×3 arrays)
+   - `writeVector3Dataset()` - writes Vector3 datasets
+
+3. **Core Save Method** ([sofa.go:407-466](sofa.go))
+   - `Save()` method with validation, attribute writing, dataset creation
+   - Writes dimension scales (M, R, E, N) with netCDF attributes
+   - Writes spatial positions (Listener, Receiver, Source, Emitter)
+   - Writes orientation vectors (ListenerUp, ListenerView)
+   - Writes audio data (Data.IR, Data.SamplingRate, Data.Delay)
+
+4. **Test Suite** ([sofa_write_test.go](sofa_write_test.go))
+   - ✅ `TestSaveValidation` - 11 validation scenarios (all passing)
+   - 🔴 `TestSaveMinimal` - minimal file creation (blocked)
+   - 🔴 `TestSaveRoundTrip` - full round-trip test (blocked)
+   - 🔴 `TestSaveModifyRoundTrip` - modify and save (blocked)
+
+5. **go-hdf5 Enhancement** ([/mnt/projekte/Code/go-hdf/group_write.go:186-199](../go-hdf/group_write.go))
+   - Added `RootGroup()` method to `FileWriter`
+   - Enables writing attributes to root "/" group
+
+#### 🚨 Critical Blocker: Root Group Attribute Limitation
+
+**Problem**: SOFA files require ~20 global attributes on the root "/" group. go-hdf5 creates the root group's object header with a fixed size during file initialization and cannot accommodate attributes added later.
+
+**Technical Details**:
+- Root group object header is created with only a Symbol Table message (~100 bytes)
+- Adding 20+ attributes would grow header to ~500 bytes
+- `writeAttribute()` writes modified header back to same address
+- This overwrites adjacent structures (local heap, symbol table) → file corruption
+- Files become unreadable: `h5dump error: internal error`
+
+**Root Cause**:
+```
+File Creation (CreateForWrite):
+├─ Superblock written at offset 0
+├─ Root group object header at offset 48 (fixed size, ~100 bytes)
+│  └─ Messages: [SymbolTable only]
+└─ Local heap, symbol table, B-tree structures follow
+
+Attempt to Write Attributes:
+├─ Read root group header from offset 48
+├─ Add attribute messages → header grows to ~500 bytes
+├─ Write back to offset 48
+└─ ❌ Overwrites local heap/symbol table → corruption
+```
+
+### Solution Options
+
+#### Option A: Fix go-hdf5 (Recommended) 🎯
+
+**Modify go-hdf5 to support root attributes during file creation**
+
+Changes required:
+1. Add `WithRootAttributes` option to `CreateForWrite()`
+2. Modify `createRootGroupStructureV2()` to accept attributes
+3. Calculate required header size based on attributes (compact vs dense storage)
+4. Write object header with correct size from the start
+
+Implementation phases:
+- **Phase 1**: go-hdf5 enhancement (4-6 hours)
+  - Design API with backward compatibility
+  - Implement compact storage (≤8 attributes)
+  - Implement dense storage (>8 attributes)
+  - Test with 0, 1, 5, 8, 20 attributes
+- **Phase 2**: go-sofa integration (1-2 hours)
+  - Update Save() to use new WithRootAttributes API
+  - Run full test suite
+- **Phase 3**: Verification (1 hour)
+  - Validate with h5dump, MATLAB SOFA toolbox, libmysofa
+  - Performance testing with large files
+
+**Files to modify in go-hdf5**:
+- `/mnt/projekte/Code/go-hdf/dataset_write.go` - CreateForWrite, createRootGroupStructure
+- `/mnt/projekte/Code/go-hdf/attribute_write.go` - helper functions
+
+#### Option B: Workaround - Metadata Group ⚡
+
+Create `/SOFA_Metadata` group instead of writing to root.
+
+**Pros**: Works immediately with current go-hdf5 API
+**Cons**: ❌ NOT SOFA-compliant, breaks specification, won't work with MATLAB/libmysofa
+
+**Verdict**: Only for testing/prototyping, not acceptable for production.
+
+#### Option C: Use Existing HDF5 Library ☢️
+
+Switch to h5py/C HDF5 via CGO.
+
+**Verdict**: ❌ Defeats purpose of pure-Go SOFA library.
+
+### Current Blockers
+
+| Blocker | Status | Owner | Next Step |
+|---------|--------|-------|-----------|
+| go-hdf5 root attribute support | 🔴 Blocking | go-hdf5 | Implement WithRootAttributes API |
+| Compact attribute implementation | ⏳ Pending | go-hdf5 | After API design |
+| Dense attribute implementation | ⏳ Pending | go-hdf5 | After compact implementation |
+
+### Files Modified
+
+**go-sofa**:
+- ✅ [sofa.go](sofa.go) - Added Save(), validate(), helper functions (373 lines)
+- ✅ [sofa_write_test.go](sofa_write_test.go) - Comprehensive test suite (476 lines)
+- ⏳ [README.md](README.md) - Needs write examples
+- ⏳ [PLAN.md](PLAN.md) - This section
+
+**go-hdf5**:
+- ✅ [/mnt/projekte/Code/go-hdf/group_write.go](../go-hdf/group_write.go) - Added RootGroup() method
+- ⏳ [/mnt/projekte/Code/go-hdf/dataset_write.go](../go-hdf/dataset_write.go) - Needs WithRootAttributes
+- ⏳ [/mnt/projekte/Code/go-hdf/attribute_write.go](../go-hdf/attribute_write.go) - May need helpers
+
+### Success Criteria
+
+1. ✅ **Validation**: All required fields validated before writing
+2. ⏳ **File Creation**: Create valid HDF5/SOFA files from scratch
+3. ⏳ **Round-Trip**: Open → Modify → Save → Reopen successfully
+4. ⏳ **Compliance**: Files readable by h5dump, libmysofa, MATLAB
+5. ⏳ **Test Coverage**: ≥80% coverage for write code
+6. ⏳ **Performance**: Handle 100MB+ files efficiently
+
+### Next Steps
+
+1. **Immediate**: Implement Option A (fix go-hdf5)
+   - Design WithRootAttributes API
+   - Implement compact storage first (≤8 attributes)
+   - Test with simple cases before moving to dense storage
+
+2. **After go-hdf5 fix**:
+   - Update go-sofa Save() to use new API
+   - Run full test suite (TestSaveMinimal, TestSaveRoundTrip, TestSaveModifyRoundTrip)
+   - Update README.md with write examples
+
+### References
+
+- [Detailed Implementation Plan](/home/christian/.claude/plans/sofa-write-implementation.md)
+- [SOFA Specifications](https://www.sofaconventions.org/mediawiki/index.php/SOFA_specifications)
+- [netCDF-4/HDF5 File Format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html)
+- [HDF5 Object Header Specification](https://docs.hdfgroup.org/hdf5/develop/_s_p_e_c.html#OHDRLayout)
+
+---
+
+## Phase 6 — Optional / Future
+
+- [ ] **SOFA 2.0**: spherical harmonics receiver representation (AES69-2022).
 - [ ] **Additional SOFA conventions**: BRIR, SRIR, directivity, etc.
 - [ ] **Performance**: hyperslab reads for partial IR loading.
 
