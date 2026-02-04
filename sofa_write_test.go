@@ -240,17 +240,18 @@ func TestSaveMinimal(t *testing.T) {
 
 	// Create minimal valid SOFA file
 	f := &File{
-		Conventions:     "SOFA",
-		Version:         "1.0",
-		SOFAConventions: "SimpleFreeFieldHRIR",
-		DataType:        "FIR",
-		M:               1,
-		R:               2,
-		E:               1,
-		N:               64,
-		Title:           "Minimal Test SOFA",
-		SamplingRate:    []float64{44100},
-		Delay:           []float64{0},
+		Conventions:            "SOFA",
+		Version:                "1.0",
+		SOFAConventions:        "SimpleFreeFieldHRIR",
+		SOFAConventionsVersion: "1.0",
+		DataType:               "FIR",
+		M:                      1,
+		R:                      2,
+		E:                      1,
+		N:                      64,
+		Title:                  "Minimal Test SOFA",
+		SamplingRate:           []float64{44100},
+		Delay:                  []float64{0},
 	}
 
 	// Create IR data [M=1][R=2][N=64]

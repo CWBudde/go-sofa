@@ -209,19 +209,33 @@ func (f *File) readDimensions(datasets map[string]*hdf5.Dataset) error {
 		if !ok {
 			return fmt.Errorf("dimension dataset %q not found", name)
 		}
+
+		// Try to read from NAME attribute (netCDF-4 convention)
 		val, err := ds.ReadAttribute("NAME")
-		if err != nil {
-			return fmt.Errorf("dimension %q: read NAME: %w", name, err)
+		if err == nil {
+			// NAME attribute exists - parse it
+			s, ok := val.(string)
+			if !ok {
+				return fmt.Errorf("dimension %q: NAME is %T, want string", name, val)
+			}
+			n, err := parseDimensionSize(s)
+			if err != nil {
+				return fmt.Errorf("dimension %q: %w", name, err)
+			}
+			*dst = n
+		} else {
+			// NAME attribute not found - fall back to reading dataset value directly
+			// This handles files written by go-sofa where dataset attributes
+			// are not yet supported due to go-hdf5 limitations
+			data, err := ds.Read()
+			if err != nil {
+				return fmt.Errorf("dimension %q: read dataset: %w", name, err)
+			}
+			if len(data) != 1 {
+				return fmt.Errorf("dimension %q: expected 1 value, got %d", name, len(data))
+			}
+			*dst = int(data[0])
 		}
-		s, ok := val.(string)
-		if !ok {
-			return fmt.Errorf("dimension %q: NAME is %T, want string", name, val)
-		}
-		n, err := parseDimensionSize(s)
-		if err != nil {
-			return fmt.Errorf("dimension %q: %w", name, err)
-		}
-		*dst = n
 	}
 	return nil
 }
@@ -410,17 +424,71 @@ func (f *File) Save(path string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Create HDF5 file for writing
-	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
+	// Prepare root attributes - collect all global metadata
+	var rootAttrs []interface{}
+
+	// Add required attributes
+	rootAttrs = append(rootAttrs,
+		hdf5.WithRootAttribute("Conventions", f.Conventions),
+		hdf5.WithRootAttribute("Version", f.Version),
+		hdf5.WithRootAttribute("SOFAConventions", f.SOFAConventions),
+		hdf5.WithRootAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion),
+		hdf5.WithRootAttribute("DataType", f.DataType),
+	)
+
+	// Add optional attributes only if non-empty
+	if f.Title != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Title", f.Title))
+	}
+	if f.DateCreated != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("DateCreated", f.DateCreated))
+	}
+	if f.DateModified != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("DateModified", f.DateModified))
+	}
+	if f.APIName != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("APIName", f.APIName))
+	}
+	if f.APIVersion != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("APIVersion", f.APIVersion))
+	}
+	if f.AuthorContact != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("AuthorContact", f.AuthorContact))
+	}
+	if f.Organization != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Organization", f.Organization))
+	}
+	if f.License != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("License", f.License))
+	}
+	if f.ApplicationName != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("ApplicationName", f.ApplicationName))
+	}
+	if f.ApplicationVersion != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("ApplicationVersion", f.ApplicationVersion))
+	}
+	if f.Comment != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Comment", f.Comment))
+	}
+	if f.History != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("History", f.History))
+	}
+	if f.References != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("References", f.References))
+	}
+	if f.Origin != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Origin", f.Origin))
+	}
+	if f.RoomType != "" {
+		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("RoomType", f.RoomType))
+	}
+
+	// Create HDF5 file with root attributes
+	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, rootAttrs...)
 	if err != nil {
 		return fmt.Errorf("create HDF5 file: %w", err)
 	}
 	defer fw.Close()
-
-	// Write global attributes to root group
-	if err := f.writeGlobalAttrs(fw); err != nil {
-		return fmt.Errorf("write global attributes: %w", err)
-	}
 
 	// Write dimension-scale datasets (M, R, E, N) with netCDF attributes
 	dimScales := map[string]int{
@@ -520,114 +588,36 @@ func (f *File) validate() error {
 			len(f.SamplingRate), f.M)
 	}
 
-	// Check Delay dimension
-	if len(f.Delay) != f.M && len(f.Delay) != 0 {
-		return fmt.Errorf("Delay length %d must be M=%d or 0 (optional)",
-			len(f.Delay), f.M)
+	// Check Delay dimension (can be [M], [R], [M×R], or scalar/empty)
+	// SOFA spec allows various Delay dimensions depending on convention
+	delayLen := len(f.Delay)
+	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
+		return fmt.Errorf("Delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
+			delayLen, f.M, f.R, f.M*f.R)
 	}
 
 	// Check position array dimensions
-	if len(f.ListenerPositions) != f.M && len(f.ListenerPositions) != 0 {
-		return fmt.Errorf("ListenerPositions length %d must be M=%d or 0",
+	// SOFA spec allows positions to be [M×C] or [1×C] (scalar), same for other dimensions
+	if len(f.ListenerPositions) != f.M && len(f.ListenerPositions) != 1 && len(f.ListenerPositions) != 0 {
+		return fmt.Errorf("ListenerPositions length %d must be M=%d, 1 (scalar), or 0",
 			len(f.ListenerPositions), f.M)
 	}
-	if len(f.ReceiverPositions) != f.R && len(f.ReceiverPositions) != 0 {
-		return fmt.Errorf("ReceiverPositions length %d must be R=%d or 0",
+	if len(f.ReceiverPositions) != f.R && len(f.ReceiverPositions) != 1 && len(f.ReceiverPositions) != 0 {
+		return fmt.Errorf("ReceiverPositions length %d must be R=%d, 1 (scalar), or 0",
 			len(f.ReceiverPositions), f.R)
 	}
-	if len(f.SourcePositions) != f.M && len(f.SourcePositions) != 0 {
-		return fmt.Errorf("SourcePositions length %d must be M=%d or 0",
+	if len(f.SourcePositions) != f.M && len(f.SourcePositions) != 1 && len(f.SourcePositions) != 0 {
+		return fmt.Errorf("SourcePositions length %d must be M=%d, 1 (scalar), or 0",
 			len(f.SourcePositions), f.M)
 	}
-	if len(f.EmitterPositions) != f.E && len(f.EmitterPositions) != 0 {
-		return fmt.Errorf("EmitterPositions length %d must be E=%d or 0",
+	if len(f.EmitterPositions) != f.E && len(f.EmitterPositions) != 1 && len(f.EmitterPositions) != 0 {
+		return fmt.Errorf("EmitterPositions length %d must be E=%d, 1 (scalar), or 0",
 			len(f.EmitterPositions), f.E)
 	}
 
 	return nil
 }
 
-// writeGlobalAttrs writes all AES69 global attributes to the root group.
-func (f *File) writeGlobalAttrs(fw *hdf5.FileWriter) error {
-	root, err := fw.RootGroup()
-	if err != nil {
-		return fmt.Errorf("get root group: %w", err)
-	}
-
-	// Helper to write attribute only if non-empty
-	writeAttr := func(name, value string) error {
-		if value != "" {
-			return root.WriteAttribute(name, value)
-		}
-		return nil
-	}
-
-	// Required attributes
-	if err := root.WriteAttribute("Conventions", f.Conventions); err != nil {
-		return err
-	}
-	if err := root.WriteAttribute("Version", f.Version); err != nil {
-		return err
-	}
-	if err := root.WriteAttribute("SOFAConventions", f.SOFAConventions); err != nil {
-		return err
-	}
-	if err := root.WriteAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion); err != nil {
-		return err
-	}
-	if err := root.WriteAttribute("DataType", f.DataType); err != nil {
-		return err
-	}
-
-	// Optional attributes
-	if err := writeAttr("Title", f.Title); err != nil {
-		return err
-	}
-	if err := writeAttr("DateCreated", f.DateCreated); err != nil {
-		return err
-	}
-	if err := writeAttr("DateModified", f.DateModified); err != nil {
-		return err
-	}
-	if err := writeAttr("APIName", f.APIName); err != nil {
-		return err
-	}
-	if err := writeAttr("APIVersion", f.APIVersion); err != nil {
-		return err
-	}
-	if err := writeAttr("AuthorContact", f.AuthorContact); err != nil {
-		return err
-	}
-	if err := writeAttr("Organization", f.Organization); err != nil {
-		return err
-	}
-	if err := writeAttr("License", f.License); err != nil {
-		return err
-	}
-	if err := writeAttr("ApplicationName", f.ApplicationName); err != nil {
-		return err
-	}
-	if err := writeAttr("ApplicationVersion", f.ApplicationVersion); err != nil {
-		return err
-	}
-	if err := writeAttr("Comment", f.Comment); err != nil {
-		return err
-	}
-	if err := writeAttr("History", f.History); err != nil {
-		return err
-	}
-	if err := writeAttr("References", f.References); err != nil {
-		return err
-	}
-	if err := writeAttr("Origin", f.Origin); err != nil {
-		return err
-	}
-	if err := writeAttr("RoomType", f.RoomType); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 // writeAudioDatasets writes Data.IR, Data.SamplingRate, and Data.Delay.
 func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
@@ -698,7 +688,10 @@ func flattenVector3s(vecs []Vector3) []float64 {
 	return flat
 }
 
-// writeDimensionScale writes a netCDF dimension-scale dataset with proper attributes.
+// writeDimensionScale writes a netCDF dimension-scale dataset.
+// TODO: Add dimension-scale attributes (CLASS, NAME) once go-hdf5 supports
+// dataset attributes during creation (WithAttribute option for CreateDataset).
+// Writing attributes after dataset creation causes file corruption.
 func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
 	// Create dataset with single float64 value
 	ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{1})
@@ -711,16 +704,13 @@ func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
 		return fmt.Errorf("write dimension value: %w", err)
 	}
 
-	// Write netCDF dimension-scale attributes
-	if err := ds.WriteAttribute("CLASS", "DIMENSION_SCALE"); err != nil {
-		return fmt.Errorf("write CLASS attribute: %w", err)
-	}
-
-	// NetCDF NAME format: "This is a netCDF dimension but not a netCDF variable.     <size>"
-	nameAttr := fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.     %d", size)
-	if err := ds.WriteAttribute("NAME", nameAttr); err != nil {
-		return fmt.Errorf("write NAME attribute: %w", err)
-	}
+	// NOTE: Dataset attributes skipped until go-hdf5 supports WithAttribute for datasets.
+	// Without these attributes, the files are not fully netCDF-4 compliant but are
+	// still valid HDF5 and readable by our library.
+	//
+	// Required attributes for full compliance:
+	// - CLASS: "DIMENSION_SCALE"
+	// - NAME: "This is a netCDF dimension but not a netCDF variable.     <size>"
 
 	return nil
 }
