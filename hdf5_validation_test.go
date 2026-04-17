@@ -4,7 +4,7 @@ package sofa
 import (
 	"testing"
 
-	hdf5 "github.com/meko-christian/go-hdf5"
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 const testFile = "testdata/MIT_KEMAR_normal_pinna.sofa"

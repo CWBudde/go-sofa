@@ -83,3 +83,7 @@ deps:
 # Verify dependencies
 verify:
     go mod verify
+
+fix:
+    just lint-fix
+    just fmt

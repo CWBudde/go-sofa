@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	hdf5 "github.com/meko-christian/go-hdf5"
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 // Vector3 represents a 3D coordinate (X, Y, Z) in meters.

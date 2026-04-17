@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/MeKo-Christian/go-sofa"
+	"github.com/cwbudde/go-sofa"
 )
 
 func main() {
