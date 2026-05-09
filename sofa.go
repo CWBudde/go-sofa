@@ -851,13 +851,17 @@ func (f *File) writeTFAudioDatasets(fw *hdf5.FileWriter) error {
 
 // writeFrequencyDimension writes /N as a vector of frequency values (Hz).
 // The dimension size N is implied by the dataset length, which differs from
-// FIR /N (a scalar holding the count). AES69 conformance attributes
-// (LongName, Units) are skipped pending go-hdf5 attribute-on-create support.
+// FIR /N (a scalar holding the count). The dataset is marked as a netCDF
+// coordinate variable: CLASS=DIMENSION_SCALE and NAME equal to the
+// dimension label, matching what upstream tools emit for /N in TF files.
 func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64) error {
 	if len(freqs) == 0 {
 		return fmt.Errorf("frequencies must be non-empty for TF data")
 	}
-	ds, err := fw.CreateDataset("/N", hdf5.Float64, []uint64{uint64(len(freqs))})
+	ds, err := fw.CreateDataset("/N", hdf5.Float64,
+		[]uint64{uint64(len(freqs))}, //nolint:gosec // length non-negative
+		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
+		hdf5.WithAttribute("NAME", "N"))
 	if err != nil {
 		return fmt.Errorf("create /N dataset: %w", err)
 	}
@@ -898,30 +902,30 @@ func flattenVector3s(vecs []Vector3) []float64 {
 	return flat
 }
 
-// writeDimensionScale writes a netCDF dimension-scale dataset.
-// TODO: Add dimension-scale attributes (CLASS, NAME) once go-hdf5 supports
-// dataset attributes during creation (WithAttribute option for CreateDataset).
-// Writing attributes after dataset creation causes file corruption.
+// netcdfDimensionNAME formats the netCDF-4 NAME attribute used on
+// dimension-scale datasets that are *not* coordinate variables. The
+// trailing decimal is the dimension size; this is the form emitted by
+// the reference netCDF-4 / MATLAB SOFA Toolbox writers and is what
+// our reader expects when parsing pre-existing files.
+func netcdfDimensionNAME(size int) string {
+	return fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.         %d", size)
+}
+
+// writeDimensionScale writes a netCDF dimension-scale dataset with the
+// standard CLASS=DIMENSION_SCALE and a NAME carrying the dimension
+// size, so files are netCDF-4 compliant and consumable by tools such
+// as the MATLAB SOFA Toolbox.
 func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
-	// Create dataset with single float64 value
-	ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{1})
+	ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{1},
+		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
+		hdf5.WithAttribute("NAME", netcdfDimensionNAME(size)))
 	if err != nil {
 		return fmt.Errorf("create dimension dataset: %w", err)
 	}
 
-	// Write the dimension size as a float64 value
 	if err := ds.Write([]float64{float64(size)}); err != nil {
 		return fmt.Errorf("write dimension value: %w", err)
 	}
-
-	// NOTE: Dataset attributes skipped until go-hdf5 supports WithAttribute for datasets.
-	// Without these attributes, the files are not fully netCDF-4 compliant but are
-	// still valid HDF5 and readable by our library.
-	//
-	// Required attributes for full compliance:
-	// - CLASS: "DIMENSION_SCALE"
-	// - NAME: "This is a netCDF dimension but not a netCDF variable.     <size>"
-
 	return nil
 }
 

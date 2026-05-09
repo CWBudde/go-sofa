@@ -29,15 +29,23 @@ file tracks only what's still open.
 
 ### A. Cross-repo work in go-hdf5
 
-1. **Dataset attributes on create.** Writing attributes to a dataset
-   after `CreateDataset()` corrupts the file, so go-sofa currently
-   skips dimension-scale attributes (`CLASS=DIMENSION_SCALE`,
-   `NAME=…`). Files are valid HDF5/SOFA for go-sofa but not fully
-   netCDF-4 compliant; tools like the MATLAB SOFA Toolbox may flag
-   the missing metadata.
-   *Needed in go-hdf5:* a `WithAttribute(name, value)` option for
-   `CreateDataset()`, mirroring the existing `WithRootAttribute()`
-   for files.
+*All previously open items are now landed and tagged. Section kept for
+the record; new cross-repo work would be added here.*
+
+Optional follow-ups, none blocking:
+
+- **Dense storage for dataset attributes.** `WithAttribute` (shipped
+  in go-hdf5 v0.15.0) currently caps at 8 attributes per dataset
+  using compact storage. SOFA dimension scales never need more than
+  3, so this is fine in practice; if a future use case demands it,
+  extend the dense-storage path that already exists for root
+  attributes.
+- **`DIMENSION_LIST` attribute on data datasets.** For full netCDF-4
+  parity, `Data.IR` / `Data.Real` etc. should carry a
+  `DIMENSION_LIST` attribute that is a variable-length array of
+  references to the dimension-scale datasets. Requires VLA + object
+  reference support in go-hdf5 attribute encoding. Not needed for
+  the readers we care about today.
 
 ### B. Additional `DataType` values surfaced by real files
 
