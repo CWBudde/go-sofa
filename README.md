@@ -112,6 +112,34 @@ fmt.Printf("License: %s\n", f.License)
 fmt.Printf("Date Created: %s\n", f.DateCreated)
 ```
 
+### Transfer-function (TF) files
+
+go-sofa reads and writes both FIR (impulse response, time domain) and
+TF (transfer function, frequency domain) SOFA files. TF files store a
+frequency vector and complex transfer functions instead of impulse
+responses:
+
+```go
+f, err := sofa.Open("hrtf.sofa")
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+if f.DataType == "TF" {
+    fmt.Printf("Frequencies: %d points (%.1f Hz – %.1f Hz)\n",
+        len(f.Frequencies),
+        f.Frequencies[0],
+        f.Frequencies[len(f.Frequencies)-1])
+
+    // Complex TF for measurement 0, receiver 0
+    re := f.TFReal[0][0] // []float64, length N
+    im := f.TFImag[0][0] // []float64, length N
+    _ = re
+    _ = im
+}
+```
+
 ## Command-line Tools
 
 ### sofainfo
@@ -157,17 +185,24 @@ Exports SOFA files to JSON format. Enhanced version of PasSofa's SOFA2JSON utili
 # Export metadata only (default)
 sofa2json myfile.sofa
 
-# Include impulse response data
+# Include impulse response data (FIR files)
 sofa2json --include-ir myfile.sofa
+
+# Include complex transfer-function data (TF files)
+sofa2json --include-tf myfile.sofa
 
 # Batch process all .sofa files
 sofa2json
 sofa2json --include-ir
+sofa2json --include-tf
 ```
 
 **Output:** Creates `<filename>.json` in the same directory.
 
-**Note:** Metadata-only export produces ~700 bytes. With `--include-ir`, output can be several megabytes depending on IR size.
+**Note:** Metadata-only export produces ~700 bytes. With `--include-ir`
+or `--include-tf`, output can be several megabytes depending on data
+size. For TF files the `Frequencies` vector is always included (it is
+small); `TFReal`/`TFImag` are emitted only with `--include-tf`.
 
 ## API Reference
 

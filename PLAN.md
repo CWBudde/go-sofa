@@ -415,6 +415,53 @@ All workflows use concurrency control to cancel previous runs, leverage Go modul
 
 ---
 
+## Phase 5b — TF (Transfer Function) DataType ✅ COMPLETE
+
+**Goal:** Support SOFA files where `DataType == "TF"` (complex
+frequency-domain data) alongside the existing FIR path. TF
+representations are used by conventions such as `GeneralTF`,
+`FreeFieldDirectivityTF`, and `SimpleFreeFieldHRTF`.
+
+### What's implemented
+
+- **Data structure** ([sofa.go](sofa.go)) — `File` carries the FIR
+  triple (`ImpulseResponses`, `SamplingRate`, `Delay`) and the TF
+  triple (`Frequencies` `[N]`, `TFReal`/`TFImag` `[M][R][N]`); the
+  active set is determined by `DataType`.
+- **Read** — `readAudioData` dispatches FIR vs. TF;
+  `readTFAudioData` reads `/N` as a frequency vector and
+  `/Data.Real`/`/Data.Imag` as `[M][R][N]`. `readDimensions` accepts
+  both scalar `/N` (FIR) and vector `/N` (TF).
+- **Write** — `writeAudioDatasets` dispatches by `DataType`;
+  `writeTFAudioDatasets` emits `Data.Real`/`Data.Imag` and
+  `writeFrequencyDimension` writes `/N` as a vector.
+- **Validation** — `validate()` switches on `DataType`; `validateTF`
+  checks `len(Frequencies) == N` and `[M][R][N]` shape for both real
+  and imaginary parts.
+- **Tests** ([sofa_tf_roundtrip_test.go](sofa_tf_roundtrip_test.go)) —
+  `TestTFRoundTrip` (synthetic 4×1×1×5 file, all values within
+  1e-12) and `TestValidateTFRejectsMissingFields` (4 cases).
+- **CLI** — `sofainfo` prints the frequency count and range when
+  `DataType == "TF"`. `sofa2json` exposes `--include-tf` (parallel
+  to `--include-ir`); the `Frequencies` vector is always included
+  for TF files (small), while `TFReal`/`TFImag` are gated by the
+  flag.
+
+### Known limitations
+
+- **Real-world TF testdata** — `testdata/GeneralTF_2.0.sofa`,
+  `testdata/GeneralTF-E_1.0.sofa`, `testdata/FreeFieldHRTF_2.0.sofa`,
+  etc. exist but currently fail to open with
+  `data layout message not found`. This is a go-hdf5 issue unrelated
+  to TF support; tracked separately.
+- **Edge case** — if a TF file legitimately has `N == 1`, `/N`
+  appears scalar on disk and `readDimensions` cannot disambiguate
+  from FIR. Acceptable; deferred.
+- **Dataset attributes** — same `CLASS`/`NAME` limitation as Phase 5
+  applies to TF datasets.
+
+---
+
 ## Phase 6 — Optional / Future
 
 - [ ] **SOFA 2.0**: spherical harmonics receiver representation (AES69-2022).

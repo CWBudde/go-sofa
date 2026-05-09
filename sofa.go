@@ -42,10 +42,17 @@ type File struct {
 	SourcePositions   []Vector3 // [M] source positions for each measurement
 	EmitterPositions  []Vector3 // [E] emitter positions
 
-	// Audio data
+	// Audio data — FIR (used when DataType == "FIR")
 	ImpulseResponses [][][]float64 // [M][R][N] the actual IR data
 	SamplingRate     []float64     // [M] sampling rate in Hz (may be scalar)
 	Delay            []float64     // [M] delay in samples
+
+	// Audio data — TF (used when DataType == "TF")
+	// Frequencies has length N. TFReal and TFImag have shape [M][R][N] and
+	// together encode the complex transfer function per measurement/receiver.
+	Frequencies []float64     // [N] frequency vector, Hz
+	TFReal      [][][]float64 // [M][R][N] real part of complex TF
+	TFImag      [][][]float64 // [M][R][N] imaginary part of complex TF
 
 	// AES69 Metadata (global attributes)
 	Conventions            string // "SOFA" for SOFA files
@@ -224,17 +231,25 @@ func (f *File) readDimensions(datasets map[string]*hdf5.Dataset) error {
 			}
 			*dst = n
 		} else {
-			// NAME attribute not found - fall back to reading dataset value directly
+			// NAME attribute not found - fall back to reading dataset value directly.
 			// This handles files written by go-sofa where dataset attributes
-			// are not yet supported due to go-hdf5 limitations
+			// are not yet supported due to go-hdf5 limitations. The /N dataset
+			// is a special case: for TF data it is a frequency vector of length N
+			// (so the dimension size is the dataset length, not its scalar value).
 			data, err := ds.Read()
 			if err != nil {
 				return fmt.Errorf("dimension %q: read dataset: %w", name, err)
 			}
-			if len(data) != 1 {
+			switch {
+			case len(data) == 0:
+				return fmt.Errorf("dimension %q: empty dataset", name)
+			case name == "N" && len(data) > 1:
+				*dst = len(data)
+			case len(data) == 1:
+				*dst = int(data[0])
+			default:
 				return fmt.Errorf("dimension %q: expected 1 value, got %d", name, len(data))
 			}
-			*dst = int(data[0])
 		}
 	}
 	return nil
@@ -252,8 +267,17 @@ func parseDimensionSize(s string) (int, error) {
 	return strconv.Atoi(parts[len(parts)-1])
 }
 
-// readAudioData reads Data.IR, Data.SamplingRate, and Data.Delay.
+// readAudioData dispatches based on DataType. For TF, reads /Data.Real,
+// /Data.Imag, and the frequency vector from /N. For FIR (default), reads
+// /Data.IR, /Data.SamplingRate, and /Data.Delay.
 func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
+	if f.DataType == "TF" {
+		return f.readTFAudioData(datasets)
+	}
+	return f.readFIRAudioData(datasets)
+}
+
+func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset) error {
 	// Data.IR — [M][R][N] float64
 	irDS, ok := datasets["Data.IR"]
 	if !ok {
@@ -270,7 +294,6 @@ func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
 	}
 	f.ImpulseResponses = reshapeIR(irFlat, f.M, f.R, f.N)
 
-	// Data.SamplingRate
 	if ds, ok := datasets["Data.SamplingRate"]; ok {
 		f.SamplingRate, err = ds.Read()
 		if err != nil {
@@ -278,13 +301,64 @@ func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
 		}
 	}
 
-	// Data.Delay
 	if ds, ok := datasets["Data.Delay"]; ok {
 		f.Delay, err = ds.Read()
 		if err != nil {
 			return fmt.Errorf("read Data.Delay: %w", err)
 		}
 	}
+
+	return nil
+}
+
+func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
+	// /N holds the frequency vector for TF data.
+	if ds, ok := datasets["N"]; ok {
+		freqs, err := ds.Read()
+		if err != nil {
+			return fmt.Errorf("read /N (frequencies): %w", err)
+		}
+		// readDimensions accepts both scalar /N (FIR-shaped) and vector /N
+		// (TF-shaped). For TF we expect len(freqs) == N. If we got a scalar
+		// (len==1) that means N is unset on disk in TF form; reject.
+		if len(freqs) == f.N {
+			f.Frequencies = freqs
+		} else if len(freqs) == 1 {
+			return fmt.Errorf("/N is scalar but DataType=TF expects frequency vector of length %d", f.N)
+		} else {
+			return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
+		}
+	}
+
+	expected := f.M * f.R * f.N
+
+	realDS, ok := datasets["Data.Real"]
+	if !ok {
+		return fmt.Errorf("Data.Real dataset not found")
+	}
+	realFlat, err := realDS.Read()
+	if err != nil {
+		return fmt.Errorf("read Data.Real: %w", err)
+	}
+	if len(realFlat) != expected {
+		return fmt.Errorf("Data.Real size %d, want %d (M=%d R=%d N=%d)",
+			len(realFlat), expected, f.M, f.R, f.N)
+	}
+	f.TFReal = reshapeIR(realFlat, f.M, f.R, f.N)
+
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	imagFlat, err := imagDS.Read()
+	if err != nil {
+		return fmt.Errorf("read Data.Imag: %w", err)
+	}
+	if len(imagFlat) != expected {
+		return fmt.Errorf("Data.Imag size %d, want %d (M=%d R=%d N=%d)",
+			len(imagFlat), expected, f.M, f.R, f.N)
+	}
+	f.TFImag = reshapeIR(imagFlat, f.M, f.R, f.N)
 
 	return nil
 }
@@ -490,16 +564,25 @@ func (f *File) Save(path string) error {
 	}
 	defer fw.Close()
 
-	// Write dimension-scale datasets (M, R, E, N) with netCDF attributes
+	// Write dimension-scale datasets (M, R, E) with netCDF attributes.
+	// /N is written separately: scalar size for FIR, frequency vector for TF.
 	dimScales := map[string]int{
 		"/M": f.M,
 		"/R": f.R,
 		"/E": f.E,
-		"/N": f.N,
 	}
 	for name, size := range dimScales {
 		if err := writeDimensionScale(fw, name, size); err != nil {
 			return fmt.Errorf("write dimension %s: %w", name, err)
+		}
+	}
+	if f.DataType == "TF" {
+		if err := writeFrequencyDimension(fw, f.Frequencies); err != nil {
+			return fmt.Errorf("write /N (frequencies): %w", err)
+		}
+	} else {
+		if err := writeDimensionScale(fw, "/N", f.N); err != nil {
+			return fmt.Errorf("write dimension /N: %w", err)
 		}
 	}
 
@@ -564,36 +647,17 @@ func (f *File) validate() error {
 		return fmt.Errorf("N must be > 0, got %d", f.N)
 	}
 
-	// Check ImpulseResponses dimensions
-	if len(f.ImpulseResponses) != f.M {
-		return fmt.Errorf("ImpulseResponses length %d does not match M=%d",
-			len(f.ImpulseResponses), f.M)
-	}
-	for i, mr := range f.ImpulseResponses {
-		if len(mr) != f.R {
-			return fmt.Errorf("ImpulseResponses[%d] length %d does not match R=%d",
-				i, len(mr), f.R)
+	switch f.DataType {
+	case "FIR":
+		if err := f.validateFIR(); err != nil {
+			return err
 		}
-		for j, n := range mr {
-			if len(n) != f.N {
-				return fmt.Errorf("ImpulseResponses[%d][%d] length %d does not match N=%d",
-					i, j, len(n), f.N)
-			}
+	case "TF":
+		if err := f.validateTF(); err != nil {
+			return err
 		}
-	}
-
-	// Check SamplingRate dimension (must be M or 1 for scalar)
-	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
-		return fmt.Errorf("SamplingRate length %d must be M=%d or 1",
-			len(f.SamplingRate), f.M)
-	}
-
-	// Check Delay dimension (can be [M], [R], [M×R], or scalar/empty)
-	// SOFA spec allows various Delay dimensions depending on convention
-	delayLen := len(f.Delay)
-	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
-		return fmt.Errorf("Delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
-			delayLen, f.M, f.R, f.M*f.R)
+	default:
+		return fmt.Errorf("unsupported DataType %q (want \"FIR\" or \"TF\")", f.DataType)
 	}
 
 	// Check position array dimensions
@@ -618,9 +682,87 @@ func (f *File) validate() error {
 	return nil
 }
 
+// validateFIR checks FIR-specific fields: ImpulseResponses [M][R][N],
+// SamplingRate (M or 1), Delay (0/1/M/R/M*R).
+func (f *File) validateFIR() error {
+	if len(f.ImpulseResponses) != f.M {
+		return fmt.Errorf("ImpulseResponses length %d does not match M=%d",
+			len(f.ImpulseResponses), f.M)
+	}
+	for i, mr := range f.ImpulseResponses {
+		if len(mr) != f.R {
+			return fmt.Errorf("ImpulseResponses[%d] length %d does not match R=%d",
+				i, len(mr), f.R)
+		}
+		for j, n := range mr {
+			if len(n) != f.N {
+				return fmt.Errorf("ImpulseResponses[%d][%d] length %d does not match N=%d",
+					i, j, len(n), f.N)
+			}
+		}
+	}
 
-// writeAudioDatasets writes Data.IR, Data.SamplingRate, and Data.Delay.
+	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
+		return fmt.Errorf("SamplingRate length %d must be M=%d or 1",
+			len(f.SamplingRate), f.M)
+	}
+
+	delayLen := len(f.Delay)
+	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
+		return fmt.Errorf("Delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
+			delayLen, f.M, f.R, f.M*f.R)
+	}
+	return nil
+}
+
+// validateTF checks TF-specific fields: Frequencies length N, TFReal/TFImag
+// shape [M][R][N].
+func (f *File) validateTF() error {
+	if len(f.Frequencies) != f.N {
+		return fmt.Errorf("Frequencies length %d does not match N=%d",
+			len(f.Frequencies), f.N)
+	}
+	if err := check3D("TFReal", f.TFReal, f.M, f.R, f.N); err != nil {
+		return err
+	}
+	if err := check3D("TFImag", f.TFImag, f.M, f.R, f.N); err != nil {
+		return err
+	}
+	return nil
+}
+
+func check3D(name string, data [][][]float64, m, r, n int) error {
+	if len(data) != m {
+		return fmt.Errorf("%s length %d does not match M=%d", name, len(data), m)
+	}
+	for i, mr := range data {
+		if len(mr) != r {
+			return fmt.Errorf("%s[%d] length %d does not match R=%d", name, i, len(mr), r)
+		}
+		for j, nn := range mr {
+			if len(nn) != n {
+				return fmt.Errorf("%s[%d][%d] length %d does not match N=%d",
+					name, i, j, len(nn), n)
+			}
+		}
+	}
+	return nil
+}
+
+// writeAudioDatasets dispatches to the FIR or TF writer based on DataType.
 func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
+	switch f.DataType {
+	case "FIR":
+		return f.writeFIRAudioDatasets(fw)
+	case "TF":
+		return f.writeTFAudioDatasets(fw)
+	default:
+		return fmt.Errorf("unsupported DataType %q", f.DataType)
+	}
+}
+
+// writeFIRAudioDatasets writes Data.IR, Data.SamplingRate, and Data.Delay.
+func (f *File) writeFIRAudioDatasets(fw *hdf5.FileWriter) error {
 	// Write Data.IR as [M][R][N] float64
 	irFlat := flattenIR(f.ImpulseResponses)
 	irDS, err := fw.CreateDataset("/Data.IR", hdf5.Float64,
@@ -654,6 +796,50 @@ func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
 		}
 	}
 
+	return nil
+}
+
+// writeTFAudioDatasets writes Data.Real and Data.Imag for TF data.
+// The frequency vector is written separately as /N (see writeFrequencyDimension).
+func (f *File) writeTFAudioDatasets(fw *hdf5.FileWriter) error {
+	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.N)}
+
+	realFlat := flattenIR(f.TFReal)
+	realDS, err := fw.CreateDataset("/Data.Real", hdf5.Float64, dims)
+	if err != nil {
+		return fmt.Errorf("create Data.Real dataset: %w", err)
+	}
+	if err := realDS.Write(realFlat); err != nil {
+		return fmt.Errorf("write Data.Real data: %w", err)
+	}
+
+	imagFlat := flattenIR(f.TFImag)
+	imagDS, err := fw.CreateDataset("/Data.Imag", hdf5.Float64, dims)
+	if err != nil {
+		return fmt.Errorf("create Data.Imag dataset: %w", err)
+	}
+	if err := imagDS.Write(imagFlat); err != nil {
+		return fmt.Errorf("write Data.Imag data: %w", err)
+	}
+
+	return nil
+}
+
+// writeFrequencyDimension writes /N as a vector of frequency values (Hz).
+// The dimension size N is implied by the dataset length, which differs from
+// FIR /N (a scalar holding the count). AES69 conformance attributes
+// (LongName, Units) are skipped pending go-hdf5 attribute-on-create support.
+func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64) error {
+	if len(freqs) == 0 {
+		return fmt.Errorf("Frequencies must be non-empty for TF data")
+	}
+	ds, err := fw.CreateDataset("/N", hdf5.Float64, []uint64{uint64(len(freqs))})
+	if err != nil {
+		return fmt.Errorf("create /N dataset: %w", err)
+	}
+	if err := ds.Write(freqs); err != nil {
+		return fmt.Errorf("write /N values: %w", err)
+	}
 	return nil
 }
 
