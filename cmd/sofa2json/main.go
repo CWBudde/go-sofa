@@ -80,9 +80,9 @@ func processSofaFile(filename string, includeIR, includeTF bool) error {
 		return fmt.Errorf("marshal JSON: %w", err)
 	}
 
-	// Write to output file
+	// Write to output file (filename is provided by the user on the CLI).
 	outFile := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".json"
-	if err := os.WriteFile(outFile, data, 0o644); err != nil {
+	if err := os.WriteFile(outFile, data, 0o600); err != nil { //nolint:gosec // user-supplied output path
 		return fmt.Errorf("write output: %w", err)
 	}
 

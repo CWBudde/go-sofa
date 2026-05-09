@@ -111,7 +111,7 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 		{
 			name:  "missing Frequencies",
 			mut:   func(f *File) { f.Frequencies = nil },
-			match: "Frequencies",
+			match: "frequencies",
 		},
 		{
 			name:  "wrong-shape TFReal",
@@ -145,6 +145,59 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 	}
 }
 
+// TestReadRealTFFile opens an upstream TF SOFA file shipped in testdata
+// and confirms the high-level shape. Reading these files used to fail
+// in go-hdf5 (V2 object header continuation chunks were ignored, so
+// dataset layout messages were missing).
+func TestReadRealTFFile(t *testing.T) {
+	cases := []struct {
+		path                            string
+		wantSOFAConv                    string
+		wantDataType                    string
+		wantM, wantR, wantE, wantNAtMin int
+	}{
+		{
+			path:         "testdata/GeneralTF_2.0.sofa",
+			wantSOFAConv: "GeneralTF",
+			wantDataType: "TF",
+			wantM:        4, wantR: 4, wantE: 1, wantNAtMin: 1,
+		},
+		{
+			path:         "testdata/FreeFieldHRTF_2.0.sofa",
+			wantSOFAConv: "SimpleFreeFieldHRTF",
+			wantDataType: "TF",
+			wantM:        2354, wantR: 2, wantE: 1, wantNAtMin: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			f, err := Open(tc.path)
+			if err != nil {
+				t.Fatalf("Open(%q): %v", tc.path, err)
+			}
+			defer f.Close()
+
+			if f.SOFAConventions != tc.wantSOFAConv {
+				t.Errorf("SOFAConventions = %q, want %q", f.SOFAConventions, tc.wantSOFAConv)
+			}
+			if f.DataType != tc.wantDataType {
+				t.Errorf("DataType = %q, want %q", f.DataType, tc.wantDataType)
+			}
+			if f.M != tc.wantM || f.R != tc.wantR || f.E != tc.wantE {
+				t.Errorf("dims = M%d R%d E%d, want M%d R%d E%d",
+					f.M, f.R, f.E, tc.wantM, tc.wantR, tc.wantE)
+			}
+			if f.N < tc.wantNAtMin {
+				t.Errorf("N = %d, want >= %d", f.N, tc.wantNAtMin)
+			}
+			if len(f.TFReal) != f.M || len(f.TFImag) != f.M {
+				t.Errorf("TFReal/TFImag length M dim = %d/%d, want %d",
+					len(f.TFReal), len(f.TFImag), f.M)
+			}
+		})
+	}
+}
+
 func minimalTFFile() *File {
 	const M, R, E, N = 2, 1, 1, 3
 	freqs := []float64{100, 200, 400}
@@ -169,4 +222,3 @@ func minimalTFFile() *File {
 		TFImag:                 tfI,
 	}
 }
-

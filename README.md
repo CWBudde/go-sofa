@@ -140,6 +140,95 @@ if f.DataType == "TF" {
 }
 ```
 
+### Writing SOFA files
+
+`File.Save(path)` writes a `*File` back out as a netCDF-4/HDF5-based
+SOFA file. All required AES69 fields and array shapes are validated
+before any bytes are written, so a failed `Save` leaves the target
+path untouched.
+
+#### Creating a file from scratch
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/MeKo-Christian/go-sofa"
+)
+
+func main() {
+    const M, R, E, N = 1, 2, 1, 64
+    f := &sofa.File{
+        Conventions:            "SOFA",
+        Version:                "1.0",
+        SOFAConventions:        "SimpleFreeFieldHRIR",
+        SOFAConventionsVersion: "1.0",
+        DataType:               "FIR",
+        Title:                  "Synthetic HRIR",
+        M:                      M, R: R, E: E, N: N,
+        SamplingRate: []float64{48000},
+        Delay:        []float64{0},
+        ListenerPositions: []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+        ReceiverPositions: []sofa.Vector3{
+            {X: 0, Y: 0.09, Z: 0},  // left ear
+            {X: 0, Y: -0.09, Z: 0}, // right ear
+        },
+        SourcePositions:  []sofa.Vector3{{X: 1, Y: 0, Z: 0}},
+        EmitterPositions: []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+    }
+
+    // [M][R][N] impulse responses
+    f.ImpulseResponses = make([][][]float64, M)
+    for m := range M {
+        f.ImpulseResponses[m] = make([][]float64, R)
+        for r := range R {
+            f.ImpulseResponses[m][r] = make([]float64, N)
+            f.ImpulseResponses[m][r][0] = 1.0 // unit impulse at t=0
+        }
+    }
+
+    if err := f.Save("synthetic_hrir.sofa"); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+#### Round-trip: open, modify, save
+
+```go
+f, err := sofa.Open("input.sofa")
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+// Update some metadata.
+f.Title = "Modified copy"
+f.History = f.History + "\nResaved by my-tool"
+
+// Halve every impulse response in place.
+for m := range f.M {
+    for r := range f.R {
+        for n := range f.N {
+            f.ImpulseResponses[m][r][n] *= 0.5
+        }
+    }
+}
+
+if err := f.Save("output.sofa"); err != nil {
+    log.Fatal(err)
+}
+```
+
+#### Known limitations
+
+- Dataset attributes (`CLASS`, `NAME`) are not yet emitted, so written
+  files are valid HDF5/SOFA for go-sofa but not fully netCDF-4
+  compliant. Some third-party tools (e.g. the MATLAB SOFA Toolbox)
+  may flag the missing dimension-scale metadata.
+
 ## Command-line Tools
 
 ### sofainfo
@@ -158,7 +247,7 @@ sofainfo
 
 **Example output:**
 
-```
+```text
 Title: CIPIC subject 003
 DataType: FIR
 DateCreated: 2013-10-17 15:30:00
@@ -223,12 +312,15 @@ Represents an open SOFA file with all its data and metadata.
 - `SourcePositions []Vector3` — Source positions `[M]`
 - `EmitterPositions []Vector3` — Emitter positions `[E]`
 - `ListenerUp, ListenerView Vector3` — Listener orientation vectors
+- `Frequencies []float64` — Frequency vector `[N]` (TF files only)
+- `TFReal, TFImag [][][]float64` — Complex transfer functions `[M][R][N]` (TF files only)
 - `Title, DataType, RoomType, License, ...` — AES69 metadata attributes
 
 **Methods:**
 
 - `Open(path string) (*File, error)` — Opens a SOFA file for reading
 - `Close() error` — Closes the file and releases resources
+- `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `SamplingRateScalar() float64` — Returns sampling rate as scalar (first value)
 - `Duration() float64` — Returns IR duration in seconds
 - `IRAt(m, r int) []float64` — Returns impulse response for measurement m, receiver r
@@ -261,6 +353,26 @@ if err != nil {
     log.Fatal(err)
 }
 defer f.Close()
+```
+
+#### `(*File).Save(path string) error`
+
+Validates the `File` against AES69 requirements (required attributes,
+positive dimensions, consistent array shapes) and writes it as a
+new SOFA file at `path`. The destination is created from scratch on
+each call; an existing file is overwritten only after validation
+succeeds. Works for both `DataType == "FIR"` and `DataType == "TF"`.
+
+**Returns:**
+
+- `error` — Validation error or I/O error from the underlying HDF5 writer.
+
+**Example:**
+
+```go
+if err := f.Save("output.sofa"); err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## File Format Support

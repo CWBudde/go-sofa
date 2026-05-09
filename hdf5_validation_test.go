@@ -79,7 +79,7 @@ func TestWalkGroupsAndDatasets(t *testing.T) {
 	defer f.Close()
 
 	var groups, datasets int
-	f.Walk(func(path string, obj hdf5.Object) {
+	f.Walk(func(_ string, obj hdf5.Object) {
 		switch obj.(type) {
 		case *hdf5.Group:
 			groups++
@@ -317,11 +317,12 @@ func TestSOFAIntegration(t *testing.T) {
 
 			// 5. Root group attributes (known gap: dense storage not yet supported).
 			attrs, err := root.Attributes()
-			if err != nil {
+			switch {
+			case err != nil:
 				t.Errorf("root Attributes: %v", err)
-			} else if len(attrs) == 0 {
+			case len(attrs) == 0:
 				t.Log("root attributes: 0 (dense storage — go-hdf5 limitation)")
-			} else {
+			default:
 				t.Logf("root attributes: %d", len(attrs))
 			}
 		})

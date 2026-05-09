@@ -29,7 +29,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "Conventions must be \"SOFA\"",
+			wantErr: "conventions must be \"SOFA\"",
 		},
 		{
 			name: "invalid Conventions value",
@@ -47,7 +47,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "Conventions must be \"SOFA\"",
+			wantErr: "conventions must be \"SOFA\"",
 		},
 		{
 			name: "missing Version",
@@ -64,7 +64,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "Version is required",
+			wantErr: "version is required",
 		},
 		{
 			name: "missing SOFAConventions",
@@ -81,7 +81,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "SOFAConventions is required",
+			wantErr: "sofaConventions is required",
 		},
 		{
 			name: "missing DataType",
@@ -98,7 +98,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "DataType is required",
+			wantErr: "dataType is required",
 		},
 		{
 			name: "zero M dimension",
@@ -115,7 +115,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:    []float64{44100},
 				}
 			},
-			wantErr: "M must be > 0",
+			wantErr: "m must be > 0",
 		},
 		{
 			name: "zero R dimension",
@@ -132,7 +132,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:    []float64{44100},
 				}
 			},
-			wantErr: "R must be > 0",
+			wantErr: "r must be > 0",
 		},
 		{
 			name: "IR dimensions mismatch M",
@@ -216,7 +216,7 @@ func TestSaveValidation(t *testing.T) {
 				}
 				return f
 			},
-			wantErr: "SamplingRate length 3 must be M=2 or 1",
+			wantErr: "samplingRate length 3 must be M=2 or 1",
 		},
 	}
 
@@ -471,11 +471,4 @@ func compareStrings(t *testing.T, name, v1, v2 string) {
 	if v1 != v2 {
 		t.Errorf("%s mismatch: %q != %q", name, v1, v2)
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
