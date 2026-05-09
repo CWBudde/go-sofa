@@ -125,7 +125,7 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 		},
 		{
 			name:  "unsupported DataType",
-			mut:   func(f *File) { f.DataType = "SOS" },
+			mut:   func(f *File) { f.DataType = "BOGUS" },
 			match: "unsupported DataType",
 		},
 	}

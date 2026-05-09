@@ -25,8 +25,10 @@ const (
 	conventionSOFA = "SOFA"
 
 	// DataType values defined by the AES69 specification.
-	dataTypeFIR = "FIR" // time-domain impulse responses
-	dataTypeTF  = "TF"  // complex frequency-domain transfer functions
+	dataTypeFIR = "FIR"  // time-domain impulse responses
+	dataTypeTF  = "TF"   // complex frequency-domain transfer functions
+	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N])
+	dataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
 
 	// datasetSourcePosition is the SOFA dataset name for source-position data.
 	datasetSourcePosition = "SourcePosition"
@@ -67,6 +69,18 @@ type File struct {
 	Frequencies []float64     // [N] frequency vector, Hz
 	TFReal      [][][]float64 // [M][R][N] real part of complex TF
 	TFImag      [][][]float64 // [M][R][N] imaginary part of complex TF
+
+	// Audio data — TF-E (used when DataType == "TF-E")
+	// Same Frequencies vector as TF, but with an active emitter dimension.
+	TFRealE [][][][]float64 // [M][R][E][N] real part of complex TF
+	TFImagE [][][][]float64 // [M][R][E][N] imaginary part of complex TF
+
+	// Audio data — SOS (used when DataType == "SOS")
+	// Second-order-section filter coefficients. Storage shape is [M][R][N]
+	// where N is 6 × (number of biquad sections); each biquad contributes
+	// six coefficients (b0, b1, b2, a0, a1, a2). SamplingRate and Delay
+	// (above) carry their FIR-style meaning.
+	SOSCoefficients [][][]float64 // [M][R][N]
 
 	// AES69 Metadata (global attributes)
 	Conventions            string // "SOFA" for SOFA files
@@ -293,10 +307,16 @@ func parseDimensionSize(s string) (int, error) {
 // /Data.Imag, and the frequency vector from /N. For FIR (default), reads
 // /Data.IR, /Data.SamplingRate, and /Data.Delay.
 func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
-	if f.DataType == dataTypeTF {
+	switch f.DataType {
+	case dataTypeTF:
 		return f.readTFAudioData(datasets)
+	case dataTypeTFE:
+		return f.readTFEAudioData(datasets)
+	case dataTypeSOS:
+		return f.readSOSAudioData(datasets)
+	default:
+		return f.readFIRAudioData(datasets)
 	}
-	return f.readFIRAudioData(datasets)
 }
 
 func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset) error {
@@ -334,23 +354,8 @@ func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset) error {
 }
 
 func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
-	// /N holds the frequency vector for TF data.
-	if ds, ok := datasets["N"]; ok {
-		freqs, err := ds.Read()
-		if err != nil {
-			return fmt.Errorf("read /N (frequencies): %w", err)
-		}
-		// readDimensions accepts both scalar /N (FIR-shaped) and vector /N
-		// (TF-shaped). For TF we expect len(freqs) == N. If we got a scalar
-		// (len==1) that means N is unset on disk in TF form; reject.
-		switch {
-		case len(freqs) == f.N:
-			f.Frequencies = freqs
-		case len(freqs) == 1:
-			return fmt.Errorf("/N is scalar but DataType=TF expects frequency vector of length %d", f.N)
-		default:
-			return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
-		}
+	if err := f.readFrequencyVector(datasets); err != nil {
+		return err
 	}
 
 	expected := f.M * f.R * f.N
@@ -383,6 +388,106 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
 	}
 	f.TFImag = reshapeIR(imagFlat, f.M, f.R, f.N)
 
+	return nil
+}
+
+// readTFEAudioData reads /Data.Real and /Data.Imag as 4D arrays of
+// shape [M][R][E][N], plus the frequency vector from /N. Used for
+// DataType == "TF-E".
+func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
+	if err := f.readFrequencyVector(datasets); err != nil {
+		return err
+	}
+
+	expected := f.M * f.R * f.E * f.N
+
+	realDS, ok := datasets["Data.Real"]
+	if !ok {
+		return fmt.Errorf("Data.Real dataset not found")
+	}
+	realFlat, err := realDS.Read()
+	if err != nil {
+		return fmt.Errorf("read Data.Real: %w", err)
+	}
+	if len(realFlat) != expected {
+		return fmt.Errorf("Data.Real size %d, want %d (M=%d R=%d E=%d N=%d)",
+			len(realFlat), expected, f.M, f.R, f.E, f.N)
+	}
+	f.TFRealE = reshape4D(realFlat, f.M, f.R, f.E, f.N)
+
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	imagFlat, err := imagDS.Read()
+	if err != nil {
+		return fmt.Errorf("read Data.Imag: %w", err)
+	}
+	if len(imagFlat) != expected {
+		return fmt.Errorf("Data.Imag size %d, want %d (M=%d R=%d E=%d N=%d)",
+			len(imagFlat), expected, f.M, f.R, f.E, f.N)
+	}
+	f.TFImagE = reshape4D(imagFlat, f.M, f.R, f.E, f.N)
+
+	return nil
+}
+
+// readSOSAudioData reads /Data.SOS as [M][R][N] biquad coefficients,
+// plus SamplingRate and Delay (FIR-style). Used for DataType == "SOS".
+func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset) error {
+	sosDS, ok := datasets["Data.SOS"]
+	if !ok {
+		return fmt.Errorf("Data.SOS dataset not found")
+	}
+	flat, err := sosDS.Read()
+	if err != nil {
+		return fmt.Errorf("read Data.SOS: %w", err)
+	}
+	expected := f.M * f.R * f.N
+	if len(flat) != expected {
+		return fmt.Errorf("Data.SOS size %d, want %d (M=%d R=%d N=%d)",
+			len(flat), expected, f.M, f.R, f.N)
+	}
+	if f.N%6 != 0 {
+		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
+	}
+	f.SOSCoefficients = reshapeIR(flat, f.M, f.R, f.N)
+
+	if ds, ok := datasets["Data.SamplingRate"]; ok {
+		f.SamplingRate, err = ds.Read()
+		if err != nil {
+			return fmt.Errorf("read Data.SamplingRate: %w", err)
+		}
+	}
+	if ds, ok := datasets["Data.Delay"]; ok {
+		f.Delay, err = ds.Read()
+		if err != nil {
+			return fmt.Errorf("read Data.Delay: %w", err)
+		}
+	}
+	return nil
+}
+
+// readFrequencyVector reads /N for TF / TF-E DataTypes. Shared between
+// readTFAudioData and readTFEAudioData.
+func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset) error {
+	ds, ok := datasets["N"]
+	if !ok {
+		return nil
+	}
+	freqs, err := ds.Read()
+	if err != nil {
+		return fmt.Errorf("read /N (frequencies): %w", err)
+	}
+	switch {
+	case len(freqs) == f.N:
+		f.Frequencies = freqs
+	case len(freqs) == 1:
+		return fmt.Errorf("/N is scalar but DataType=%s expects frequency vector of length %d",
+			f.DataType, f.N)
+	default:
+		return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
+	}
 	return nil
 }
 
@@ -455,6 +560,23 @@ func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
 	return result
 }
 
+// reshape4D converts a flat row-major buffer of length m*r*e*n into a
+// nested [m][r][e][n]float64 view. Used for TF-E audio data.
+func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
+	result := make([][][][]float64, m)
+	for i := range m {
+		result[i] = make([][][]float64, r)
+		for j := range r {
+			result[i][j] = make([][]float64, e)
+			for k := range e {
+				start := ((i*r+j)*e + k) * n
+				result[i][j][k] = flat[start : start+n]
+			}
+		}
+	}
+	return result
+}
+
 // SamplingRateScalar returns the sampling rate as a scalar value.
 // If multiple sampling rates are stored, it returns the first one.
 // Returns 0 if no sampling rate is available.
@@ -519,64 +641,7 @@ func (f *File) Save(path string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Prepare root attributes - collect all global metadata
-	var rootAttrs []interface{}
-
-	// Add required attributes
-	rootAttrs = append(rootAttrs,
-		hdf5.WithRootAttribute("Conventions", f.Conventions),
-		hdf5.WithRootAttribute("Version", f.Version),
-		hdf5.WithRootAttribute("SOFAConventions", f.SOFAConventions),
-		hdf5.WithRootAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion),
-		hdf5.WithRootAttribute("DataType", f.DataType),
-	)
-
-	// Add optional attributes only if non-empty
-	if f.Title != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Title", f.Title))
-	}
-	if f.DateCreated != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("DateCreated", f.DateCreated))
-	}
-	if f.DateModified != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("DateModified", f.DateModified))
-	}
-	if f.APIName != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("APIName", f.APIName))
-	}
-	if f.APIVersion != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("APIVersion", f.APIVersion))
-	}
-	if f.AuthorContact != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("AuthorContact", f.AuthorContact))
-	}
-	if f.Organization != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Organization", f.Organization))
-	}
-	if f.License != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("License", f.License))
-	}
-	if f.ApplicationName != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("ApplicationName", f.ApplicationName))
-	}
-	if f.ApplicationVersion != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("ApplicationVersion", f.ApplicationVersion))
-	}
-	if f.Comment != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Comment", f.Comment))
-	}
-	if f.History != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("History", f.History))
-	}
-	if f.References != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("References", f.References))
-	}
-	if f.Origin != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("Origin", f.Origin))
-	}
-	if f.RoomType != "" {
-		rootAttrs = append(rootAttrs, hdf5.WithRootAttribute("RoomType", f.RoomType))
-	}
+	rootAttrs := f.collectRootAttributes()
 
 	// Create HDF5 file with root attributes
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, rootAttrs...)
@@ -597,7 +662,7 @@ func (f *File) Save(path string) error {
 			return fmt.Errorf("write dimension %s: %w", name, err)
 		}
 	}
-	if f.DataType == dataTypeTF {
+	if f.DataType == dataTypeTF || f.DataType == dataTypeTFE {
 		if err := writeFrequencyDimension(fw, f.Frequencies); err != nil {
 			return fmt.Errorf("write /N (frequencies): %w", err)
 		}
@@ -635,6 +700,43 @@ func (f *File) Save(path string) error {
 	}
 
 	return nil
+}
+
+// collectRootAttributes builds the slice of WithRootAttribute options
+// passed to the underlying file writer. Required AES69 attributes are
+// always emitted; optional ones are skipped when empty.
+func (f *File) collectRootAttributes() []interface{} {
+	rootAttrs := []interface{}{
+		hdf5.WithRootAttribute("Conventions", f.Conventions),
+		hdf5.WithRootAttribute("Version", f.Version),
+		hdf5.WithRootAttribute("SOFAConventions", f.SOFAConventions),
+		hdf5.WithRootAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion),
+		hdf5.WithRootAttribute("DataType", f.DataType),
+	}
+	for _, opt := range []struct {
+		name, value string
+	}{
+		{"Title", f.Title},
+		{"DateCreated", f.DateCreated},
+		{"DateModified", f.DateModified},
+		{"APIName", f.APIName},
+		{"APIVersion", f.APIVersion},
+		{"AuthorContact", f.AuthorContact},
+		{"Organization", f.Organization},
+		{"License", f.License},
+		{"ApplicationName", f.ApplicationName},
+		{"ApplicationVersion", f.ApplicationVersion},
+		{"Comment", f.Comment},
+		{"History", f.History},
+		{"References", f.References},
+		{"Origin", f.Origin},
+		{"RoomType", f.RoomType},
+	} {
+		if opt.value != "" {
+			rootAttrs = append(rootAttrs, hdf5.WithRootAttribute(opt.name, opt.value))
+		}
+	}
+	return rootAttrs
 }
 
 // validate checks that the File struct contains all required fields
@@ -677,9 +779,17 @@ func (f *File) validate() error {
 		if err := f.validateTF(); err != nil {
 			return err
 		}
+	case dataTypeTFE:
+		if err := f.validateTFE(); err != nil {
+			return err
+		}
+	case dataTypeSOS:
+		if err := f.validateSOS(); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("unsupported DataType %q (want %q or %q)",
-			f.DataType, dataTypeFIR, dataTypeTF)
+		return fmt.Errorf("unsupported DataType %q (want %q, %q, %q, or %q)",
+			f.DataType, dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS)
 	}
 
 	// Check position array dimensions
@@ -753,6 +863,68 @@ func (f *File) validateTF() error {
 	return nil
 }
 
+// validateTFE checks TF-E-specific fields: Frequencies length N,
+// TFRealE/TFImagE shape [M][R][E][N].
+func (f *File) validateTFE() error {
+	if len(f.Frequencies) != f.N {
+		return fmt.Errorf("frequencies length %d does not match N=%d",
+			len(f.Frequencies), f.N)
+	}
+	if err := check4D("TFRealE", f.TFRealE, f.M, f.R, f.E, f.N); err != nil {
+		return err
+	}
+	if err := check4D("TFImagE", f.TFImagE, f.M, f.R, f.E, f.N); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateSOS checks SOS-specific fields: SOSCoefficients shape
+// [M][R][N] with N divisible by 6, SamplingRate (M or 1), Delay
+// (0/1/M/R/M*R) — same conventions as FIR.
+func (f *File) validateSOS() error {
+	if f.N%6 != 0 {
+		return fmt.Errorf("DataType=SOS requires N divisible by 6, got %d", f.N)
+	}
+	if err := check3D("SOSCoefficients", f.SOSCoefficients, f.M, f.R, f.N); err != nil {
+		return err
+	}
+	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
+		return fmt.Errorf("samplingRate length %d must be M=%d or 1",
+			len(f.SamplingRate), f.M)
+	}
+	delayLen := len(f.Delay)
+	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
+		return fmt.Errorf("delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
+			delayLen, f.M, f.R, f.M*f.R)
+	}
+	return nil
+}
+
+func check4D(name string, data [][][][]float64, m, r, e, n int) error {
+	if len(data) != m {
+		return fmt.Errorf("%s length %d does not match M=%d", name, len(data), m)
+	}
+	for i, mr := range data {
+		if len(mr) != r {
+			return fmt.Errorf("%s[%d] length %d does not match R=%d", name, i, len(mr), r)
+		}
+		for j, re := range mr {
+			if len(re) != e {
+				return fmt.Errorf("%s[%d][%d] length %d does not match E=%d",
+					name, i, j, len(re), e)
+			}
+			for k, nn := range re {
+				if len(nn) != n {
+					return fmt.Errorf("%s[%d][%d][%d] length %d does not match N=%d",
+						name, i, j, k, len(nn), n)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func check3D(name string, data [][][]float64, m, r, n int) error {
 	if len(data) != m {
 		return fmt.Errorf("%s length %d does not match M=%d", name, len(data), m)
@@ -771,13 +943,17 @@ func check3D(name string, data [][][]float64, m, r, n int) error {
 	return nil
 }
 
-// writeAudioDatasets dispatches to the FIR or TF writer based on DataType.
+// writeAudioDatasets dispatches to the per-DataType writer.
 func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
 	switch f.DataType {
 	case dataTypeFIR:
 		return f.writeFIRAudioDatasets(fw)
 	case dataTypeTF:
 		return f.writeTFAudioDatasets(fw)
+	case dataTypeTFE:
+		return f.writeTFEAudioDatasets(fw)
+	case dataTypeSOS:
+		return f.writeSOSAudioDatasets(fw)
 	default:
 		return fmt.Errorf("unsupported DataType %q", f.DataType)
 	}
@@ -849,6 +1025,71 @@ func (f *File) writeTFAudioDatasets(fw *hdf5.FileWriter) error {
 	return nil
 }
 
+// writeTFEAudioDatasets writes Data.Real / Data.Imag as 4D arrays of
+// shape [M][R][E][N] for DataType == "TF-E". The frequency vector is
+// emitted by writeFrequencyDimension as for plain TF.
+func (f *File) writeTFEAudioDatasets(fw *hdf5.FileWriter) error {
+	// Dimensions are validated > 0 by validate() before Save() reaches here.
+	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.E), uint64(f.N)} //nolint:gosec // dims > 0 by validate()
+
+	realFlat := flatten4D(f.TFRealE)
+	realDS, err := fw.CreateDataset("/Data.Real", hdf5.Float64, dims)
+	if err != nil {
+		return fmt.Errorf("create Data.Real dataset: %w", err)
+	}
+	if err := realDS.Write(realFlat); err != nil {
+		return fmt.Errorf("write Data.Real data: %w", err)
+	}
+
+	imagFlat := flatten4D(f.TFImagE)
+	imagDS, err := fw.CreateDataset("/Data.Imag", hdf5.Float64, dims)
+	if err != nil {
+		return fmt.Errorf("create Data.Imag dataset: %w", err)
+	}
+	if err := imagDS.Write(imagFlat); err != nil {
+		return fmt.Errorf("write Data.Imag data: %w", err)
+	}
+
+	return nil
+}
+
+// writeSOSAudioDatasets writes Data.SOS as [M][R][N] biquad
+// coefficients along with Data.SamplingRate and (optional) Data.Delay.
+func (f *File) writeSOSAudioDatasets(fw *hdf5.FileWriter) error {
+	// Dimensions are validated > 0 by validate() before Save() reaches here.
+	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.N)} //nolint:gosec // dims > 0 by validate()
+
+	sosFlat := flattenIR(f.SOSCoefficients)
+	sosDS, err := fw.CreateDataset("/Data.SOS", hdf5.Float64, dims)
+	if err != nil {
+		return fmt.Errorf("create Data.SOS dataset: %w", err)
+	}
+	if err := sosDS.Write(sosFlat); err != nil {
+		return fmt.Errorf("write Data.SOS data: %w", err)
+	}
+
+	srDS, err := fw.CreateDataset("/Data.SamplingRate", hdf5.Float64,
+		[]uint64{uint64(len(f.SamplingRate))})
+	if err != nil {
+		return fmt.Errorf("create Data.SamplingRate dataset: %w", err)
+	}
+	if err := srDS.Write(f.SamplingRate); err != nil {
+		return fmt.Errorf("write Data.SamplingRate data: %w", err)
+	}
+
+	if len(f.Delay) > 0 {
+		delayDS, err := fw.CreateDataset("/Data.Delay", hdf5.Float64,
+			[]uint64{uint64(len(f.Delay))})
+		if err != nil {
+			return fmt.Errorf("create Data.Delay dataset: %w", err)
+		}
+		if err := delayDS.Write(f.Delay); err != nil {
+			return fmt.Errorf("write Data.Delay data: %w", err)
+		}
+	}
+	return nil
+}
+
 // writeFrequencyDimension writes /N as a vector of frequency values (Hz).
 // The dimension size N is implied by the dataset length, which differs from
 // FIR /N (a scalar holding the count). The dataset is marked as a netCDF
@@ -886,6 +1127,30 @@ func flattenIR(ir [][][]float64) []float64 {
 		for j := range r {
 			copy(flat[idx:idx+n], ir[i][j])
 			idx += n
+		}
+	}
+	return flat
+}
+
+// flatten4D converts [M][R][E][N]float64 to []float64 in row-major
+// order. Used for TF-E audio data.
+func flatten4D(data [][][][]float64) []float64 {
+	if len(data) == 0 {
+		return nil
+	}
+	m := len(data)
+	r := len(data[0])
+	e := len(data[0][0])
+	n := len(data[0][0][0])
+
+	flat := make([]float64, m*r*e*n)
+	idx := 0
+	for i := range m {
+		for j := range r {
+			for k := range e {
+				copy(flat[idx:idx+n], data[i][j][k])
+				idx += n
+			}
 		}
 	}
 	return flat

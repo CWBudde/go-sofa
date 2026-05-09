@@ -1,12 +1,17 @@
 // Command sofa2json exports SOFA files to JSON format.
-// By default, exports metadata and dimensions only. Use --include-ir to
-// include impulse response data (FIR files) or --include-tf to include
-// frequency vector and complex transfer functions (TF files).
+// By default, exports metadata and dimensions only. Bulk audio data is
+// gated by per-DataType flags:
+//
+//	--include-ir   FIR  files: include ImpulseResponses
+//	--include-tf   TF / TF-E files: include TFReal/TFImag (TF-E adds emitter dim)
+//	--include-sos  SOS  files: include SOSCoefficients
+//
+// Frequencies are included automatically (small) for TF / TF-E.
 //
 // Usage:
 //
-//	sofa2json [--include-ir] [--include-tf] <file.sofa>       # process single file
-//	sofa2json [--include-ir] [--include-tf]                   # process all .sofa files in current directory
+//	sofa2json [flags] <file.sofa>       # process single file
+//	sofa2json [flags]                   # process all .sofa files in current directory
 //
 // Output is written to <filename>.json (replacing .sofa extension).
 package main
@@ -21,18 +26,24 @@ import (
 	"github.com/cwbudde/go-sofa"
 )
 
+// includeFlags carries the user's --include-* selections.
+type includeFlags struct {
+	IR, TF, SOS bool
+}
+
 func main() {
 	args := os.Args[1:]
-	includeIR := false
-	includeTF := false
+	var inc includeFlags
 
 	var files []string
 	for _, arg := range args {
 		switch arg {
 		case "--include-ir":
-			includeIR = true
+			inc.IR = true
 		case "--include-tf":
-			includeTF = true
+			inc.TF = true
+		case "--include-sos":
+			inc.SOS = true
 		default:
 			files = append(files, arg)
 		}
@@ -40,7 +51,7 @@ func main() {
 
 	if len(files) >= 1 {
 		// Single file mode
-		if err := processSofaFile(files[0], includeIR, includeTF); err != nil {
+		if err := processSofaFile(files[0], inc); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -57,14 +68,14 @@ func main() {
 		}
 		for _, filename := range matches {
 			fmt.Printf("Process file %s\n", filepath.Base(filename))
-			if err := processSofaFile(filename, includeIR, includeTF); err != nil {
+			if err := processSofaFile(filename, inc); err != nil {
 				fmt.Fprintf(os.Stderr, "error processing %s: %v\n", filename, err)
 			}
 		}
 	}
 }
 
-func processSofaFile(filename string, includeIR, includeTF bool) error {
+func processSofaFile(filename string, inc includeFlags) error {
 	f, err := sofa.Open(filename)
 	if err != nil {
 		return err
@@ -72,7 +83,7 @@ func processSofaFile(filename string, includeIR, includeTF bool) error {
 	defer f.Close()
 
 	// Build JSON object
-	jsonObj := buildJSONObject(f, includeIR, includeTF)
+	jsonObj := buildJSONObject(f, inc)
 
 	// Marshal to pretty JSON
 	data, err := json.MarshalIndent(jsonObj, "", "  ")
@@ -89,7 +100,7 @@ func processSofaFile(filename string, includeIR, includeTF bool) error {
 	return nil
 }
 
-func buildJSONObject(f *sofa.File, includeIR, includeTF bool) map[string]interface{} {
+func buildJSONObject(f *sofa.File, inc includeFlags) map[string]interface{} {
 	result := make(map[string]interface{})
 
 	// Add all AES69 global attributes (if non-empty)
@@ -155,18 +166,31 @@ func buildJSONObject(f *sofa.File, includeIR, includeTF bool) map[string]interfa
 	result["Delay"] = f.Delay
 
 	// FIR audio data
-	if includeIR && len(f.ImpulseResponses) > 0 {
+	if inc.IR && len(f.ImpulseResponses) > 0 {
 		result["IR"] = f.ImpulseResponses
 	}
 
-	// TF audio data
-	if f.DataType == "TF" {
+	// TF / TF-E audio data
+	switch f.DataType {
+	case "TF":
 		if len(f.Frequencies) > 0 {
 			result["Frequencies"] = f.Frequencies
 		}
-		if includeTF {
+		if inc.TF {
 			result["TFReal"] = f.TFReal
 			result["TFImag"] = f.TFImag
+		}
+	case "TF-E":
+		if len(f.Frequencies) > 0 {
+			result["Frequencies"] = f.Frequencies
+		}
+		if inc.TF {
+			result["TFReal"] = f.TFRealE
+			result["TFImag"] = f.TFImagE
+		}
+	case "SOS":
+		if inc.SOS {
+			result["SOSCoefficients"] = f.SOSCoefficients
 		}
 	}
 

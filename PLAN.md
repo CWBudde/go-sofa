@@ -10,9 +10,9 @@ Oriented Format for Acoustics), built on top of
 
 ## Status
 
-Read, write, CLI tools, CI, lint, ≥80 % test coverage, and both `FIR`
-and `TF` `DataType`s are complete. See `git log` for history; this
-file tracks only what's still open.
+Read, write, CLI tools, CI, lint, ≥80 % test coverage, and the `FIR`,
+`TF`, `TF-E`, and `SOS` `DataType`s are complete. See `git log` for
+history; this file tracks only what's still open.
 
 ## Prior Art & Key Resources
 
@@ -27,75 +27,87 @@ file tracks only what's still open.
 
 ## Open work
 
-### A. Cross-repo work in go-hdf5
+All work below is optional / future — nothing is blocking shipping. Each
+phase is independent and can be picked up on demand when a real use case
+appears.
 
-*All previously open items are now landed and tagged. Section kept for
-the record; new cross-repo work would be added here.*
+### Phase A — SOFA 2.0 spherical-harmonic receiver representations
 
-Optional follow-ups, none blocking:
+AES69-2022 introduced spherical-harmonic (SH) representations for
+listener / receiver / source / emitter geometry, plus a `SH` family of
+`DataType`s for SH-domain HRTFs. Today go-sofa only models Cartesian /
+spherical Vector3 positions; SH coefficients are a third audio path
+alongside FIR / TF.
 
-- **Dense storage for dataset attributes.** `WithAttribute` (shipped
-  in go-hdf5 v0.15.0) currently caps at 8 attributes per dataset
-  using compact storage. SOFA dimension scales never need more than
-  3, so this is fine in practice; if a future use case demands it,
-  extend the dense-storage path that already exists for root
-  attributes.
+Concrete tasks:
+
+- Decide how to surface SH on the `File` struct: extend `Vector3` vs.
+  a parallel `[]float64` "coefficients" slot per role, plus an `Order`
+  field. Probably a separate `ReceiverSHCoefficients [R][C]` etc.
+- Add `DataType == "SH"` (and any sub-variants) to the read / write /
+  validate dispatcher; introduce a `Phase`-style audio reader if the
+  data layout differs from `[M][R][N]`.
+- Convention bindings: `SimpleFreeFieldHRSH`, `GeneralSOS` SH variants,
+  whatever AES69-2022 names finally emerge.
+- Tests: synthetic round-trip; real testdata once we have a small
+  example file.
+
+References: AES69-2022, sofaconventions.org SH page.
+
+### Phase B — Specialised SOFA convention behaviour
+
+Today only the convention name is stored as a string; behaviour is
+generic across all conventions. Specialise where it would catch real
+errors or add useful structure:
+
+- **BRIR** (Binaural Room Impulse Response) — listener-relative IR
+  with optional room metadata.
+- **SRIR** (Spatial Room Impulse Response) — A/B-format or Ambisonics
+  impulse responses.
+- **Directivity** — single-source radiation patterns; `M` indexes
+  source orientation, not measurement position.
+
+Each would likely add: a small validator for required metadata, a
+typed accessor or two on `File`, and one round-trip test.
+
+### Phase C — Streaming / partial reads
+
+Hyperslab reads would let consumers stream a subset (e.g. one
+measurement at a time) instead of loading the whole `[M][R][N]` array
+into memory. Useful for very large HRTF databases.
+
+Concrete tasks:
+
+- Confirm go-hdf5 exposes hyperslab / partial-read support, or add it
+  there first.
+- Define an iterator API on `File`: e.g. `ReadMeasurement(m int)
+  ([R][N]float64, error)` or a `Range(func(m int, ir [R][N]float64))`
+  callback.
+- Keep the existing eager `ImpulseResponses` / `TFReal` arrays; new
+  API is purely additive.
+- Benchmark: streaming vs. eager on a >100 MB file.
+
+### Phase D — Extended testing & cross-validation
+
+- Large-file integration tests (>100 MB), gated behind a build tag so
+  CI stays fast.
+- MATLAB SOFA Toolbox cross-validation: round-trip a go-sofa-written
+  file through the toolbox and back, diff the result.
+- Benchmarks for large-file creation and read paths (`go test -bench`).
+
+### Phase E — Cross-repo follow-ups in go-hdf5 (non-blocking)
+
+- **Dense storage for dataset attributes.** `WithAttribute` (go-hdf5
+  v0.15.0) caps at 8 attributes per dataset using compact storage.
+  SOFA dimension scales never need more than 3, so this is fine in
+  practice; extend the dense-storage path that already exists for root
+  attributes if a future use case demands it.
 - **`DIMENSION_LIST` attribute on data datasets.** For full netCDF-4
   parity, `Data.IR` / `Data.Real` etc. should carry a
   `DIMENSION_LIST` attribute that is a variable-length array of
   references to the dimension-scale datasets. Requires VLA + object
-  reference support in go-hdf5 attribute encoding. Not needed for
-  the readers we care about today.
-
-### B. Additional `DataType` values surfaced by real files
-
-Reading SOFA files produced by the upstream MATLAB toolbox now
-works (V2 continuation chunks are followed and contiguous datasets
-with `HADDR_UNDEF` are tolerated), which exposed two `DataType`
-strings beyond `FIR`/`TF`:
-
-1. **`TF-E`** — TF with an active emitter dimension. Same as TF but
-   the complex arrays are `[M][R][E][N]` instead of `[M][R][N]`.
-   Used by `GeneralTF-E` and the more recent `FreeFieldHRTF` files.
-
-2. **`SOS`** — Second-Order Section filter coefficients
-   (`Data.SOS` instead of `Data.IR`/`Data.Real`). Used by
-   `SimpleFreeFieldHRSOS`. Storage shape is dictated by the number
-   of biquad sections; `Data.SamplingRate` and `Data.Delay` are
-   still present.
-
-Both are unsupported today; `Open` rejects them with
-`unsupported DataType …`. Add when needed.
-
-### C. TF edge cases (low priority)
-
-1. **TF with `N == 1`.** A frequency vector of length 1 has an
-   on-disk shape identical to a scalar `/N` (FIR). `readDimensions`
-   currently disambiguates by checking whether `/N` carries a
-   netCDF "coordinate variable" `NAME` attribute (single label like
-   `"N"`). That heuristic covers MATLAB-produced files; go-sofa-
-   written TF files with `N == 1` may still misread until we add a
-   sentinel attribute or always write `/N` as a vector when
-   `DataType == "TF"`.
-
-### D. Phase 6 — future / optional
-
-1. **SOFA 2.0 receiver representations** — spherical harmonic
-   coefficients (AES69-2022). New `File` fields and a third audio
-   path alongside FIR/TF.
-
-2. **Additional SOFA conventions.** Today only convention names are
-   stored; behaviour is generic. Specialise for BRIR, SRIR, and
-   directivity if/when needed.
-
-3. **Performance: partial reads.** Hyperslab reads for IR / TF would
-   let consumers stream a subset (e.g. one measurement at a time)
-   instead of loading the whole `[M][R][N]` array. Useful for very
-   large HRTF databases.
-
-4. **Extended testing (optional).** Larger files (>100 MB), MATLAB
-   SOFA Toolbox cross-validation once A.1 lands, benchmarks for
-   large-file creation/read.
+  reference support in go-hdf5 attribute encoding. Not needed for the
+  readers we care about today.
 
 ---
 
@@ -104,8 +116,8 @@ Both are unsupported today; `Open` rejects them with
 | Risk | Impact | Mitigation |
 | ---- | ------ | ---------- |
 | go-hdf5 API changes | Medium | Pin dependency version; coordinate with fork. |
-| SOFA files using unsupported `DataType` values | Medium | B above (`TF-E`, `SOS`); add support when a use case appears. |
-| SOFA convention evolution (2.0+) | Low | D.1 above. |
+| SOFA files using unsupported `DataType` values | Low | FIR/TF/TF-E/SOS covered; SH tracked in Phase A. |
+| SOFA convention evolution (2.0+) | Low | Phase A. |
 
 ---
 

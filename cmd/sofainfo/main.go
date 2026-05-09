@@ -117,10 +117,13 @@ func printFileInformation(f *sofa.File) {
 	if len(f.Delay) > 0 {
 		fmt.Printf("Delay: %g\n", f.Delay[0])
 	}
-	if f.DataType == "TF" && len(f.Frequencies) > 0 {
+	if (f.DataType == "TF" || f.DataType == "TF-E") && len(f.Frequencies) > 0 {
 		fmt.Printf("Frequencies: %d points, %g Hz – %g Hz\n",
 			len(f.Frequencies),
 			f.Frequencies[0],
 			f.Frequencies[len(f.Frequencies)-1])
+	}
+	if f.DataType == "SOS" && f.N > 0 {
+		fmt.Printf("Biquad sections per filter: %d (N=%d)\n", f.N/6, f.N)
 	}
 }
