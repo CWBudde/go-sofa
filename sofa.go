@@ -27,7 +27,7 @@ const (
 	// DataType values defined by the AES69 specification.
 	dataTypeFIR = "FIR"  // time-domain impulse responses
 	dataTypeTF  = "TF"   // complex frequency-domain transfer functions
-	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N])
+	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
 	dataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
 
 	// datasetSourcePosition is the SOFA dataset name for source-position data.

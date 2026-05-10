@@ -126,4 +126,10 @@ func printFileInformation(f *sofa.File) {
 	if f.DataType == "SOS" && f.N > 0 {
 		fmt.Printf("Biquad sections per filter: %d (N=%d)\n", f.N/6, f.N)
 	}
+	if lmax, ok := f.SHOrder(); ok {
+		fmt.Printf("SH-encoded HRTF: Lmax=%d, %d coefficients\n", lmax, f.SHCoefficientCount())
+	}
+	for _, w := range f.SHWarnings() {
+		fmt.Printf("Warning: %s\n", w)
+	}
 }
