@@ -379,11 +379,34 @@ if err := f.Save("output.sofa"); err != nil {
 
 This library supports SOFA files (AES69-2015) based on HDF5 with netCDF-4 conventions:
 
-- **Conventions:** SimpleFreeFieldHRIR, SimpleFreeFieldSOS, SingleRoomDRIR, etc.
+- **Conventions:** SimpleFreeFieldHRIR, SimpleFreeFieldHRTF, SimpleFreeFieldHRSH, SimpleFreeFieldSOS, GeneralTF, GeneralTF-E, SingleRoomDRIR, etc. (free-form — any AES69 convention name is accepted)
+- **DataTypes:** FIR, TF, TF-E, SOS
 - **Storage formats:** Contiguous and chunked datasets
 - **Compression:** Deflate-compressed datasets
 - **Dimensions:** Standard M, R, E, N dimensions and dimension scales
 - **Attributes:** Dense (fractal heap) and compact attribute storage
+
+### Spherical-harmonic (SH) HRTFs
+
+AES69-2022 introduced spherical-harmonic representations such as
+`SimpleFreeFieldHRSH`. These are stored using the existing `TF-E`
+DataType with the emitter dimension `E` repurposed as the SH
+coefficient index (`E = (Lmax+1)²`). go-sofa reads and writes such
+files via the standard TF-E path; use the helpers below to detect
+and inspect SH encoding:
+
+- `(*File).IsSHEncoded() bool` — true when convention name or
+  History attribute declares SH **and** `E` is a perfect square ≥ 4
+- `(*File).SHOrder() (lmax int, ok bool)` — returns `Lmax`
+- `(*File).SHCoefficientCount() int` — returns `E` for SH files, 0 otherwise
+- `(*File).SHWarnings() []string` — advisory diagnostics for
+  ambiguous or malformed SH metadata
+
+To **write** an SH-encoded file, populate a `File` with
+`DataType:"TF-E"`, `SOFAConventions:"FreeFieldHRSH"` (or any
+convention name containing "SH"), and `E = (Lmax+1)²` SH
+coefficients per (measurement, receiver, frequency) tuple, then call
+`Save`.
 
 ## Related Projects
 

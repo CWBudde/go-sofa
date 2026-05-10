@@ -47,7 +47,7 @@ type File struct {
 	// Dimensions (M=measurements, R=receivers, E=emitters, N=samples)
 	M int // number of measurements
 	R int // number of receivers (e.g., 2 for binaural)
-	E int // number of emitters (typically 1)
+	E int // number of emitters (typically 1; for SH-encoded HRTFs this is the SH coefficient index, with E = (Lmax+1)² — see (*File).SHOrder)
 	N int // number of samples per impulse response
 
 	// Spatial data
@@ -85,7 +85,7 @@ type File struct {
 	// AES69 Metadata (global attributes)
 	Conventions            string // "SOFA" for SOFA files
 	Version                string // SOFA version (e.g., "1.0")
-	SOFAConventions        string // specific convention (e.g., "SimpleFreeFieldHRIR")
+	SOFAConventions        string // specific convention (e.g., "SimpleFreeFieldHRIR", "SimpleFreeFieldHRSH" for SH-encoded HRTFs)
 	SOFAConventionsVersion string // convention version
 	DataType               string // data type (e.g., "FIR")
 	RoomType               string // room type if applicable

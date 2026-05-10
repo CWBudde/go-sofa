@@ -122,6 +122,15 @@ func TestSHDetection(t *testing.T) {
 			wantOK:     true,
 			wantCoeffs: 9,
 		},
+		{
+			// Convention claims SH but E<4 (below the L≥1 floor).
+			// Exercises the E<4 early-return inside SHOrder.
+			name:       "HRSH but E=1 below SH floor",
+			convention: "FreeFieldHRSH",
+			dataType:   dataTypeTFE,
+			e:          1,
+			wantSH:     false,
+		},
 	}
 
 	for _, tc := range cases {

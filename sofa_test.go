@@ -2,7 +2,10 @@ package sofa
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
+
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 func TestOpen(t *testing.T) {
@@ -235,6 +238,43 @@ func TestOpenErrors(t *testing.T) {
 				t.Errorf("Open(%q) error = %v, want error containing %q", tt.path, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestIRPeakdBZeroSilence covers the all-zero (silent) IR branch of
+// IRPeakdB, where peak == 0 and the function should return -Inf.
+func TestIRPeakdBZeroSilence(t *testing.T) {
+	f := &File{
+		M:                1,
+		R:                1,
+		N:                4,
+		ImpulseResponses: [][][]float64{{{0, 0, 0, 0}}},
+	}
+	if got := f.IRPeakdB(0, 0); !math.IsInf(got, -1) {
+		t.Errorf("IRPeakdB(0,0) on silence = %v, want -Inf", got)
+	}
+}
+
+// TestOpenNonSOFAHDF5 covers the "not a SOFA file" branch of Open by
+// writing a valid HDF5 file with Conventions != "SOFA".
+func TestOpenNonSOFAHDF5(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "not_sofa.h5")
+	fw, err := hdf5.CreateForWrite(tmp, hdf5.CreateTruncate,
+		hdf5.WithRootAttribute("Conventions", "NotSOFA"))
+	if err != nil {
+		t.Fatalf("CreateForWrite: %v", err)
+	}
+	if err := fw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	f, err := Open(tmp)
+	if err == nil {
+		f.Close()
+		t.Fatalf("Open(non-SOFA) succeeded, want error")
+	}
+	if !contains(err.Error(), "not a SOFA file") {
+		t.Errorf("Open(non-SOFA) error = %v, want %q", err, "not a SOFA file")
 	}
 }
 

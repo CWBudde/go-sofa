@@ -31,184 +31,50 @@ All work below is optional / future — nothing is blocking shipping. Each
 phase is independent and can be picked up on demand when a real use case
 appears.
 
-### Phase A — SOFA 2.0 spherical-harmonic receiver representations
+### Phase A — SH HRTF support ✅ done 2026-05-10
 
-AES69-2022 introduced spherical-harmonic (SH) representations for
-listener / receiver / source / emitter geometry, plus a `SH` family of
-`DataType`s for SH-domain HRTFs. Today go-sofa only models Cartesian /
-spherical Vector3 positions; SH coefficients are a third audio path
-alongside FIR / TF. The repository does not yet contain a real SH
-testdata file (see `#### SH layout reference` below for why).
+Convention-aware spherical-harmonic accessors layered on the existing
+TF-E I/O. No new DataType, no new wire format, no new write path. See
+[`sofa_sh.go`](sofa_sh.go), [`sofa_sh_test.go`](sofa_sh_test.go),
+README §"Spherical-harmonic (SH) HRTFs".
 
-#### SH layout reference
+**Key finding.** Real-world SH SOFA files use `DataType=TF-E` with
+the `E` (emitter) dimension as SH coefficient index
+(`E = (Lmax+1)²`); SH semantics are declared via convention name
+(`*HRSH*`) or `History` ("Converted to Spherical Harmonics"). AES69's
+public test corpus does **not** expose `DataType="SH"` — the original
+plan's separate-DataType design was wrong, hence the reframe.
 
-**Headline:** despite its filename, `testdata/sofa20_sh_test.sofa` is
-**not** a spherical-harmonic file — it is a `SimpleFreeFieldHRTF` /
-`DataType=TF` ARI HRTF measurement, fully covered by the existing TF
-read/write path. Survey produced with
-[`cmd/sofaprobe`](cmd/sofaprobe/main.go) and `h5dump -A -H`.
+**API surface** (`*File`): `IsSHEncoded()`, `SHOrder() (lmax, ok)`,
+`SHCoefficientCount()`, `SHWarnings() []string`. Wired into
+`cmd/sofainfo`. Coverage: package 80.1 %, all six SH helpers 100 %.
 
-Root attributes:
+#### Reference files
 
-| Attribute | Value |
-| --------- | ----- |
-| `Conventions` | `SOFA` |
-| `SOFAConventions` | `SimpleFreeFieldHRTF` |
-| `SOFAConventionsVersion` | `1.0` |
-| `DataType` | `TF` |
-| `Version` | `2.1` |
-| `Title` | `HRTF` |
-| `RoomType` | `free field` |
-| `DatabaseName` | `ARI` |
-| `ListenerShortName` | `nh4` |
-| `Organization` | `Acoustics Research Institute, Austrian Academy of Sciences` |
-| `DateCreated` | `2013-08-28` |
-| `DateModified` | `2024-12-04` |
+- `testdata/sofa20_sh_test.sofa` — **misnamed**; actually
+  `SimpleFreeFieldHRTF` / `DataType=TF`, no SH content.
+- `testdata/demo_FreeFieldHRTF_4_SH.sofa` (4.2 MB, CC 3.0 BY-SA,
+  from `sofaconventions.org/data/sofatoolbox_test/`, downloaded
+  2026-05-09) — `DataType=TF-E`, `E=1156=34²` (Lmax=33), `N=129`,
+  `M=1`, `R=2`; SH semantic in `History`, not in convention name.
+  Re-survey any candidate via `go run ./cmd/sofaprobe <file>` or
+  `h5dump -A -H <file>`.
 
-Dimension scales: `M=1550`, `R=2`, `N=4`, `C=3`, `E=1`, `I=1`,
-`S=0` (unlimited).
+#### Tasks
 
-Datasets:
-
-| Path | Shape | Dtype | Key attributes |
-| ---- | ----- | ----- | -------------- |
-| `Data.Real` | `[1550][2][4]` | `float64` | dim refs `M, R, N` |
-| `Data.Imag` | `[1550][2][4]` | `float64` | dim refs `M, R, N` |
-| `SourcePosition` | `[1550][3]` | `float64` | `Type=spherical`, `Units=spherical` |
-| `ReceiverPosition` | `[2][3][1]` | `float64` | `Type=cartesian`, `Units=metre` |
-| `ListenerPosition` | `[1][3]` | `float64` | `Type=cartesian`, `Units=metre` |
-| `EmitterPosition` | `[1][3][1]` | `float64` | `Type=cartesian`, `Units=metre` |
-| `ListenerView` | `[1][3]` | `float64` | `Type=cartesian`, `Units=metre` |
-| `ListenerUp` | `[1][3]` | `float64` | (no `Units`) |
-| `N` | `[4]` | `float64` | `CLASS=DIMENSION_SCALE`, `Units=degree`, `LongName=Order` |
-
-**Implication:** there is no SH coefficient dataset, no `SHOrder`
-attribute, no SH-specific dimension in this file. To re-run this
-survey on any candidate file:
-`go run ./cmd/sofaprobe <file.sofa>` or
-`h5dump -A -H <file.sofa>`.
-
-##### `testdata/demo_FreeFieldHRTF_4_SH.sofa` (sourced by A1b)
-
-Downloaded 2026-05-09 from
-`https://www.sofaconventions.org/data/sofatoolbox_test/demo_FreeFieldHRTF_4_SH.sofa`
-(SOFA Toolbox demo step 4, License: CC 3.0 BY-SA).
-
-| Attribute | Value |
-| --------- | ----- |
-| `Conventions` | `SOFA` |
-| `SOFAConventions` | `FreeFieldHRTF` |
-| `SOFAConventionsVersion` | `1.0` |
-| `DataType` | **`TF-E`** (not `SH`) |
-| `History` | `…/ Converted to TF / Converted to TFE / Converted to Spherical Harmonics` |
-| `RoomType` | `free field` |
-| `Organization` | `ARI/ÖAW` |
-| `License` | `CC 3.0 BY-SA` |
-
-Dimension scales: `M=1`, `R=2`, `N=129` (frequency bins),
-**`E=1156` (= 34² SH coefficients, so SH order Lmax=33)**, `C=3`,
-`I=1`, `S=…`.
-
-Datasets of interest:
-
-| Path | Shape | Dtype |
-| ---- | ----- | ----- |
-| `Data.Real` | `[1][2][129][1156]` | `float64` |
-| `Data.Imag` | `[1][2][129][1156]` | `float64` |
-| `EmitterPosition` | `[1][3][1]` | `float64` |
-| `ReceiverPosition` | `[2][3][1]` | `float64` |
-
-**Critical scope finding for Phase A.** AES69's public test corpus
-does *not* expose a `DataType="SH"` value. The SH representation is
-achieved by:
-
-1. Keeping `DataType=TF-E`,
-2. Reusing the `E` (emitter) dimension as the SH coefficient index
-   `c ∈ [0, (Lmax+1)²)`,
-3. Letting the convention name (here `FreeFieldHRTF`) plus
-   `History` text declare the SH semantic.
-
-This contradicts the original Phase A design (which assumed a
-separate `DataType=SH`). Practical consequence: tasks A2/A3/A4/A6
-need re-scoping before implementation. See the **scope review** note
-just above the Tasks list below.
-
-> **Scope reframed (2026-05-09).** A1b found that real-world SH SOFA
-> files use `DataType=TF-E` with the `E` dimension as SH coefficient
-> index, not a separate `DataType=SH`. Phase A is therefore reframed
-> as **convention-aware SH support layered on existing TF-E I/O**: no
-> new DataType, no new wire format, no new write path — just typed
-> accessors that interpret an SH-flavoured TF-E file as SH
-> coefficients. The originally-added `dataTypeSH` constant has been
-> reverted.
-
-Tasks (each is an independent commit; tick as completed):
-
-- [x] **A1. Survey misnamed reference file.** Inspected
-      `testdata/sofa20_sh_test.sofa` (turned out to be plain TF);
-      results recorded in the "SH layout reference" subsection above.
-- [x] **A1b. Source real SH testdata file.** Downloaded
-      `testdata/demo_FreeFieldHRTF_4_SH.sofa` (4.2 MB, CC 3.0 BY-SA)
-      from sofaconventions.org/data/sofatoolbox_test/; structure
-      documented in the SH layout reference subsection above. Found
-      it uses `DataType=TF-E`, which drove the Phase A reframe.
-- [x] **A2. ~~Add `DataType` constants.~~** Reverted. Reason: AES69
-      does not define `DataType=SH` in practice. SH is a convention
-      semantic over TF-E, not a top-level DataType.
-- [x] **A3. SH detection helpers.** Added `IsSHEncoded()`,
-      `SHOrder()`, `SHCoefficientCount()` in
-      [sofa_sh.go](sofa_sh.go); table-driven tests in
-      [sofa_sh_test.go](sofa_sh_test.go) cover plain HRTF, Lmax=1,
-      Lmax=33, non-perfect-square E, non-SH convention, and
-      case-insensitive matching.
-- [x] **A4. Read test against the SH testdata file.**
-      `TestReadSHEncodedTFE` in
-      [sofa_sh_test.go](sofa_sh_test.go) opens
-      `testdata/demo_FreeFieldHRTF_4_SH.sofa` (skipped when absent)
-      and confirms `DataType=TF-E`, `E=1156=34²`, `N=129`, and that
-      `TFRealE` is shaped `[M][R][E][N]`. No new read code needed —
-      validated A2's reframe decision. Note: the demo file uses
-      convention `FreeFieldHRTF` (not `*HRSH*`), so
-      `IsSHEncoded()` returns `false` on it; A7 will add the HRSH
-      convention name and at that point a sibling round-trip test
-      can assert true.
-- [x] **A5. SH-aware validation warnings.** Added
-      `(*File).SHWarnings() []string` in
-      [sofa_sh.go](sofa_sh.go) covering three cases: claims SH but
-      DataType ≠ TF-E; claims SH but E ≠ (L+1)²; perfect-square E on
-      TF-E with no SH claim (false-positive flag). Wired into
-      `cmd/sofainfo` ([cmd/sofainfo/main.go:130-137](cmd/sofainfo/main.go))
-      after the existing dimension printout. Detection in `SHOrder()`
-      was extended to also match the History attribute (case-insensitive
-      "spherical harmonic"), so files like the demo that carry SH
-      semantics in History rather than the convention name are picked
-      up. `go run ./cmd/sofainfo testdata/demo_FreeFieldHRTF_4_SH.sofa`
-      prints `SH-encoded HRTF: Lmax=33, 1156 coefficients` and zero
-      warnings; plain-FIR files (e.g. `MIT_KEMAR_normal_pinna.sofa`)
-      print neither. False-positive path covered by
-      `TestSHWarnings/false_positive...` in
-      [sofa_sh_test.go](sofa_sh_test.go).
-- [x] **A6. ~~SH write path~~ (no new write code).**
-      `TestWriteSHEncodedRoundTrip` in
-      [sofa_sh_test.go](sofa_sh_test.go) builds a
-      `File{DataType:"TF-E", SOFAConventions:"FreeFieldHRSH", E:9, N:4, …}`,
-      saves via the existing TF-E writer, reopens, and confirms
-      `IsSHEncoded()==true`, `SHOrder()==(2, true)`,
-      `SHCoefficientCount()==9`, no warnings, plus bit-exact
-      `TFRealE`/`TFImagE` (Δ < 1e-12) across all 72 coefficients.
-      No code changes outside the test — the convention-aware reframe
-      from A2/A3 means the TF-E writer already handles this case.
-      README pointer for users still TODO (small follow-up under A7).
-- [ ] **A7. Convention table entry.** Add `SimpleFreeFieldHRSH` (and
-      any other `*HRSH` variants the upstream SOFA Toolbox lists) to
-      whatever convention enumeration exists in this repo; flag E as
-      "SH coefficient index" in godoc.
-  - Acceptance: `grep -rn HRSH .` shows the new convention name in
-      the convention table; opening the A1b file does not produce an
-      "unknown convention" warning.
-- [ ] **A8. Coverage check.** `go test -cover ./...` ≥ 80 % overall;
-      new SH-helper functions individually ≥ 90 % covered (small
-      pure functions — should be trivial).
+- [x] A1 — survey misnamed `sofa20_sh_test.sofa`
+- [x] A1b — source real SH testdata (drove the reframe)
+- [x] A2 — `DataType=SH` constant *(reverted; SH is convention-level)*
+- [x] A3 — `IsSHEncoded` / `SHOrder` / `SHCoefficientCount`
+- [x] A4 — read test against demo file (`TestReadSHEncodedTFE`)
+- [x] A5 — `SHWarnings` + `cmd/sofainfo` integration; History-based
+      detection
+- [x] A6 — write round-trip via existing TF-E writer
+      (`TestWriteSHEncodedRoundTrip`, Δ < 1e-12)
+- [x] A7 — README "Spherical-harmonic (SH) HRTFs" subsection + godoc
+      on `File.E` / `File.SOFAConventions`
+- [x] A8 — coverage ≥ 80 % overall (80.1 %, 434/542 stmts) with SH
+      helpers ≥ 90 % (all 100 %)
 
 References: AES69-2022, sofaconventions.org SH page,
 `testdata/demo_FreeFieldHRTF_4_SH.sofa` History attribute.
