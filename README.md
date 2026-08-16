@@ -98,6 +98,26 @@ for i, src := range f.SourcePositions {
 }
 ```
 
+Position components mean different things in different files, so check the
+coordinate system before interpreting them. `SimpleFreeFieldHRIR` stores source
+positions as spherical `(azimuth, elevation, radius)`, not as `(X, Y, Z)`:
+
+```go
+switch f.SourcePositionType {
+case sofa.CoordinateSpherical:
+    // src.X is azimuth, src.Y elevation, src.Z radius.
+    // f.SourcePositionUnits names the angular units, e.g. "degree, degree, metre".
+case sofa.CoordinateCartesian:
+    // src.X, src.Y, src.Z are metres.
+case "":
+    // The file omits the Type attribute; fall back to the convention's default.
+}
+```
+
+The same `…PositionType` and `…PositionUnits` pair exists for the listener,
+receiver, and emitter datasets. Values are lowercased and trimmed on read, and
+are written back out by `Save`.
+
 ### Accessing metadata
 
 ```go
@@ -311,6 +331,7 @@ Represents an open SOFA file with all its data and metadata.
 - `ReceiverPositions []Vector3` — Receiver positions `[R]`
 - `SourcePositions []Vector3` — Source positions `[M]`
 - `EmitterPositions []Vector3` — Emitter positions `[E]`
+- `SourcePositionType, SourcePositionUnits string` — Coordinate system of `SourcePositions`, from the dataset's `Type` and `Units` attributes; empty when the file omits them. Same pair for `ListenerPosition…`, `ReceiverPosition…`, and `EmitterPosition…`
 - `ListenerUp, ListenerView Vector3` — Listener orientation vectors
 - `Frequencies []float64` — Frequency vector `[N]` (TF files only)
 - `TFReal, TFImag [][][]float64` — Complex transfer functions `[M][R][N]` (TF files only)

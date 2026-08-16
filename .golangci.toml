@@ -86,6 +86,11 @@ path = "_test\\.go"  # Allow unchecked errors in tests
 linters = ["goconst"]
 path = "_test\\.go"  # Test fixtures naturally repeat literal values
 
+[[linters.exclusions.rules]]
+linters = ["gosec"]
+text = "G602"        # Nested test fixtures index slices they just allocated to
+path = "_test\\.go"  # constant bounds; gosec cannot follow that and flags each one
+
 # Exclude third-party code
 [[linters.exclusions.rules]]
 path = "third_party"

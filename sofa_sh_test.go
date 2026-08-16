@@ -224,8 +224,10 @@ func TestSHWarnings(t *testing.T) {
 				DataType:        dataTypeTFE,
 				E:               9,
 			},
-			wantSubs: []string{"perfect square consistent with SH order 2",
-				"neither SOFAConventions nor History"},
+			wantSubs: []string{
+				"perfect square consistent with SH order 2",
+				"neither SOFAConventions nor History",
+			},
 		},
 	}
 

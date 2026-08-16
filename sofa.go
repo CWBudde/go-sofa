@@ -32,6 +32,18 @@ const (
 
 	// datasetSourcePosition is the SOFA dataset name for source-position data.
 	datasetSourcePosition = "SourcePosition"
+
+	// Coordinate systems a position dataset's Type attribute may name.
+	CoordinateCartesian = "cartesian"
+	CoordinateSpherical = "spherical"
+
+	// UnitsSphericalDegrees is the conventional Units value for spherical
+	// positions measured in degrees.
+	UnitsSphericalDegrees = "degree, degree, metre"
+
+	// UnitsCartesianMetres is the conventional Units value for cartesian
+	// positions.
+	UnitsCartesianMetres = "metre, metre, metre"
 )
 
 // Vector3 represents a 3D coordinate (X, Y, Z) in meters.
@@ -57,6 +69,22 @@ type File struct {
 	ReceiverPositions []Vector3 // [R] receiver positions (e.g., left/right ear)
 	SourcePositions   []Vector3 // [M] source positions for each measurement
 	EmitterPositions  []Vector3 // [E] emitter positions
+
+	// Coordinate system of each position dataset, from its Type and Units
+	// attributes. Type is "cartesian" or "spherical"; for spherical data the
+	// components are (azimuth, elevation, radius) and Units names their units,
+	// conventionally "degree, degree, metre". Both are stored lowercased and
+	// trimmed, and are empty when the file omits the attribute — absence is
+	// distinguishable from a value, because a reader that must know the
+	// coordinate system should say so rather than guess.
+	ListenerPositionType  string
+	ListenerPositionUnits string
+	ReceiverPositionType  string
+	ReceiverPositionUnits string
+	SourcePositionType    string
+	SourcePositionUnits   string
+	EmitterPositionType   string
+	EmitterPositionUnits  string
 
 	// Audio data — FIR (used when DataType == "FIR")
 	ImpulseResponses [][][]float64 // [M][R][N] the actual IR data
@@ -495,22 +523,29 @@ func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset) error {
 // Position reads are best-effort: some datasets may not be readable due to
 // go-hdf5 limitations with certain storage formats.
 func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset) {
-	// Position datasets — [N×3] float64 arrays.
+	// Position datasets — [N×3] float64 arrays, each carrying Type and Units
+	// attributes that name its coordinate system.
 	type posTarget struct {
-		name string
-		dst  *[]Vector3
+		name  string
+		dst   *[]Vector3
+		typ   *string
+		units *string
 	}
 	for _, pt := range []posTarget{
-		{"ListenerPosition", &f.ListenerPositions},
-		{"ReceiverPosition", &f.ReceiverPositions},
-		{datasetSourcePosition, &f.SourcePositions},
-		{"EmitterPosition", &f.EmitterPositions},
+		{"ListenerPosition", &f.ListenerPositions, &f.ListenerPositionType, &f.ListenerPositionUnits},
+		{"ReceiverPosition", &f.ReceiverPositions, &f.ReceiverPositionType, &f.ReceiverPositionUnits},
+		{datasetSourcePosition, &f.SourcePositions, &f.SourcePositionType, &f.SourcePositionUnits},
+		{"EmitterPosition", &f.EmitterPositions, &f.EmitterPositionType, &f.EmitterPositionUnits},
 	} {
-		if ds, ok := datasets[pt.name]; ok {
-			if vecs, err := readVector3s(ds); err == nil {
-				*pt.dst = vecs
-			}
+		ds, ok := datasets[pt.name]
+		if !ok {
+			continue
 		}
+		if vecs, err := readVector3s(ds); err == nil {
+			*pt.dst = vecs
+		}
+		*pt.typ = readStringAttribute(ds, "Type")
+		*pt.units = readStringAttribute(ds, "Units")
 	}
 
 	// Orientation datasets — single Vector3 each.
@@ -528,6 +563,16 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset) {
 			}
 		}
 	}
+}
+
+// readStringAttribute returns a dataset attribute as a lowercased, trimmed
+// string, or "" when the attribute is absent or unreadable.
+func readStringAttribute(ds *hdf5.Dataset, name string) string {
+	val, err := ds.ReadAttribute(name)
+	if err != nil || val == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", val)))
 }
 
 // readVector3s reads a dataset of float64 triples as Vector3 values.
@@ -673,16 +718,20 @@ func (f *File) Save(path string) error {
 	}
 
 	// Write spatial position datasets
-	if err := writePositionDataset(fw, "/ListenerPosition", f.ListenerPositions); err != nil {
+	if err := writePositionDataset(fw, "/ListenerPosition", f.ListenerPositions,
+		f.ListenerPositionType, f.ListenerPositionUnits); err != nil {
 		return fmt.Errorf("write ListenerPosition: %w", err)
 	}
-	if err := writePositionDataset(fw, "/ReceiverPosition", f.ReceiverPositions); err != nil {
+	if err := writePositionDataset(fw, "/ReceiverPosition", f.ReceiverPositions,
+		f.ReceiverPositionType, f.ReceiverPositionUnits); err != nil {
 		return fmt.Errorf("write ReceiverPosition: %w", err)
 	}
-	if err := writePositionDataset(fw, "/SourcePosition", f.SourcePositions); err != nil {
+	if err := writePositionDataset(fw, "/SourcePosition", f.SourcePositions,
+		f.SourcePositionType, f.SourcePositionUnits); err != nil {
 		return fmt.Errorf("write SourcePosition: %w", err)
 	}
-	if err := writePositionDataset(fw, "/EmitterPosition", f.EmitterPositions); err != nil {
+	if err := writePositionDataset(fw, "/EmitterPosition", f.EmitterPositions,
+		f.EmitterPositionType, f.EmitterPositionUnits); err != nil {
 		return fmt.Errorf("write EmitterPosition: %w", err)
 	}
 
@@ -1194,15 +1243,25 @@ func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
 	return nil
 }
 
-// writePositionDataset writes a position dataset as [N×3] float64 array.
-func writePositionDataset(fw *hdf5.FileWriter, name string, positions []Vector3) error {
+// writePositionDataset writes a position dataset as [N×3] float64 array,
+// tagged with the Type and Units attributes that name its coordinate system.
+// Empty type or units are omitted rather than written as empty strings.
+func writePositionDataset(fw *hdf5.FileWriter, name string, positions []Vector3, typ, units string) error {
 	if len(positions) == 0 {
 		// Skip if no positions provided
 		return nil
 	}
 
+	var attrs []hdf5.DatasetOption
+	if typ != "" {
+		attrs = append(attrs, hdf5.WithAttribute("Type", typ))
+	}
+	if units != "" {
+		attrs = append(attrs, hdf5.WithAttribute("Units", units))
+	}
+
 	ds, err := fw.CreateDataset(name, hdf5.Float64,
-		[]uint64{uint64(len(positions)), 3})
+		[]uint64{uint64(len(positions)), 3}, attrs...)
 	if err != nil {
 		return fmt.Errorf("create dataset: %w", err)
 	}

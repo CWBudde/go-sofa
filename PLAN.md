@@ -16,12 +16,12 @@ history; this file tracks only what's still open.
 
 ## Prior Art & Key Resources
 
-| Resource | Notes |
-| -------- | ----- |
-| `../PasSofa/Source/SofaFile.pas` | Our own SOFA reader (~430 LOC Pascal). Behavioural reference. |
-| `../go-hdf` (go-hdf5 fork) | Pure-Go HDF5 read+write. Provides the low-level file access. |
-| [SOFA / AES69](https://www.sofaconventions.org/mediawiki/index.php/SOFA_specifications) | SOFA convention specs (netCDF-4 / HDF5 based). |
-| [libmysofa](https://github.com/hoene/libmysofa) | Lightweight C SOFA reader — useful as behavioural reference. |
+| Resource                                                                                | Notes                                                         |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `../PasSofa/Source/SofaFile.pas`                                                        | Our own SOFA reader (~430 LOC Pascal). Behavioural reference. |
+| `../go-hdf` (go-hdf5 fork)                                                              | Pure-Go HDF5 read+write. Provides the low-level file access.  |
+| [SOFA / AES69](https://www.sofaconventions.org/mediawiki/index.php/SOFA_specifications) | SOFA convention specs (netCDF-4 / HDF5 based).                |
+| [libmysofa](https://github.com/hoene/libmysofa)                                         | Lightweight C SOFA reader — useful as behavioural reference.  |
 
 ---
 
@@ -64,7 +64,7 @@ plan's separate-DataType design was wrong, hence the reframe.
 
 - [x] A1 — survey misnamed `sofa20_sh_test.sofa`
 - [x] A1b — source real SH testdata (drove the reframe)
-- [x] A2 — `DataType=SH` constant *(reverted; SH is convention-level)*
+- [x] A2 — `DataType=SH` constant _(reverted; SH is convention-level)_
 - [x] A3 — `IsSHEncoded` / `SHOrder` / `SHCoefficientCount`
 - [x] A4 — read test against demo file (`TestReadSHEncodedTFE`)
 - [x] A5 — `SHWarnings` + `cmd/sofainfo` integration; History-based
@@ -131,7 +131,7 @@ Tasks:
   - Acceptance: this PLAN cites either the supporting go-hdf5 API or
     the tracking issue URL.
 - [ ] **C2. Lazy `File` mode.** Add `OpenLazy(path string) (*File,
-      error)` that parses metadata but leaves audio datasets unloaded.
+  error)` that parses metadata but leaves audio datasets unloaded.
       Existing `Open` keeps eager semantics.
   - Acceptance: `TestOpenLazyDoesNotAllocateAudio` opens a >10 MB
     file and asserts `len(f.ImpulseResponses)==0` plus `runtime.MemStats`
@@ -143,7 +143,7 @@ Tasks:
     eagerly and via `ReadMeasurement` for every `m`, asserts deep
     equality.
 - [ ] **C4. Range callback.** Add `(*File).RangeMeasurements(func(m
-      int, ir [][]float64) error) error` for ergonomic iteration.
+  int, ir [][]float64) error) error` for ergonomic iteration.
   - Acceptance: callback returning a non-nil error short-circuits and
     propagates; covered by `TestRangeMeasurementsAbort`.
 - [ ] **C5. Benchmark.** `go test -bench BenchmarkStreamVs Eager` over
@@ -201,11 +201,11 @@ certain features are absent.
 
 ## Risk Register
 
-| Risk | Impact | Mitigation |
-| ---- | ------ | ---------- |
-| go-hdf5 API changes | Medium | Pin dependency version; coordinate with fork. |
-| SOFA files using unsupported `DataType` values | Low | FIR/TF/TF-E/SOS covered; SH tracked in Phase A. |
-| SOFA convention evolution (2.0+) | Low | Phase A. |
+| Risk                                           | Impact | Mitigation                                      |
+| ---------------------------------------------- | ------ | ----------------------------------------------- |
+| go-hdf5 API changes                            | Medium | Pin dependency version; coordinate with fork.   |
+| SOFA files using unsupported `DataType` values | Low    | FIR/TF/TF-E/SOS covered; SH tracked in Phase A. |
+| SOFA convention evolution (2.0+)               | Low    | Phase A.                                        |
 
 ---
 
