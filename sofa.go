@@ -843,7 +843,14 @@ func syncFile(name string) error {
 func (f *File) writeHDF5(path string) (err error) {
 	rootAttrs := f.collectRootAttributes()
 
-	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
+	// Global attributes go into the root object header at creation;
+	// go-hdf5 emits them in option order, so output stays deterministic.
+	opts := make([]interface{}, 0, len(rootAttrs))
+	for _, a := range rootAttrs {
+		opts = append(opts, hdf5.WithRootAttribute(a.name, a.value))
+	}
+
+	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, opts...)
 	if err != nil {
 		return fmt.Errorf("create HDF5 file: %w", err)
 	}
@@ -852,19 +859,6 @@ func (f *File) writeHDF5(path string) (err error) {
 			err = errors.Join(err, fmt.Errorf("close HDF5 file: %w", cerr))
 		}
 	}()
-
-	// Global attributes are written one by one in a fixed order rather than
-	// via hdf5.WithRootAttribute, whose map-backed options are emitted in
-	// random order and make the output non-deterministic.
-	rg, err := fw.RootGroup()
-	if err != nil {
-		return fmt.Errorf("open root group: %w", err)
-	}
-	for _, a := range rootAttrs {
-		if err := rg.WriteAttribute(a.name, a.value); err != nil {
-			return fmt.Errorf("write attribute %s: %w", a.name, err)
-		}
-	}
 
 	// Write dimension-scale datasets (M, R, E) with netCDF attributes, in a
 	// fixed order so output is deterministic.
