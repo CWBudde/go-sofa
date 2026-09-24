@@ -45,7 +45,7 @@ func main() {
 }
 
 func run(dir string) error {
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil { //nolint:gosec // output dir from CLI arg (dev tool)
 		return err
 	}
 
@@ -82,7 +82,7 @@ func run(dir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "expected.json"), append(out, '\n'), 0o600)
+	return os.WriteFile(filepath.Join(dir, "expected.json"), append(out, '\n'), 0o600) //nolint:gosec // output dir from CLI arg (dev tool)
 }
 
 // base returns a file with metadata and positions common to all DataTypes.
