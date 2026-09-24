@@ -35,7 +35,26 @@ Coverage of producers (R3b): SOFA API for Matlab/Octave (`tester`, `MIT_KEMAR`,
 all taken from the libmysofa test set. `TestReadReferenceValues` pins sample
 values and positions of these files as read by h5py 3.11 / HDF5 1.14.
 
-## sofacoustics.org (SOFA Toolbox examples and demo output)
+## Mesh2HRTF test resources
+
+Pinned to Mesh2HRTF commit
+[`e45d043`](https://github.com/Any2HRTF/Mesh2HRTF/tree/e45d0436a6fbeca3db13828cbae23ca109225be3)
+(2026-03-20). The repository is licensed EUPL-1.2 (`LICENSE.txt`); the file
+itself carries no licence of its own.
+
+| File                                           | Source URL                                                                                                                                                        | Producer                                                                                                  | Licence as stated by the source                                                                      | Size (bytes) | SHA-256                                                            |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -----------: | ------------------------------------------------------------------ |
+| `Mesh2HRTF_HRTF_FourPointHorPlane_r100cm.sofa` | https://raw.githubusercontent.com/Any2HRTF/Mesh2HRTF/e45d0436a6fbeca3db13828cbae23ca109225be3/tests/resources/SHTF/Output2HRTF/HRTF_FourPointHorPlane_r100cm.sofa | sofar SOFA API for Python (pyfar.org) 0.3.1 via netCDF-C 4.8.1 / HDF5 1.10.7 (ApplicationName: Mesh2HRTF) | Repository EUPL-1.2; file attribute `License`: "No license provided, ask the author for permission". |        50647 | `e209f2de064f1b82558644e06f5535033839062cf9e1102f53fc2b3e556a2fdf` |
+
+SimpleFreeFieldHRTF 1.0, DataType TF, M=4 R=2 E=1 N=60 (100–6000 Hz). It
+**replaces** the former `FreeFieldHRTF_2.0.sofa` in `TestReadRealTFFile`: that
+file was expected to be a SimpleFreeFieldHRTF / TF file too (M=2354), only
+reachable from sofacoustics.org (whose provenance was never confirmed). Same
+convention and DataType, so it exercises the same read path;
+`TestReadRealTFValues` additionally pins frequencies, Data.Real/Data.Imag
+samples and positions as read by h5py.
+
+## sofacoustics.org (optional, not reachable from CI)
 
 Hosted by the Acoustics Research Institute at https://sofacoustics.org/data/
 (same server as `www.sofaconventions.org/data/`). The `examples/` files are the
@@ -43,17 +62,20 @@ example files linked from the per-convention pages of the SOFA conventions wiki;
 the `sofatoolbox_test/` files are written by the SOFA Toolbox demos
 (`demo_FreeFieldHRTF.m`).
 
-**Not yet pinned:** the host was unreachable from the environment in which this
-manifest was written, so the SHA-256, size, producer and licence of these files
-have not been verified. `scripts/fetch-testdata.sh` downloads them without
-hash verification and prints their hash; pin it in the script and here on the
-first successful fetch.
+**Unreachable:** sofacoustics.org answers HTTP 403 both to the agent sandbox and
+to GitHub Actions runners, and no GitHub-hosted copy of these files was found
+(checked: libmysofa, libsofa, SOFAtoolbox, sofar, pyfar, pysofaconventions,
+python-sofa, Mesh2HRTF, spaudiopy, SUpDEq, sound_field_analysis-py,
+libspatialaudio, IoSR MatlabToolbox, and the PyPI sdists of sofar, pyfar,
+pysofaconventions, python-sofa, spaudiopy, sofa, sound-field-analysis). The
+fetch script marks them `optional`: a failed download is a warning, and the
+tests that need them fail with a pointer to the script. Hash, size, producer
+and licence are unverified; pin them on the first successful fetch.
 
-| File                            | Source URL                                                                                   | Notes                                                                                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GeneralTF_2.0.sofa`            | https://sofacoustics.org/data/examples/GeneralTF_2.0.sofa                                    | Tests expect GeneralTF / TF, M=4 R=4 E=1.                                                                                                                                      |
-| `GeneralTF-E_1.0.sofa`          | https://sofacoustics.org/data/examples/GeneralTF-E_1.0.sofa                                  | Tests expect GeneralTF-E / TF-E, M≥4 R=4800.                                                                                                                                   |
-| `FreeFieldHRTF_1.0.sofa`        | https://sofacoustics.org/data/examples/FreeFieldHRTF_1.0.sofa                                | Tests expect FreeFieldHRTF / TF-E, R=2.                                                                                                                                        |
-| `SimpleFreeFieldHRSOS_1.0.sofa` | https://sofacoustics.org/data/examples/SimpleFreeFieldHRSOS_1.0.sofa                         | Tests expect SimpleFreeFieldHRSOS / SOS, R=2, N≥6.                                                                                                                             |
-| `FreeFieldHRTF_2.0.sofa`        | https://sofacoustics.org/data/sofatoolbox_test/demo_FreeFieldHRTF_2_SimpleFreeFieldHRTF.sofa | Local name kept for the existing tests. Source is inferred (tests expect SimpleFreeFieldHRTF / TF, M=2354, which matches this demo's HRIR_L2354 input); verify on first fetch. |
-| `demo_FreeFieldHRTF_4_SH.sofa`  | https://sofacoustics.org/data/sofatoolbox_test/demo_FreeFieldHRTF_4_SH.sofa                  | Tests expect FreeFieldHRTF / TF-E, E=1156 (Lmax=33), N=129.                                                                                                                    |
+| File                            | Source URL                                                                  | Needed by                               | Notes                                                       |
+| ------------------------------- | --------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------- |
+| `GeneralTF_2.0.sofa`            | https://sofacoustics.org/data/examples/GeneralTF_2.0.sofa                   | `TestReadRealTFFile/GeneralTF_2.0.sofa` | Tests expect GeneralTF / TF, M=4 R=4 E=1.                   |
+| `GeneralTF-E_1.0.sofa`          | https://sofacoustics.org/data/examples/GeneralTF-E_1.0.sofa                 | `TestReadRealTFEAndSOS`                 | Tests expect GeneralTF-E / TF-E, M≥4 R=4800.                |
+| `FreeFieldHRTF_1.0.sofa`        | https://sofacoustics.org/data/examples/FreeFieldHRTF_1.0.sofa               | `TestReadRealTFEAndSOS`                 | Tests expect FreeFieldHRTF / TF-E, R=2.                     |
+| `SimpleFreeFieldHRSOS_1.0.sofa` | https://sofacoustics.org/data/examples/SimpleFreeFieldHRSOS_1.0.sofa        | `TestReadRealTFEAndSOS`                 | Tests expect SimpleFreeFieldHRSOS / SOS, R=2, N≥6.          |
+| `demo_FreeFieldHRTF_4_SH.sofa`  | https://sofacoustics.org/data/sofatoolbox_test/demo_FreeFieldHRTF_4_SH.sofa | `TestReadSHEncodedTFE`                  | Tests expect FreeFieldHRTF / TF-E, E=1156 (Lmax=33), N=129. |
