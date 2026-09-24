@@ -157,13 +157,13 @@ func TestReadRealTFFile(t *testing.T) {
 		wantM, wantR, wantE, wantNAtMin int
 	}{
 		{
-			path:         "testdata/GeneralTF_2.0.sofa",
+			path:         "GeneralTF_2.0.sofa",
 			wantSOFAConv: "GeneralTF",
 			wantDataType: "TF",
 			wantM:        4, wantR: 4, wantE: 1, wantNAtMin: 1,
 		},
 		{
-			path:         "testdata/FreeFieldHRTF_2.0.sofa",
+			path:         "FreeFieldHRTF_2.0.sofa",
 			wantSOFAConv: "SimpleFreeFieldHRTF",
 			wantDataType: "TF",
 			wantM:        2354, wantR: 2, wantE: 1, wantNAtMin: 1,
@@ -171,8 +171,7 @@ func TestReadRealTFFile(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(filepath.Base(tc.path), func(t *testing.T) {
-			requireTestdata(t, tc.path)
-			f, err := Open(tc.path)
+			f, err := Open(testdataPath(t, tc.path))
 			if err != nil {
 				t.Fatalf("Open(%q): %v", tc.path, err)
 			}

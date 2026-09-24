@@ -3,8 +3,6 @@
 
 set shell := ["bash", "-uc"]
 
-export GOPRIVATE := "github.com/MeKo-Christian"
-
 # Default recipe - show available commands
 default:
     @just --list
@@ -36,9 +34,23 @@ check-tidy:
     go mod tidy
     git diff --exit-code go.mod go.sum
 
-# Run all tests
+# Download third-party reference SOFA files into testdata/ (see testdata/PROVENANCE.md)
+fetch-testdata:
+    ./scripts/fetch-testdata.sh
+
+# Run all tests (needs `just fetch-testdata` once)
 test:
-    go test -v -timeout 120s ./...
+    go test -race -v -timeout 300s ./...
+
+# Write one file per DataType with Save and read it back with h5py and netCDF4
+# (needs Python with h5py and netCDF4: pip install h5py netCDF4)
+interop DIR="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="{{ DIR }}"
+    if [[ -z "$dir" ]]; then dir="$(mktemp -d)"; fi
+    go run ./internal/interop/gen "$dir"
+    python3 scripts/interop_check.py "$dir"
 
 # Run tests with coverage
 test-coverage:
@@ -69,7 +81,7 @@ clean:
     rm -f sofaprobe
 
 # Run sofaprobe on sample files
-test-sample FILE="testdata/sample.sofa":
+test-sample FILE="testdata/tester.sofa":
     go run ./cmd/sofaprobe "{{ FILE }}"
 
 # Show version information

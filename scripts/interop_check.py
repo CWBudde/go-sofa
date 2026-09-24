@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Interoperability check for files written by go-sofa's Save.
+
+Reads every file listed in DIR/expected.json (written by
+`go run ./internal/interop/gen DIR`) with both h5py and netCDF4 (netCDF-C),
+and compares global attributes, dataset shapes and values against the
+expected values. Exits non-zero on any mismatch or open/read error.
+
+    python3 scripts/interop_check.py DIR
+
+Self-test of this script (no Go involved): write reference files with h5py
+in the same layout as the generator's expectations, then check them:
+
+    python3 scripts/interop_check.py --write-reference DIR   # DIR has expected.json
+    python3 scripts/interop_check.py DIR
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import traceback
+
+import h5py
+import netCDF4
+import numpy as np
+
+
+def _as_str(v) -> str:
+    if isinstance(v, bytes):
+        return v.decode("utf-8")
+    if isinstance(v, np.ndarray) and v.shape == ():
+        return _as_str(v[()])
+    if isinstance(v, np.ndarray) and v.size == 1:
+        return _as_str(v.reshape(-1)[0])
+    return str(v)
+
+
+def _compare(errors: list[str], where: str, name: str, got, spec: dict) -> None:
+    got = np.asarray(got, dtype=np.float64)
+    want_shape = tuple(spec["shape"])
+    want = np.asarray(spec["values"], dtype=np.float64).reshape(want_shape)
+    if got.shape != want_shape:
+        errors.append(f"{where}: {name}: shape {got.shape}, want {want_shape}")
+        return
+    if not np.array_equal(got, want):
+        idx = np.argwhere(got != want)[0]
+        errors.append(
+            f"{where}: {name}: value mismatch at {tuple(int(i) for i in idx)}: "
+            f"got {got[tuple(idx)]!r}, want {want[tuple(idx)]!r}"
+        )
+
+
+def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
+    where = f"h5py    {os.path.basename(path)}"
+    with h5py.File(path, "r") as f:
+        for key, want in exp["attributes"].items():
+            if key not in f.attrs:
+                errors.append(f"{where}: missing global attribute {key}")
+            elif _as_str(f.attrs[key]) != want:
+                errors.append(f"{where}: attribute {key} = {_as_str(f.attrs[key])!r}, want {want!r}")
+        for name, spec in exp["datasets"].items():
+            if name not in f:
+                errors.append(f"{where}: missing dataset {name}")
+                continue
+            _compare(errors, where, name, f[name][()], spec)
+
+
+def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
+    where = f"netCDF4 {os.path.basename(path)}"
+    with netCDF4.Dataset(path, "r") as nc:
+        nc.set_auto_mask(False)
+        attrs = nc.ncattrs()
+        for key, want in exp["attributes"].items():
+            if key not in attrs:
+                errors.append(f"{where}: missing global attribute {key}")
+            elif _as_str(nc.getncattr(key)) != want:
+                errors.append(f"{where}: attribute {key} = {_as_str(nc.getncattr(key))!r}, want {want!r}")
+        for name, spec in exp["datasets"].items():
+            if name not in nc.variables:
+                errors.append(f"{where}: missing variable {name}")
+                continue
+            _compare(errors, where, name, nc.variables[name][:], spec)
+
+
+def write_reference(directory: str) -> None:
+    """Write each expected file with h5py, in the layout the generator uses."""
+    with open(os.path.join(directory, "expected.json"), encoding="utf-8") as fh:
+        expected = json.load(fh)
+    for fname, exp in expected.items():
+        path = os.path.join(directory, fname)
+        with h5py.File(path, "w", track_order=True) as f:
+            for key, val in exp["attributes"].items():
+                f.attrs[key] = np.bytes_(val)
+            for name, spec in exp["datasets"].items():
+                data = np.asarray(spec["values"], dtype=np.float64).reshape(spec["shape"])
+                f.create_dataset(name, data=data)
+        print(f"wrote reference {path}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("dir", help="directory containing expected.json and the .sofa files")
+    ap.add_argument("--write-reference", action="store_true", help="write reference files with h5py and exit")
+    args = ap.parse_args()
+
+    if args.write_reference:
+        write_reference(args.dir)
+        return 0
+
+    with open(os.path.join(args.dir, "expected.json"), encoding="utf-8") as fh:
+        expected = json.load(fh)
+
+    print(f"h5py {h5py.__version__} (HDF5 {h5py.version.hdf5_version}), "
+          f"netCDF4 {netCDF4.__version__} (netCDF-C {netCDF4.__netcdf4libversion__}, "
+          f"HDF5 {netCDF4.__hdf5libversion__})")
+
+    failed = False
+    for fname in sorted(expected):
+        path = os.path.join(args.dir, fname)
+        for label, check in (("h5py", check_h5py), ("netCDF4", check_netcdf)):
+            errors: list[str] = []
+            try:
+                check(path, expected[fname], errors)
+            except Exception as exc:  # noqa: BLE001 - report every reader failure
+                last = traceback.format_exception_only(type(exc), exc)[-1].strip()
+                errors.append(f"{label:7} {fname}: cannot read: {last}")
+            if errors:
+                failed = True
+                print(f"FAIL {label:7} {fname}")
+                for e in errors:
+                    print(f"     {e}")
+            else:
+                n = len(expected[fname]["datasets"])
+                print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
+
+    if failed:
+        print("interop check FAILED", file=sys.stderr)
+        return 1
+    print("interop check passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

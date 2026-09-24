@@ -2,17 +2,13 @@ package sofa
 
 import (
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestReadSHEncodedTFE(t *testing.T) {
-	const path = "testdata/demo_FreeFieldHRTF_4_SH.sofa"
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Skipf("SH testdata file not present (download from https://www.sofaconventions.org/data/sofatoolbox_test/demo_FreeFieldHRTF_4_SH.sofa)")
-	}
+	path := testdataPath(t, "demo_FreeFieldHRTF_4_SH.sofa")
 	f, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

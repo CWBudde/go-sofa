@@ -7,17 +7,16 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-const testFile = "testdata/MIT_KEMAR_normal_pinna.sofa"
+const testFile = "MIT_KEMAR_normal_pinna.sofa"
 
 // TestReadRootGroupAttributes validates reading AES69 global attributes from the
 // root group. SOFA files typically have >8 global attributes, which causes netCDF4/
 // HDF5 to store them in dense (fractal heap) format rather than compact format.
 //
-// Known go-hdf5 gap: Group.Attributes() returns empty when attributes use dense
-// storage. This test documents the limitation.
+// go-hdf5 must therefore read dense attribute storage; an empty result is a
+// failure, not a skip.
 func TestReadRootGroupAttributes(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -30,10 +29,10 @@ func TestReadRootGroupAttributes(t *testing.T) {
 	}
 
 	if len(attrs) == 0 {
-		t.Skip("root group attributes not readable (dense attribute storage — go-hdf5 limitation)")
+		t.Fatal("root group has 0 readable attributes; SOFA files carry >8 " +
+			"global attributes in dense (fractal heap) storage, which go-hdf5 must read")
 	}
 
-	// If we get here, dense attribute reading has been fixed in go-hdf5.
 	// Validate expected AES69 attributes.
 	expected := []string{"Conventions", "Version", "SOFAConventions", "DataType"}
 	found := make(map[string]bool)
@@ -55,8 +54,7 @@ func TestReadRootGroupAttributes(t *testing.T) {
 }
 
 func TestOpenSOFAFile(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -74,8 +72,7 @@ func TestOpenSOFAFile(t *testing.T) {
 }
 
 func TestWalkGroupsAndDatasets(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -106,8 +103,7 @@ func TestWalkGroupsAndDatasets(t *testing.T) {
 }
 
 func TestReadDataIR(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -137,8 +133,7 @@ func TestReadDataIR(t *testing.T) {
 }
 
 func TestReadDatasetStringAttributes(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -175,8 +170,7 @@ func TestReadDatasetStringAttributes(t *testing.T) {
 }
 
 func TestReadDimensionScaleAttributes(t *testing.T) {
-	requireTestdata(t, testFile)
-	f, err := hdf5.Open(testFile)
+	f, err := hdf5.Open(testdataPath(t, testFile))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -228,15 +222,15 @@ func TestReadDimensionScaleAttributes(t *testing.T) {
 // features needed by SOFA files in a single test, across all test files.
 func TestSOFAIntegration(t *testing.T) {
 	files := []string{
-		"testdata/MIT_KEMAR_normal_pinna.sofa",
-		"testdata/CIPIC_subject_003_hrir_final.sofa",
-		"testdata/tester.sofa",
+		"MIT_KEMAR_normal_pinna.sofa",
+		"CIPIC_subject_003_hrir_final.sofa",
+		"tester.sofa",
+		"Mesh2HRTF.sofa",
 	}
 
 	for _, path := range files {
 		t.Run(path, func(t *testing.T) {
-			requireTestdata(t, path)
-			f, err := hdf5.Open(path)
+			f, err := hdf5.Open(testdataPath(t, path))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -322,13 +316,13 @@ func TestSOFAIntegration(t *testing.T) {
 				}
 			}
 
-			// 5. Root group attributes (known gap: dense storage not yet supported).
+			// 5. Root group attributes (dense storage in netCDF-4 files).
 			attrs, err := root.Attributes()
 			switch {
 			case err != nil:
 				t.Errorf("root Attributes: %v", err)
 			case len(attrs) == 0:
-				t.Log("root attributes: 0 (dense storage — go-hdf5 limitation)")
+				t.Error("root attributes: 0 (dense attribute storage not read)")
 			default:
 				t.Logf("root attributes: %d", len(attrs))
 			}
