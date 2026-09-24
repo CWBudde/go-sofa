@@ -10,8 +10,11 @@
 package sofa
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -261,69 +264,144 @@ func (f *File) readGlobalAttributes(root *hdf5.Group) error {
 	return nil
 }
 
+// maxDataElements caps the number of elements (product of dimensions) a
+// SOFA data array may declare. It bounds the size arithmetic so that
+// crafted dimension values cannot overflow int or request absurd
+// allocations; 1<<30 float64 values is 8 GiB, well beyond any real
+// HRTF/BRIR data set.
+const maxDataElements = 1 << 30
+
 // readDimensions extracts M, R, E, N from dimension-scale datasets.
 // These datasets have a NAME attribute containing the dimension size.
+// Every dimension is validated (1 ≤ size, product ≤ maxDataElements)
+// before any audio data is read or allocated.
 func (f *File) readDimensions(datasets map[string]*hdf5.Dataset) error {
-	dims := map[string]*int{
-		"M": &f.M,
-		"R": &f.R,
-		"E": &f.E,
-		"N": &f.N,
+	// Fixed order so error messages are deterministic.
+	dims := []struct {
+		name string
+		dst  *int
+	}{
+		{"M", &f.M},
+		{"R", &f.R},
+		{"E", &f.E},
+		{"N", &f.N},
 	}
 
-	for name, dst := range dims {
-		ds, ok := datasets[name]
-		if !ok {
-			return fmt.Errorf("dimension dataset %q not found", name)
-		}
-
-		// Try to read the size from the netCDF-4 NAME attribute. The
-		// classic "dimension but not variable" form is
-		//   "This is a netCDF dimension but not a netCDF variable.   <size>"
-		// When the dataset is itself a coordinate variable (NAME holds
-		// just the dimension label, e.g. "N"), parsing fails and the
-		// real size lives in the dataset's dataspace shape.
-		hasCoordNAME := false
-		if val, err := ds.ReadAttribute("NAME"); err == nil {
-			if s, ok := val.(string); ok {
-				if n, perr := parseDimensionSize(s); perr == nil {
-					*dst = n
-					continue
-				}
-				hasCoordNAME = true
-			}
-		}
-
-		data, err := ds.Read()
+	for _, d := range dims {
+		n, err := readDimension(datasets, d.name)
 		if err != nil {
-			return fmt.Errorf("dimension %q: read dataset: %w", name, err)
+			return err
 		}
-		switch {
-		case len(data) == 0:
-			return fmt.Errorf("dimension %q: empty dataset", name)
-		case len(data) > 1:
-			// Either /N as a TF frequency vector or any coord variable
-			// with multiple elements — dataspace length is the size.
-			*dst = len(data)
-		case hasCoordNAME:
-			// netCDF coordinate variable with one element: dataspace
-			// shape is the size; the (possibly zero) value is unrelated.
-			*dst = len(data)
-		case name == "N":
-			// Scalar /N from go-sofa-written FIR files: the value is
-			// the sample count.
-			*dst = int(data[0])
-		default:
-			// /M, /R, /E from go-sofa-written files: scalar carrying the
-			// count. Fall back to len if the value is unset.
-			if v := int(data[0]); v > 0 {
-				*dst = v
-			} else {
-				*dst = len(data)
-			}
-		}
+		*d.dst = n
+	}
+
+	if _, err := dimProduct(f.M, f.R, f.E, f.N); err != nil {
+		return fmt.Errorf("dimensions M=%d R=%d E=%d N=%d: %w", f.M, f.R, f.E, f.N, err)
 	}
 	return nil
+}
+
+// readDimension resolves and validates the size of one dimension.
+func readDimension(datasets map[string]*hdf5.Dataset, name string) (int, error) {
+	ds, ok := datasets[name]
+	if !ok {
+		return 0, fmt.Errorf("dimension dataset %q not found", name)
+	}
+
+	// Try to read the size from the netCDF-4 NAME attribute. The
+	// classic "dimension but not variable" form is
+	//   "This is a netCDF dimension but not a netCDF variable.   <size>"
+	// When the dataset is itself a coordinate variable (NAME holds
+	// just the dimension label, e.g. "N"), parsing fails and the
+	// real size lives in the dataset's dataspace shape.
+	hasCoordNAME := false
+	if val, err := ds.ReadAttribute("NAME"); err == nil {
+		if s, ok := val.(string); ok {
+			n, perr := parseDimensionSize(s)
+			switch {
+			case perr != nil:
+				hasCoordNAME = true
+			case n < 0:
+				return 0, fmt.Errorf("dimension %q: negative size %d in NAME attribute", name, n)
+			case n > 0:
+				return checkDimension(name, n)
+			}
+			// n == 0: netCDF records 0 for an unlimited dimension that
+			// was empty when defined; fall back to the dataset below.
+		}
+	}
+
+	data, err := ds.Read()
+	if err != nil {
+		return 0, fmt.Errorf("dimension %q: read dataset: %w", name, err)
+	}
+	switch {
+	case len(data) == 0:
+		return 0, fmt.Errorf("dimension %q: empty dataset", name)
+	case len(data) > 1, hasCoordNAME:
+		// Either /N as a TF frequency vector or any coordinate variable:
+		// the dataspace length is the size; values are unrelated.
+		return checkDimension(name, len(data))
+	case name == "N":
+		// Scalar /N from go-sofa-written FIR files: the value is the
+		// sample count.
+		n, err := floatDimension(name, data[0])
+		if err != nil {
+			return 0, err
+		}
+		return checkDimension(name, n)
+	default:
+		// /M, /R, /E from go-sofa-written files: scalar carrying the
+		// count. Fall back to len if the value is unset (zero).
+		if data[0] == 0 {
+			return 1, nil
+		}
+		n, err := floatDimension(name, data[0])
+		if err != nil {
+			return 0, err
+		}
+		return checkDimension(name, n)
+	}
+}
+
+// floatDimension converts a dimension size stored as a float64 value to
+// int, rejecting NaN, ±Inf, non-integral and out-of-range values.
+func floatDimension(name string, v float64) (int, error) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("dimension %q: non-finite size %v", name, v)
+	}
+	if v != math.Trunc(v) {
+		return 0, fmt.Errorf("dimension %q: non-integer size %v", name, v)
+	}
+	if v < 1 || v > maxDataElements {
+		return 0, fmt.Errorf("dimension %q: size %v out of range [1, %d]", name, v, maxDataElements)
+	}
+	return int(v), nil
+}
+
+// checkDimension validates an integer dimension size.
+func checkDimension(name string, n int) (int, error) {
+	if n < 1 || n > maxDataElements {
+		return 0, fmt.Errorf("dimension %q: size %d out of range [1, %d]", name, n, maxDataElements)
+	}
+	return n, nil
+}
+
+// dimProduct multiplies positive dimension sizes, failing if the product
+// exceeds maxDataElements (which also rules out int overflow, since each
+// partial product is checked before the next multiplication).
+func dimProduct(dims ...int) (int, error) {
+	p := 1
+	for _, d := range dims {
+		if d < 1 {
+			return 0, fmt.Errorf("dimension size %d must be positive", d)
+		}
+		if p > maxDataElements/d {
+			return 0, fmt.Errorf("element count exceeds limit %d", maxDataElements)
+		}
+		p *= d
+	}
+	return p, nil
 }
 
 // parseDimensionSize extracts the size from a netCDF dimension-scale NAME string.
@@ -606,7 +684,7 @@ func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
 		result[i] = make([][]float64, r)
 		for j := range r {
 			start := (i*r + j) * n
-			result[i][j] = flat[start : start+n]
+			result[i][j] = flat[start : start+n : start+n]
 		}
 	}
 	return result
@@ -622,7 +700,7 @@ func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
 			result[i][j] = make([][]float64, e)
 			for k := range e {
 				start := ((i*r+j)*e + k) * n
-				result[i][j][k] = flat[start : start+n]
+				result[i][j][k] = flat[start : start+n : start+n]
 			}
 		}
 	}
@@ -649,15 +727,20 @@ func (f *File) Duration() float64 {
 }
 
 // IRAt returns the impulse response for measurement m, receiver r.
-// Returns nil if indices are out of range.
+// Returns nil if indices are out of range or the file holds no impulse
+// responses (DataType other than "FIR").
 func (f *File) IRAt(m, r int) []float64 {
 	if m < 0 || m >= f.M || r < 0 || r >= f.R {
+		return nil
+	}
+	if m >= len(f.ImpulseResponses) || r >= len(f.ImpulseResponses[m]) {
 		return nil
 	}
 	return f.ImpulseResponses[m][r]
 }
 
 // IRPeakdB returns the peak level in dB (relative to 1.0) for measurement m, receiver r.
+// Returns -Inf when IRAt(m, r) is nil (out of range or non-FIR file) or silent.
 func (f *File) IRPeakdB(m, r int) float64 {
 	ir := f.IRAt(m, r)
 	if ir == nil {
@@ -679,39 +762,123 @@ func (f *File) IRPeakdB(m, r int) float64 {
 // It validates the File struct before writing and creates a fully compliant
 // SOFA file with netCDF-4/HDF5 dimension scales.
 //
-// The file is created from scratch each time, ensuring no corruption of the original.
-// All required SOFA attributes and datasets are written, along with optional fields
-// if present in the File struct.
+// Save is atomic: the file is written to a temporary file in the same
+// directory, flushed and fsynced, and then renamed over path. A failed
+// Save leaves any existing file at path untouched and removes the
+// temporary file. If path already exists its permission bits are kept;
+// otherwise the new file gets mode 0644. Output is deterministic: saving
+// the same File twice produces byte-identical files.
+//
+// All required SOFA attributes and datasets are written, along with optional
+// fields if present in the File struct.
 //
 // Returns an error if:
 //   - Validation fails (missing required fields, invalid dimensions, etc.)
 //   - HDF5 file creation fails
-//   - Any write operation fails
-func (f *File) Save(path string) error {
+//   - Any write, flush, close, sync or rename operation fails
+func (f *File) Save(path string) (err error) {
 	// Validate the File struct before writing
 	if err := f.validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	mode := os.FileMode(0o644)
+	if fi, statErr := os.Stat(path); statErr == nil {
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("save %s: not a regular file", path)
+		}
+		mode = fi.Mode().Perm()
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary file: %w", err)
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("create temporary file: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := f.writeHDF5(tmpName); err != nil {
+		return err
+	}
+	if err := syncFile(tmpName); err != nil {
+		return fmt.Errorf("sync %s: %w", tmpName, err)
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", tmpName, path, err)
+	}
+	// Best effort: persist the directory entry. Not supported everywhere
+	// (e.g. Windows), and the data itself is already durable.
+	_ = syncFile(dir)
+	return nil
+}
+
+// saveTestHook, when non-nil, is called by writeHDF5 after all datasets
+// have been written and before the writer is closed. Tests use it to
+// inject a failure late in Save.
+var saveTestHook func() error
+
+// syncFile opens name and fsyncs it.
+func syncFile(name string) error {
+	fd, err := os.Open(name) //nolint:gosec // path chosen by Save
+	if err != nil {
+		return err
+	}
+	return errors.Join(fd.Sync(), fd.Close())
+}
+
+// writeHDF5 writes the SOFA structure to path (truncating it). The
+// writer's Close error is returned, joined with any earlier error.
+func (f *File) writeHDF5(path string) (err error) {
 	rootAttrs := f.collectRootAttributes()
 
-	// Create HDF5 file with root attributes
-	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, rootAttrs...)
+	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
 	if err != nil {
 		return fmt.Errorf("create HDF5 file: %w", err)
 	}
-	defer fw.Close()
+	defer func() {
+		if cerr := fw.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close HDF5 file: %w", cerr))
+		}
+	}()
 
-	// Write dimension-scale datasets (M, R, E) with netCDF attributes.
-	// /N is written separately: scalar size for FIR, frequency vector for TF.
-	dimScales := map[string]int{
-		"/M": f.M,
-		"/R": f.R,
-		"/E": f.E,
+	// Global attributes are written one by one in a fixed order rather than
+	// via hdf5.WithRootAttribute, whose map-backed options are emitted in
+	// random order and make the output non-deterministic.
+	rg, err := fw.RootGroup()
+	if err != nil {
+		return fmt.Errorf("open root group: %w", err)
 	}
-	for name, size := range dimScales {
-		if err := writeDimensionScale(fw, name, size); err != nil {
-			return fmt.Errorf("write dimension %s: %w", name, err)
+	for _, a := range rootAttrs {
+		if err := rg.WriteAttribute(a.name, a.value); err != nil {
+			return fmt.Errorf("write attribute %s: %w", a.name, err)
+		}
+	}
+
+	// Write dimension-scale datasets (M, R, E) with netCDF attributes, in a
+	// fixed order so output is deterministic.
+	// /N is written separately: scalar size for FIR, frequency vector for TF.
+	for _, d := range []struct {
+		name string
+		size int
+	}{
+		{"/M", f.M},
+		{"/R", f.R},
+		{"/E", f.E},
+	} {
+		if err := writeDimensionScale(fw, d.name, d.size); err != nil {
+			return fmt.Errorf("write dimension %s: %w", d.name, err)
 		}
 	}
 	if f.DataType == dataTypeTF || f.DataType == dataTypeTFE {
@@ -758,23 +925,31 @@ func (f *File) Save(path string) error {
 		return fmt.Errorf("write audio data: %w", err)
 	}
 
+	if saveTestHook != nil {
+		if err := saveTestHook(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// collectRootAttributes builds the slice of WithRootAttribute options
-// passed to the underlying file writer. Required AES69 attributes are
-// always emitted; optional ones are skipped when empty.
-func (f *File) collectRootAttributes() []interface{} {
-	rootAttrs := []interface{}{
-		hdf5.WithRootAttribute("Conventions", f.Conventions),
-		hdf5.WithRootAttribute("Version", f.Version),
-		hdf5.WithRootAttribute("SOFAConventions", f.SOFAConventions),
-		hdf5.WithRootAttribute("SOFAConventionsVersion", f.SOFAConventionsVersion),
-		hdf5.WithRootAttribute("DataType", f.DataType),
+// rootAttribute is one global (root-group) string attribute.
+type rootAttribute struct {
+	name, value string
+}
+
+// collectRootAttributes returns the global attributes to write, in a
+// fixed order. Required AES69 attributes are always emitted; optional
+// ones are skipped when empty.
+func (f *File) collectRootAttributes() []rootAttribute {
+	attrs := []rootAttribute{
+		{"Conventions", f.Conventions},
+		{"Version", f.Version},
+		{"SOFAConventions", f.SOFAConventions},
+		{"SOFAConventionsVersion", f.SOFAConventionsVersion},
+		{"DataType", f.DataType},
 	}
-	for _, opt := range []struct {
-		name, value string
-	}{
+	for _, opt := range []rootAttribute{
 		{"Title", f.Title},
 		{"DateCreated", f.DateCreated},
 		{"DateModified", f.DateModified},
@@ -792,10 +967,10 @@ func (f *File) collectRootAttributes() []interface{} {
 		{"RoomType", f.RoomType},
 	} {
 		if opt.value != "" {
-			rootAttrs = append(rootAttrs, hdf5.WithRootAttribute(opt.name, opt.value))
+			attrs = append(attrs, opt)
 		}
 	}
-	return rootAttrs
+	return attrs
 }
 
 // validate checks that the File struct contains all required fields
