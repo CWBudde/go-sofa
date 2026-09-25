@@ -341,7 +341,9 @@ small); `TFReal`/`TFImag` are emitted only with `--include-tf`.
 
 #### `File`
 
-Represents an open SOFA file with all its data and metadata.
+Holds the contents of a SOFA file — attributes, positions and audio data —
+fully loaded by `Open` (which closes the file before returning) or built in
+memory for `Save`. It holds no open file handle.
 
 **Fields:**
 

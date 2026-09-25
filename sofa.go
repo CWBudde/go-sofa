@@ -199,15 +199,20 @@ type File struct {
 
 // Open reads a SOFA file. It checks that the file is a SOFA file, reads all
 // data and metadata into the returned File and closes the file again before
-// it returns, so the File holds no open handle.
-func Open(path string) (*File, error) {
+// it returns, so the File holds no open handle. A failure to close the file
+// is returned too, joined with any read error, and yields no File.
+func Open(path string) (f *File, err error) {
 	h, err := hdf5.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
-	defer h.Close()
+	defer func() {
+		if cerr := h.Close(); cerr != nil {
+			f, err = nil, errors.Join(err, fmt.Errorf("close HDF5: %w", cerr))
+		}
+	}()
 
-	f := &File{}
+	f = &File{}
 	root := h.Root()
 
 	// Read global attributes from root group.
