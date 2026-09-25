@@ -34,7 +34,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 is done; R6 is done except R6e (lossless round-trip); R7–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 and R6 are done; R7–R9 remain. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -195,7 +195,7 @@ R1–R4 are release blockers.
     New `CoordinateSphericalHarmonics`. Both SH fixtures carry the Type.
     `TestSHDetectionByEmitterType`, `TestSHFixturesByEmitterType`.
 
-#### R6 — AES69 conformance of written files (medium)
+#### R6 — AES69 conformance of written files (medium) — ✅ DONE (2026-09-25)
 
 - [x] **R6a.** Emit mandatory global attributes (`DateCreated`,
       `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
@@ -249,9 +249,24 @@ R1–R4 are release blockers.
     `FreeFieldHRTF` TF-E; `FreeFieldDirectivityTF` TF.
     `TestValidateRejectsNonFinite`, `TestValidateRejectsBadData`,
     `TestSaveDefaultsListenerOrientation`, `TestConventionConstraints`.
-- [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
+- [x] **R6e. Lossless round-trip.** Preserve unknown global attributes,
       extra variables and variable attributes; stop lowercasing
       `Type`/`Units` on read (normalise only for comparisons).
+  - (2026-09-25) — new exported `File.Attributes` (unmapped globals),
+    `Variables` (uninterpreted variables: numeric as float64, char arrays as
+    bytes, with their netCDF dimension names, extra dimensions such as `S`
+    written as new scales) and `VariableAttributes` (further attributes of
+    written variables); `Open` fills them sorted by name, `Save` writes them
+    back and `validate` rejects clashes with what `Save` writes itself, bad
+    shapes, dimension size mismatches and unwritable values. `File.Dropped`
+    lists what cannot be kept (scalars, wide strings, compound types).
+    `Type`/`Units` keep their case; comparisons already use `EqualFold`.
+    Fixed in passing: null-dataspace globals (the Toolbox's empty `Title`)
+    read as `"[]"`. `TestRoundTripPreservesExtras` (Mesh2HRTF, CIPIC,
+    OfficeII, SingleRoomSRIR), `TestRoundTripSyntheticExtras`,
+    `TestTypeUnitsKeepCase`, `TestValidateRejectsBadExtras`,
+    `TestOpenEmptyGlobalAttributes`; `just interop` checks a written
+    `extras.sofa` with h5py and netCDF4.
 - [x] **R6f. TF-E axis order on write.** `Save` writes TF-E
       `Data.Real/Imag` as `[M,R,E,N]`; the SOFA Toolbox (2.2.1) writes
       `[M,R,N,E]` for FreeFieldHRTF and GeneralTF-E. Check the AES69
