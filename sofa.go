@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -73,6 +74,15 @@ type File struct {
 	ReceiverPositions []Vector3 // [R] receiver positions (e.g., left/right ear)
 	SourcePositions   []Vector3 // [M] source positions for each measurement
 	EmitterPositions  []Vector3 // [E] emitter positions
+
+	// Measurement-dependent layouts, filled by Open only when a file stores
+	// them: ReceiverPosition [R,C,M] and EmitterPosition [E,C,M] as [M][R]
+	// and [M][E], ListenerView and ListenerUp [M,C] as [M]. The fields above
+	// then hold measurement 0. Save does not write these fields yet.
+	ReceiverPositionsM [][]Vector3
+	EmitterPositionsM  [][]Vector3
+	ListenerViews      []Vector3
+	ListenerUps        []Vector3
 
 	// Coordinate system of each position dataset, from its Type and Units
 	// attributes. Type is "cartesian" or "spherical"; for spherical data the
@@ -185,13 +195,18 @@ func Open(path string) (*File, error) {
 	}
 
 	// Read audio data.
-	if err := f.readAudioData(datasets); err != nil {
+	labels := dimensionLabels(datasets)
+	if err := f.readAudioData(datasets, labels); err != nil {
 		h.Close()
 		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
-	// Read spatial data (best effort; missing datasets are skipped).
-	f.readSpatialData(datasets)
+	// Read spatial data. Missing or unreadable datasets are skipped, but a
+	// shape that matches no allowed layout fails.
+	if err := f.readSpatialData(datasets, labels); err != nil {
+		h.Close()
+		return nil, fmt.Errorf("read spatial data: %w", err)
+	}
 	f.readRoomScalars(datasets)
 
 	return f, nil
@@ -426,26 +441,36 @@ func parseDimensionSize(s string) (int, error) {
 // readAudioData dispatches based on DataType. For TF, reads /Data.Real,
 // /Data.Imag, and the frequency vector from /N. For FIR, reads
 // /Data.IR, /Data.SamplingRate, and /Data.Delay.
-func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
+func (f *File) readAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	switch f.DataType {
 	case dataTypeFIR:
-		return f.readFIRAudioData(datasets)
+		return f.readFIRAudioData(datasets, labels)
 	case dataTypeTF:
-		return f.readTFAudioData(datasets)
+		return f.readTFAudioData(datasets, labels)
 	case dataTypeTFE:
-		return f.readTFEAudioData(datasets)
+		return f.readTFEAudioData(datasets, labels)
 	case dataTypeSOS:
-		return f.readSOSAudioData(datasets)
+		return f.readSOSAudioData(datasets, labels)
 	default:
 		return checkDataType(f.DataType)
 	}
 }
 
-func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset) error {
+// Layouts of the audio variables, in order of preference.
+var (
+	layoutMRN  = []string{dimM, dimR, dimN}
+	layoutMREN = []string{dimM, dimR, dimE, dimN} // go-sofa's TF-E order
+	layoutMRNE = []string{dimM, dimR, dimN, dimE} // SOFA Toolbox's TF-E order
+)
+
+func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	// Data.IR — [M][R][N] float64
 	irDS, ok := datasets["Data.IR"]
 	if !ok {
 		return fmt.Errorf("Data.IR dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.IR", irDS, labels["Data.IR"], layoutMRN); err != nil {
+		return err
 	}
 	irFlat, err := irDS.Read()
 	if err != nil {
@@ -458,24 +483,42 @@ func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset) error {
 	}
 	f.ImpulseResponses = reshapeIR(irFlat, f.M, f.R, f.N)
 
+	return f.readRateAndDelay(datasets, labels)
+}
+
+// readRateAndDelay reads Data.SamplingRate ([I] or [M]) and Data.Delay
+// ([I,R], [M,R], or the 1-D [I], [M], [R] or [M·R] that go-sofa wrote
+// before it named its dimensions), shared by FIR and SOS.
+func (f *File) readRateAndDelay(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
+	var err error
 	if ds, ok := datasets["Data.SamplingRate"]; ok {
+		if _, err := f.resolveLayout("Data.SamplingRate", ds, labels["Data.SamplingRate"],
+			[]string{dimI}, []string{dimM}); err != nil {
+			return err
+		}
 		f.SamplingRate, err = ds.Read()
 		if err != nil {
 			return fmt.Errorf("read Data.SamplingRate: %w", err)
 		}
 	}
-
 	if ds, ok := datasets["Data.Delay"]; ok {
+		if _, err := f.resolveLayout("Data.Delay", ds, labels["Data.Delay"],
+			[]string{dimI, dimR}, []string{dimM, dimR}, []string{dimI}, []string{dimM}, []string{dimR}); err != nil {
+			shape, _ := datasetShape(ds)
+			legacy := labels["Data.Delay"] == nil && len(shape) == 1 && shape[0] == uint64(f.M*f.R) //nolint:gosec // bounded by dimProduct
+			if !legacy {
+				return err
+			}
+		}
 		f.Delay, err = ds.Read()
 		if err != nil {
 			return fmt.Errorf("read Data.Delay: %w", err)
 		}
 	}
-
 	return nil
 }
 
-func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
+func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	if err := f.readFrequencyVector(datasets); err != nil {
 		return err
 	}
@@ -485,6 +528,9 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
 	realDS, ok := datasets["Data.Real"]
 	if !ok {
 		return fmt.Errorf("Data.Real dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMRN); err != nil {
+		return err
 	}
 	realFlat, err := realDS.Read()
 	if err != nil {
@@ -499,6 +545,9 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
 	imagDS, ok := datasets["Data.Imag"]
 	if !ok {
 		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRN); err != nil {
+		return err
 	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
@@ -515,8 +564,9 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset) error {
 
 // readTFEAudioData reads /Data.Real and /Data.Imag as 4D arrays of
 // shape [M][R][E][N], plus the frequency vector from /N. Used for
-// DataType == "TF-E".
-func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
+// DataType == "TF-E". Files store the arrays either [M,R,E,N] (go-sofa) or
+// [M,R,N,E] (SOFA Toolbox); the latter is transposed on read.
+func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	if err := f.readFrequencyVector(datasets); err != nil {
 		return err
 	}
@@ -527,6 +577,10 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
 	if !ok {
 		return fmt.Errorf("Data.Real dataset not found")
 	}
+	realLayout, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMREN, layoutMRNE)
+	if err != nil {
+		return err
+	}
 	realFlat, err := realDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Real: %w", err)
@@ -535,11 +589,18 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
 		return fmt.Errorf("Data.Real size %d, want %d (M=%d R=%d E=%d N=%d)",
 			len(realFlat), expected, f.M, f.R, f.E, f.N)
 	}
+	if slices.Equal(realLayout, layoutMRNE) {
+		realFlat = swapLastAxes(realFlat, f.M*f.R, f.N, f.E)
+	}
 	f.TFRealE = reshape4D(realFlat, f.M, f.R, f.E, f.N)
 
 	imagDS, ok := datasets["Data.Imag"]
 	if !ok {
 		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
+	if err != nil {
+		return err
 	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
@@ -549,6 +610,9 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
 		return fmt.Errorf("Data.Imag size %d, want %d (M=%d R=%d E=%d N=%d)",
 			len(imagFlat), expected, f.M, f.R, f.E, f.N)
 	}
+	if slices.Equal(imagLayout, layoutMRNE) {
+		imagFlat = swapLastAxes(imagFlat, f.M*f.R, f.N, f.E)
+	}
 	f.TFImagE = reshape4D(imagFlat, f.M, f.R, f.E, f.N)
 
 	return nil
@@ -556,10 +620,13 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset) error {
 
 // readSOSAudioData reads /Data.SOS as [M][R][N] biquad coefficients,
 // plus SamplingRate and Delay (FIR-style). Used for DataType == "SOS".
-func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset) error {
+func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	sosDS, ok := datasets["Data.SOS"]
 	if !ok {
 		return fmt.Errorf("Data.SOS dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.SOS", sosDS, labels["Data.SOS"], layoutMRN); err != nil {
+		return err
 	}
 	flat, err := sosDS.Read()
 	if err != nil {
@@ -575,19 +642,7 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset) error {
 	}
 	f.SOSCoefficients = reshapeIR(flat, f.M, f.R, f.N)
 
-	if ds, ok := datasets["Data.SamplingRate"]; ok {
-		f.SamplingRate, err = ds.Read()
-		if err != nil {
-			return fmt.Errorf("read Data.SamplingRate: %w", err)
-		}
-	}
-	if ds, ok := datasets["Data.Delay"]; ok {
-		f.Delay, err = ds.Read()
-		if err != nil {
-			return fmt.Errorf("read Data.Delay: %w", err)
-		}
-	}
-	return nil
+	return f.readRateAndDelay(datasets, labels)
 }
 
 // readFrequencyVector reads /N for TF / TF-E DataTypes. Shared between
@@ -611,79 +666,6 @@ func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset) error {
 		return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
 	}
 	return nil
-}
-
-// readSpatialData reads listener, receiver, source, and emitter positions.
-// Position reads are best-effort: some datasets may not be readable due to
-// go-hdf5 limitations with certain storage formats.
-func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset) {
-	// Position datasets — [N×3] float64 arrays, each carrying Type and Units
-	// attributes that name its coordinate system.
-	type posTarget struct {
-		name  string
-		dst   *[]Vector3
-		typ   *string
-		units *string
-	}
-	for _, pt := range []posTarget{
-		{"ListenerPosition", &f.ListenerPositions, &f.ListenerPositionType, &f.ListenerPositionUnits},
-		{"ReceiverPosition", &f.ReceiverPositions, &f.ReceiverPositionType, &f.ReceiverPositionUnits},
-		{datasetSourcePosition, &f.SourcePositions, &f.SourcePositionType, &f.SourcePositionUnits},
-		{"EmitterPosition", &f.EmitterPositions, &f.EmitterPositionType, &f.EmitterPositionUnits},
-	} {
-		ds, ok := datasets[pt.name]
-		if !ok {
-			continue
-		}
-		if vecs, err := readVector3s(ds); err == nil {
-			*pt.dst = vecs
-		}
-		*pt.typ = readStringAttribute(ds, "Type")
-		*pt.units = readStringAttribute(ds, "Units")
-	}
-
-	// Orientation datasets — single Vector3 each.
-	type orientTarget struct {
-		name string
-		dst  *Vector3
-	}
-	for _, ot := range []orientTarget{
-		{"ListenerUp", &f.ListenerUp},
-		{"ListenerView", &f.ListenerView},
-	} {
-		if ds, ok := datasets[ot.name]; ok {
-			if vecs, err := readVector3s(ds); err == nil && len(vecs) > 0 {
-				*ot.dst = vecs[0]
-			}
-		}
-	}
-}
-
-// readStringAttribute returns a dataset attribute as a lowercased, trimmed
-// string, or "" when the attribute is absent or unreadable.
-func readStringAttribute(ds *hdf5.Dataset, name string) string {
-	val, err := ds.ReadAttribute(name)
-	if err != nil || val == nil {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", val)))
-}
-
-// readVector3s reads a dataset of float64 triples as Vector3 values.
-func readVector3s(ds *hdf5.Dataset) ([]Vector3, error) {
-	data, err := ds.Read()
-	if err != nil {
-		return nil, err
-	}
-	if len(data)%3 != 0 {
-		return nil, fmt.Errorf("data length %d not divisible by 3", len(data))
-	}
-	n := len(data) / 3
-	vecs := make([]Vector3, n)
-	for i := range n {
-		vecs[i] = Vector3{data[i*3], data[i*3+1], data[i*3+2]}
-	}
-	return vecs, nil
 }
 
 // reshapeIR reshapes a flat float64 slice into [M][R][N].

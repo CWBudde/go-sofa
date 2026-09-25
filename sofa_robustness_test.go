@@ -25,8 +25,8 @@ func dimNAME(size string) string {
 }
 
 // writeCraftedFIR builds a FIR SOFA file with arbitrary dimension scales
-// and a flat Data.IR of irLen elements, bypassing Save's validation.
-func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irLen int) string {
+// and a zero-filled Data.IR of shape irShape, bypassing Save's validation.
+func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irShape []uint64) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "crafted.sofa")
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate,
@@ -53,8 +53,12 @@ func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irLen int) string
 			t.Fatalf("write /%s: %v", n, err)
 		}
 	}
+	irLen := uint64(1)
+	for _, d := range irShape {
+		irLen *= d
+	}
 	ir := make([]float64, irLen)
-	ds, err := fw.CreateDataset("/Data.IR", hdf5.Float64, []uint64{uint64(irLen)}) //nolint:gosec // test sizes are small
+	ds, err := fw.CreateDataset("/Data.IR", hdf5.Float64, irShape)
 	if err != nil {
 		t.Fatalf("create Data.IR: %v", err)
 	}
@@ -166,7 +170,7 @@ func TestOpenRejectsInvalidDimensions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := writeCraftedFIR(t, tt.dims, max(tt.irLen, 1))
+			path := writeCraftedFIR(t, tt.dims, []uint64{uint64(max(tt.irLen, 1))}) //nolint:gosec // small test sizes
 			f, err := Open(path)
 			if err == nil {
 				_ = f.Close()
@@ -185,7 +189,7 @@ func TestOpenRejectsInvalidDimensions(t *testing.T) {
 func TestOpenCraftedValidDimensions(t *testing.T) {
 	path := writeCraftedFIR(t, map[string]craftedDim{
 		"M": named("2"), "R": named("2"), "E": named("1"), "N": {value: 4},
-	}, 16)
+	}, []uint64{2, 2, 4})
 	f, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

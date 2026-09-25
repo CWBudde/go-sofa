@@ -15,6 +15,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ErrIndexOutOfRange` for indices outside the file's dimensions.
 - `Open` rejects an empty, unknown, `FIR-E` or `FIRE` `DataType` with
   `ErrUnsupportedDataType` instead of reading it as FIR.
+- `Open` checks every variable's shape, not only its element count, using the
+  file's netCDF dimension names where present; an axis permutation or any
+  other layout AES69 does not allow is an error instead of a silent misread.
+
+### Added
+
+- `ReceiverPositionsM`, `EmitterPositionsM` (`[R,C,M]` / `[E,C,M]` read as
+  `[M][R]` / `[M][E]`) and `ListenerViews`, `ListenerUps` (`[M,C]`), filled by
+  `Open` for measurement-dependent layouts. `Save` does not write them yet.
+
+### Fixed
+
+- TF-E files written by the SOFA Toolbox store `Data.Real`/`Data.Imag` as
+  `[M,R,N,E]`; `Open` read them as `[M,R,E,N]`, scrambling every value. They
+  are now transposed into `TFRealE`/`TFImagE`'s `[M][R][E][N]`.
 
 ## [v0.1.0]
 

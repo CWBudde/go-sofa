@@ -23,24 +23,47 @@ func datasetElementCount(ds *hdf5.Dataset) (n uint64, ok bool) {
 	return parseDataspaceElements(info)
 }
 
+// datasetShape returns the dimensions of ds from its dataspace, without
+// reading the data; a scalar dataspace yields an empty shape. ok is false
+// when the shape cannot be determined.
+func datasetShape(ds *hdf5.Dataset) (shape []uint64, ok bool) {
+	info, err := ds.Info()
+	if err != nil {
+		return nil, false
+	}
+	return parseDataspaceShape(info)
+}
+
+// parseDataspaceShape extracts the dimensions from a Dataset.Info string.
+func parseDataspaceShape(info string) (shape []uint64, ok bool) {
+	m := dataspaceArrayRE.FindStringSubmatch(info)
+	if m == nil {
+		if strings.Contains(info, ", scalar,") {
+			return []uint64{}, true
+		}
+		return nil, false
+	}
+	for _, field := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ' ' || r == 'x' }) {
+		d, err := strconv.ParseUint(field, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		shape = append(shape, d)
+	}
+	return shape, true
+}
+
 // parseDataspaceElements extracts the element count from a Dataset.Info
 // string. Counts above maxDataElements are clamped to maxDataElements+1, so
 // the result cannot overflow and still compares as too large.
 func parseDataspaceElements(info string) (n uint64, ok bool) {
-	m := dataspaceArrayRE.FindStringSubmatch(info)
-	if m == nil {
-		if strings.Contains(info, ", scalar,") {
-			return 1, true
-		}
+	shape, ok := parseDataspaceShape(info)
+	if !ok {
 		return 0, false
 	}
 	const limit = uint64(maxDataElements) + 1
 	n = 1
-	for _, field := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ' ' || r == 'x' }) {
-		d, err := strconv.ParseUint(field, 10, 64)
-		if err != nil {
-			return 0, false
-		}
+	for _, d := range shape {
 		if d != 0 && n > limit/d {
 			return limit, true
 		}
