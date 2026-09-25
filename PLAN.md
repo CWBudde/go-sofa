@@ -12,8 +12,8 @@ Oriented Format for Acoustics), built on top of
 
 Read, write, CLI tools, CI, lint, and the `FIR`, `TF`, `TF-E`, and `SOS`
 `DataType`s are implemented. The 2026-09-24 review (Phase R below) found
-release-blocking defects; all except R1c (netCDF-4 dimension scales) are
-fixed: `Save` output now opens in h5py/netCDF4 (checked in CI), tests fetch
+release-blocking defects (R1–R4), all fixed: `Save` output now opens in
+h5py/netCDF4 with named netCDF-4 dimensions (checked in CI), tests fetch
 their reference data, and crafted input no longer panics or OOMs.
 Phase R takes precedence over the remaining Phases C–E. See `git log` for history; this
 file tracks only what's still open.
@@ -31,10 +31,10 @@ file tracks only what's still open.
 
 ## Open work
 
-Phase R: R1a/R1b and R2–R4 are done (go-hdf5 fixes in
-[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1), consumed
-via a pseudo-version until it is merged and tagged). R1c is the last open
-blocker for a v0.1.0 release. Phases B–E are optional /
+Phase R: the release blockers R1–R4 are done (go-hdf5 fixes in
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and the
+stacked `feat/dimension-scales` branch, consumed via a pseudo-version until
+they are merged and tagged). R5–R9 remain. Phases B–E are optional /
 future and can be picked up on demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -57,7 +57,7 @@ R1–R4 are release blockers.
       writes one file per DataType via a small Go program and opens/reads it
       back with h5py and netCDF4, comparing values.
   - Acceptance: job fails on current `main`, passes after R1a.
-- [ ] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
+- [x] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
       `/R`, `/E`, `/N`, plus missing `/I`, `/C`) must have length equal to the
       dimension (currently shape `[1]` holding the size,
       `writeDimensionScale`); add `_Netcdf4Dimid`, `DIMENSION_LIST` /
@@ -65,6 +65,17 @@ R1–R4 are release blockers.
       and `C` (subsumes Phase E2).
   - Acceptance: `ncdump -h` on a written file shows `M`, `R`, `N`, `C`, `I`
     with correct lengths and named (non-phony) dims on every variable.
+  - (2026-09-25) — go-hdf5 gained `FileWriter.AttachDimensionScale` /
+    `DatasetWriter.Address` (DIMENSION_LIST + REFERENCE_LIST written on
+    Close), libhdf5-readable VLEN data and >255-byte dataset headers
+    (branch `feat/dimension-scales`, stacked on go-hdf5#1). `Save` now
+    writes `M R E N C I` scales of full length with the netCDF-C `NAME`
+    and `_Netcdf4Dimid`, `_NCProperties`, and creates every variable from
+    named dimensions (`writeDimensionScales` / `writeVariable` in
+    [sofa.go](sofa.go)); an M×R `Data.Delay` is written `[M,R]`.
+    `ncdump -h` (netCDF-C 4.9.3) on FIR/TF/TF-E/SOS output lists
+    `M R E N C I` and only named dims; `TestSaveWritesNetcdf4Dimensions`
+    and the interop job (`just interop`, now rejecting `phony_dim`) cover it.
 
 #### R2 — Crash safety on untrusted input (critical)
 
@@ -403,6 +414,17 @@ certain features are absent.
   - Acceptance: a go-sofa-written file passes
     `nc-config --has-nc4` netCDF-4 dimension scale validation
     (or `ncdump -h` shows attached dimension names) for `Data.IR`.
+  - (2026-09-25) — covered by R1c: `ncdump -h` shows
+    `Data.IR(M, R, N)`. Left unticked until the go-hdf5 PR is merged.
+- [ ] **E3. go-hdf5 encoder/test defects found during R1c.** Not needed by
+      go-sofa, but wrong for other users: `EncodeCompoundDatatypeV3` /
+      `parseCompoundV3` put the member count in the properties (spec: class
+      bit field) and use 4-byte member offsets; `CreateBasicDatatypeMessage`
+      encodes integer bit precision in the offset byte;
+      `TestGZIPFilter_CompressionRatio_Comparison` and (under `-race`)
+      `TestMetricsCollector_Performance` fail on ca6206a already.
+  - Acceptance: upstream fixes merged; a compound dataset written by
+    `CreateCompoundDataset` opens in h5py.
 
 ---
 
