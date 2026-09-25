@@ -15,8 +15,8 @@ func TestReadSHEncodedTFE(t *testing.T) {
 	}
 	defer f.Close()
 
-	if f.DataType != dataTypeTFE {
-		t.Errorf("DataType = %q, want %q", f.DataType, dataTypeTFE)
+	if f.DataType != DataTypeTFE {
+		t.Errorf("DataType = %q, want %q", f.DataType, DataTypeTFE)
 	}
 	if f.SOFAConventions != "FreeFieldHRTF" {
 		t.Errorf("SOFAConventions = %q, want FreeFieldHRTF", f.SOFAConventions)
@@ -72,14 +72,14 @@ func TestSHDetection(t *testing.T) {
 		{
 			name:       "plain HRTF E=1 not SH",
 			convention: "SimpleFreeFieldHRTF",
-			dataType:   dataTypeTF,
+			dataType:   DataTypeTF,
 			e:          1,
 			wantSH:     false,
 		},
 		{
 			name:       "HRSH Lmax=1 (E=4)",
 			convention: "FreeFieldHRSH",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          4,
 			wantSH:     true,
 			wantLmax:   1,
@@ -89,7 +89,7 @@ func TestSHDetection(t *testing.T) {
 		{
 			name:       "HRSH Lmax=33 (E=1156, real demo file)",
 			convention: "FreeFieldHRSH",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          1156,
 			wantSH:     true,
 			wantLmax:   33,
@@ -99,21 +99,21 @@ func TestSHDetection(t *testing.T) {
 		{
 			name:       "HRSH but E=5 not perfect square",
 			convention: "FreeFieldHRSH",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          5,
 			wantSH:     false,
 		},
 		{
 			name:       "convention without SH suffix even if E=4",
 			convention: "GeneralTF-E",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          4,
 			wantSH:     false,
 		},
 		{
 			name:       "case-insensitive HRsh detection",
 			convention: "MyFreeFieldHRsh",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          9,
 			wantSH:     true,
 			wantLmax:   2,
@@ -124,7 +124,7 @@ func TestSHDetection(t *testing.T) {
 			// E=1 is a single SH coefficient: order 0.
 			name:       "HRSH with E=1 is order 0",
 			convention: "FreeFieldHRSH",
-			dataType:   dataTypeTFE,
+			dataType:   DataTypeTFE,
 			e:          1,
 			wantSH:     true,
 			wantLmax:   0,
@@ -160,7 +160,7 @@ func TestSHDetection(t *testing.T) {
 func TestSHDetectionViaHistory(t *testing.T) {
 	f := &File{
 		SOFAConventions: "FreeFieldHRTF",
-		DataType:        dataTypeTFE,
+		DataType:        DataTypeTFE,
 		E:               1156,
 		History:         "Converted from miro / Converted to TF / Converted to TFE / Converted to Spherical Harmonics",
 	}
@@ -184,7 +184,7 @@ func TestSHWarnings(t *testing.T) {
 			name: "clean SH file produces no warnings",
 			f: &File{
 				SOFAConventions: "FreeFieldHRTF",
-				DataType:        dataTypeTFE,
+				DataType:        DataTypeTFE,
 				E:               1156,
 				History:         "Converted to Spherical Harmonics",
 			},
@@ -194,7 +194,7 @@ func TestSHWarnings(t *testing.T) {
 			name: "plain HRTF E=1 produces no warnings",
 			f: &File{
 				SOFAConventions: "SimpleFreeFieldHRTF",
-				DataType:        dataTypeTF,
+				DataType:        DataTypeTF,
 				E:               1,
 			},
 			wantNone: true,
@@ -203,7 +203,7 @@ func TestSHWarnings(t *testing.T) {
 			name: "convention claims SH but DataType wrong",
 			f: &File{
 				SOFAConventions: "FreeFieldHRSH",
-				DataType:        dataTypeFIR,
+				DataType:        DataTypeFIR,
 				E:               16,
 			},
 			wantSubs: []string{"DataType is FIR"},
@@ -212,7 +212,7 @@ func TestSHWarnings(t *testing.T) {
 			name: "convention claims SH but E not perfect square",
 			f: &File{
 				SOFAConventions: "FreeFieldHRSH",
-				DataType:        dataTypeTFE,
+				DataType:        DataTypeTFE,
 				E:               7,
 			},
 			wantSubs: []string{"E is not (L+1)²"},
@@ -221,7 +221,7 @@ func TestSHWarnings(t *testing.T) {
 			name: "false positive: TF-E with perfect-square E but no SH claim",
 			f: &File{
 				SOFAConventions: "GeneralTF-E",
-				DataType:        dataTypeTFE,
+				DataType:        DataTypeTFE,
 				E:               9,
 			},
 			wantSubs: []string{
@@ -289,7 +289,7 @@ func TestWriteSHEncodedRoundTrip(t *testing.T) {
 		Version:                "2.1",
 		SOFAConventions:        "FreeFieldHRSH",
 		SOFAConventionsVersion: "1.0",
-		DataType:               dataTypeTFE,
+		DataType:               DataTypeTFE,
 		M:                      M,
 		R:                      R,
 		E:                      E,
@@ -320,8 +320,8 @@ func TestWriteSHEncodedRoundTrip(t *testing.T) {
 	if dst.SOFAConventions != "FreeFieldHRSH" {
 		t.Errorf("SOFAConventions = %q, want FreeFieldHRSH", dst.SOFAConventions)
 	}
-	if dst.DataType != dataTypeTFE {
-		t.Errorf("DataType = %q, want %q", dst.DataType, dataTypeTFE)
+	if dst.DataType != DataTypeTFE {
+		t.Errorf("DataType = %q, want %q", dst.DataType, DataTypeTFE)
 	}
 	if dst.E != E {
 		t.Errorf("E = %d, want %d", dst.E, E)
@@ -368,41 +368,41 @@ func TestSHDetectionByEmitterType(t *testing.T) {
 	}{
 		{
 			name:     "Type SH without any heuristic",
-			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 16, EmitterPositionType: "spherical harmonics"},
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, E: 16, EmitterPositionType: "spherical harmonics"},
 			wantLmax: 3, wantOK: true,
 		},
 		{
 			name:     "Type SH is case-insensitive",
-			f:        File{SOFAConventions: "GeneralTF-E", DataType: dataTypeTFE, E: 4, EmitterPositionType: "Spherical Harmonics"},
+			f:        File{SOFAConventions: "GeneralTF-E", DataType: DataTypeTFE, E: 4, EmitterPositionType: "Spherical Harmonics"},
 			wantLmax: 1, wantOK: true,
 		},
 		{
 			name:     "Type SH with E=1 is order 0",
-			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 1, EmitterPositionType: "spherical harmonics"},
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, E: 1, EmitterPositionType: "spherical harmonics"},
 			wantLmax: 0, wantOK: true,
 		},
 		{
 			name:     "cartesian Type overrides HRSH convention name",
-			f:        File{SOFAConventions: "FreeFieldHRSH", DataType: dataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
+			f:        File{SOFAConventions: "FreeFieldHRSH", DataType: DataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
 			wantWarn: "EmitterPosition Type is \"cartesian\"",
 		},
 		{
 			name:     "spherical Type overrides History",
-			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 9, EmitterPositionType: "spherical", History: "Converted to Spherical Harmonics"},
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, E: 9, EmitterPositionType: "spherical", History: "Converted to Spherical Harmonics"},
 			wantWarn: "not treated as SH",
 		},
 		{
 			name: "cartesian TF-E with square E is quietly not SH",
-			f:    File{SOFAConventions: "GeneralTF-E", DataType: dataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
+			f:    File{SOFAConventions: "GeneralTF-E", DataType: DataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
 		},
 		{
 			name:     "Type SH requires TF-E",
-			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTF, E: 4, EmitterPositionType: "spherical harmonics"},
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTF, E: 4, EmitterPositionType: "spherical harmonics"},
 			wantWarn: "DataType is TF",
 		},
 		{
 			name:     "Type SH with non-square E",
-			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 5, EmitterPositionType: "spherical harmonics"},
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, E: 5, EmitterPositionType: "spherical harmonics"},
 			wantWarn: "E is not (L+1)²",
 		},
 	}

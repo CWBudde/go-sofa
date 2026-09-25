@@ -59,7 +59,7 @@ func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
 			continue
 		}
 		var scale *hdf5.DatasetWriter
-		if name == dimN && (spec.dataType == dataTypeTF || spec.dataType == dataTypeTFE) {
+		if name == dimN && (spec.dataType == DataTypeTF || spec.dataType == DataTypeTFE) {
 			scale, err = writeFrequencyDimension(fw, make([]float64, size), id, nil)
 		} else {
 			scale, err = writeDimensionScale(fw, "/"+name, size, id, nil)
@@ -139,7 +139,7 @@ func iota4(shape [4]int) []float64 {
 // firSpec is a valid FIR file with M=3, R=2, N=4 in the netCDF-4 layout.
 func firSpec() craftedSpec {
 	return craftedSpec{
-		dataType: dataTypeFIR,
+		dataType: DataTypeFIR,
 		dims:     map[string]int{dimM: 3, dimR: 2, dimE: 1, dimN: 4, dimC: 3, dimI: 1},
 		vars: map[string]craftedVar{
 			"Data.IR":           {dims: []string{dimM, dimR, dimN}},
@@ -242,7 +242,7 @@ func tfeSpec(e, n int, order []string, labelled bool) craftedSpec {
 		v.shape = []uint64{uint64(shape[0]), uint64(shape[1]), uint64(shape[2]), uint64(shape[3])} //nolint:gosec // small
 	}
 	return craftedSpec{
-		dataType: dataTypeTFE,
+		dataType: DataTypeTFE,
 		dims:     sizes,
 		vars:     map[string]craftedVar{"Data.Real": v, "Data.Imag": v},
 	}

@@ -24,17 +24,17 @@ func (f *File) validateValues() error {
 	}
 
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		if err := checkFinite3D("ImpulseResponses", f.ImpulseResponses); err != nil {
 			return err
 		}
 		return f.validateRateAndDelay()
-	case dataTypeSOS:
+	case DataTypeSOS:
 		if err := checkFinite3D("SOSCoefficients", f.SOSCoefficients); err != nil {
 			return err
 		}
 		return f.validateRateAndDelay()
-	case dataTypeTF:
+	case DataTypeTF:
 		if err := checkFinite3D("TFReal", f.TFReal); err != nil {
 			return err
 		}
@@ -42,7 +42,7 @@ func (f *File) validateValues() error {
 			return err
 		}
 		return f.validateFrequencies()
-	case dataTypeTFE:
+	case DataTypeTFE:
 		if err := checkFinite4D("TFRealE", f.TFRealE); err != nil {
 			return err
 		}

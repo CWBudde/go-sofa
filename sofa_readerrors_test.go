@@ -77,7 +77,7 @@ func TestSetGlobalAttributes(t *testing.T) {
 // returning the partial row (and IRPeakdB then reporting silence).
 func TestIRAtRejectsIncompleteRow(t *testing.T) {
 	for _, row := range [][]float64{nil, {}, {0.5, 0.25}} {
-		f := &File{DataType: dataTypeFIR, M: 1, R: 1, N: 4, ImpulseResponses: [][][]float64{{row}}}
+		f := &File{DataType: DataTypeFIR, M: 1, R: 1, N: 4, ImpulseResponses: [][][]float64{{row}}}
 		if _, err := f.IRAt(0, 0); !errors.Is(err, ErrIndexOutOfRange) {
 			t.Errorf("IRAt with %d of 4 samples: error = %v, want ErrIndexOutOfRange", len(row), err)
 		}
@@ -92,7 +92,7 @@ func TestIRAtRejectsIncompleteRow(t *testing.T) {
 // rather than read as the frequency vector.
 func TestOpenRejectsRank2FrequencyVector(t *testing.T) {
 	spec := craftedSpec{
-		dataType: dataTypeTF,
+		dataType: DataTypeTF,
 		dims:     map[string]int{dimM: 1, dimR: 1, dimE: 1, dimC: 3, dimI: 1},
 		vars: map[string]craftedVar{
 			"Data.Real": {shape: []uint64{1, 1, 4}},

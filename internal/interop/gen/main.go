@@ -216,7 +216,7 @@ func frequencies(n int) []float64 {
 
 func buildFIR() (*sofa.File, map[string]dataset) {
 	const n = 8
-	f := base("SimpleFreeFieldHRIR", "FIR", 1, n)
+	f := base("SimpleFreeFieldHRIR", sofa.DataTypeFIR, 1, n)
 	ir, flat := grid3(0, n)
 	f.ImpulseResponses = ir
 	f.SamplingRate = []float64{48000}
@@ -258,7 +258,7 @@ func buildExtras() (*sofa.File, map[string]dataset) {
 
 func buildTF() (*sofa.File, map[string]dataset) {
 	const n = 5
-	f := base("SimpleFreeFieldHRTF", "TF", 1, n)
+	f := base("SimpleFreeFieldHRTF", sofa.DataTypeTF, 1, n)
 	re, reFlat := grid3(0, n)
 	im, imFlat := grid3(-100, n)
 	f.TFReal, f.TFImag = re, im
@@ -272,7 +272,7 @@ func buildTF() (*sofa.File, map[string]dataset) {
 
 func buildTFE() (*sofa.File, map[string]dataset) {
 	const e, n = 2, 4
-	f := base("GeneralTF-E", "TF-E", e, n)
+	f := base("GeneralTF-E", sofa.DataTypeTFE, e, n)
 	re, reFlat := grid4(0, e, n)
 	im, imFlat := grid4(-100, e, n)
 	f.TFRealE, f.TFImagE = re, im
@@ -286,7 +286,7 @@ func buildTFE() (*sofa.File, map[string]dataset) {
 
 func buildSOS() (*sofa.File, map[string]dataset) {
 	const n = 12 // two biquads
-	f := base("SimpleFreeFieldHRSOS", "SOS", 1, n)
+	f := base("SimpleFreeFieldHRSOS", sofa.DataTypeSOS, 1, n)
 	sos, flat := grid3(0, n)
 	f.SOSCoefficients = sos
 	f.SamplingRate = []float64{44100}

@@ -268,7 +268,7 @@ func checkNoIR(t *testing.T, f *File, want error) {
 	if db, err := f.IRPeakdB(0, 0); !errors.Is(err, want) {
 		t.Errorf("IRPeakdB(0,0) = %v, %v; want %v", db, err, want)
 	}
-	if f.DataType != dataTypeFIR {
+	if f.DataType != DataTypeFIR {
 		if d, err := f.Duration(); !errors.Is(err, want) {
 			t.Errorf("Duration() = %v, %v; want %v", d, err, want)
 		}

@@ -165,15 +165,15 @@ func (f *File) writtenVariables() map[string][]string {
 		written[datasetRoomTemperature] = units
 	}
 	switch f.DataType {
-	case dataTypeFIR, dataTypeSOS:
+	case DataTypeFIR, DataTypeSOS:
 		data := "Data.IR"
-		if f.DataType == dataTypeSOS {
+		if f.DataType == DataTypeSOS {
 			data = "Data.SOS"
 		}
 		written[data] = nil
 		written["Data.SamplingRate"] = units
 		written["Data.Delay"] = nil
-	case dataTypeTF, dataTypeTFE:
+	case DataTypeTF, DataTypeTFE:
 		written["Data.Real"] = nil
 		written["Data.Imag"] = nil
 		written[dimN] = []string{"LongName", attrUnits} // the frequency coordinate variable

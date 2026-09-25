@@ -29,11 +29,11 @@ var conventionRegistry = map[string]conventionRules{
 	conventionSingleRoomSRIR:     srirRules,
 	conventionSingleRoomMIMOSRIR: srirRules,
 
-	conventionSimpleFreeFieldHRIR:    layoutRules(dataTypeFIR, 2, 1),
-	conventionSimpleFreeFieldHRTF:    layoutRules(dataTypeTF, 2, 1),
-	conventionSimpleFreeFieldHRSOS:   layoutRules(dataTypeSOS, 2, 1),
-	conventionFreeFieldHRTF:          layoutRules(dataTypeTFE, 0, 0),
-	conventionFreeFieldDirectivityTF: layoutRules(dataTypeTF, 0, 0),
+	conventionSimpleFreeFieldHRIR:    layoutRules(DataTypeFIR, 2, 1),
+	conventionSimpleFreeFieldHRTF:    layoutRules(DataTypeTF, 2, 1),
+	conventionSimpleFreeFieldHRSOS:   layoutRules(DataTypeSOS, 2, 1),
+	conventionFreeFieldHRTF:          layoutRules(DataTypeTFE, 0, 0),
+	conventionFreeFieldDirectivityTF: layoutRules(DataTypeTF, 0, 0),
 }
 
 // layoutRules requires DataType dataType and, when non-zero, exactly r

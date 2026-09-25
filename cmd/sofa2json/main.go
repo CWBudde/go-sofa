@@ -172,7 +172,7 @@ func buildJSONObject(f *sofa.File, inc includeFlags) map[string]interface{} {
 
 	// TF / TF-E audio data
 	switch f.DataType {
-	case "TF":
+	case sofa.DataTypeTF:
 		if len(f.Frequencies) > 0 {
 			result["Frequencies"] = f.Frequencies
 		}
@@ -180,7 +180,7 @@ func buildJSONObject(f *sofa.File, inc includeFlags) map[string]interface{} {
 			result["TFReal"] = f.TFReal
 			result["TFImag"] = f.TFImag
 		}
-	case "TF-E":
+	case sofa.DataTypeTFE:
 		if len(f.Frequencies) > 0 {
 			result["Frequencies"] = f.Frequencies
 		}
@@ -188,7 +188,7 @@ func buildJSONObject(f *sofa.File, inc includeFlags) map[string]interface{} {
 			result["TFReal"] = f.TFRealE
 			result["TFImag"] = f.TFImagE
 		}
-	case "SOS":
+	case sofa.DataTypeSOS:
 		if inc.SOS {
 			result["SOSCoefficients"] = f.SOSCoefficients
 		}

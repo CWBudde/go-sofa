@@ -254,7 +254,7 @@ func TestOpenErrors(t *testing.T) {
 // IRPeakdB, where peak == 0 and the function should return -Inf.
 func TestIRPeakdBZeroSilence(t *testing.T) {
 	f := &File{
-		DataType:         dataTypeFIR,
+		DataType:         DataTypeFIR,
 		M:                1,
 		R:                1,
 		N:                4,
@@ -318,7 +318,7 @@ func TestSamplingRateScalarEmpty(t *testing.T) {
 
 func TestDurationEdgeCases(t *testing.T) {
 	fir := func(sr []float64, n int) *File {
-		return &File{DataType: dataTypeFIR, SamplingRate: sr, N: n}
+		return &File{DataType: DataTypeFIR, SamplingRate: sr, N: n}
 	}
 	tests := []struct {
 		name    string
@@ -334,12 +334,12 @@ func TestDurationEdgeCases(t *testing.T) {
 		{name: "empty sampling rate", f: fir([]float64{}, 100)},
 		{
 			name:    "TF counts frequency bins, not samples",
-			f:       &File{DataType: dataTypeTF, SamplingRate: []float64{44100}, N: 441},
+			f:       &File{DataType: DataTypeTF, SamplingRate: []float64{44100}, N: 441},
 			wantErr: ErrUnsupportedDataType,
 		},
 		{
 			name:    "SOS counts coefficients",
-			f:       &File{DataType: dataTypeSOS, SamplingRate: []float64{44100}, N: 6},
+			f:       &File{DataType: DataTypeSOS, SamplingRate: []float64{44100}, N: 6},
 			wantErr: ErrUnsupportedDataType,
 		},
 		{name: "valid", f: fir([]float64{44100}, 441), want: 0.01, wantOK: true},

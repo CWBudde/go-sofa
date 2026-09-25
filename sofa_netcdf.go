@@ -101,7 +101,7 @@ func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, err
 	for id, name := range names {
 		var ds *hdf5.DatasetWriter
 		var err error
-		if name == dimN && (f.DataType == dataTypeTF || f.DataType == dataTypeTFE) {
+		if name == dimN && (f.DataType == DataTypeTF || f.DataType == DataTypeTFE) {
 			ds, err = writeFrequencyDimension(fw, f.Frequencies, id, nc.attrs[name])
 		} else {
 			ds, err = writeDimensionScale(fw, "/"+name, nc.sizes[name], id, nc.attrs[name])

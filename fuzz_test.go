@@ -56,15 +56,15 @@ func FuzzOpen(f *testing.F) {
 
 		// Shapes must match the declared dimensions for the DataType.
 		switch sf.DataType {
-		case dataTypeTF:
+		case DataTypeTF:
 			if err := check3D("TFReal", sf.TFReal, sf.M, sf.R, sf.N); err != nil {
 				t.Fatal(err)
 			}
-		case dataTypeTFE:
+		case DataTypeTFE:
 			if err := check4D("TFRealE", sf.TFRealE, sf.M, sf.R, sf.E, sf.N); err != nil {
 				t.Fatal(err)
 			}
-		case dataTypeSOS:
+		case DataTypeSOS:
 			if err := check3D("SOSCoefficients", sf.SOSCoefficients, sf.M, sf.R, sf.N); err != nil {
 				t.Fatal(err)
 			}

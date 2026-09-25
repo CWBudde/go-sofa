@@ -23,17 +23,20 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
+// DataType values defined by the AES69 specification: the values of
+// File.DataType this package reads and writes.
+const (
+	DataTypeFIR = "FIR"  // time-domain impulse responses
+	DataTypeTF  = "TF"   // complex frequency-domain transfer functions
+	DataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
+	DataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
+)
+
 // SOFA file format constants.
 const (
 	// conventionSOFA is the required value of the Conventions attribute
 	// for any AES69 SOFA file.
 	conventionSOFA = "SOFA"
-
-	// DataType values defined by the AES69 specification.
-	dataTypeFIR = "FIR"  // time-domain impulse responses
-	dataTypeTF  = "TF"   // complex frequency-domain transfer functions
-	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
-	dataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
 
 	// SOFA dataset names of the position and orientation variables.
 	datasetListenerPosition = "ListenerPosition"
@@ -497,13 +500,13 @@ func parseDimensionSize(s string) (int, error) {
 // /Data.IR, /Data.SamplingRate, and /Data.Delay.
 func (f *File) readAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		return f.readFIRAudioData(datasets, labels)
-	case dataTypeTF:
+	case DataTypeTF:
 		return f.readTFAudioData(datasets, labels)
-	case dataTypeTFE:
+	case DataTypeTFE:
 		return f.readTFEAudioData(datasets, labels)
-	case dataTypeSOS:
+	case DataTypeSOS:
 		return f.readSOSAudioData(datasets, labels)
 	default:
 		return checkDataType(f.DataType)
@@ -1028,19 +1031,19 @@ func (f *File) validate() error {
 	}
 
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		if err := f.validateFIR(); err != nil {
 			return err
 		}
-	case dataTypeTF:
+	case DataTypeTF:
 		if err := f.validateTF(); err != nil {
 			return err
 		}
-	case dataTypeTFE:
+	case DataTypeTFE:
 		if err := f.validateTFE(); err != nil {
 			return err
 		}
-	case dataTypeSOS:
+	case DataTypeSOS:
 		if err := f.validateSOS(); err != nil {
 			return err
 		}
@@ -1304,13 +1307,13 @@ func check3D(name string, data [][][]float64, m, r, n int) error {
 // writeAudioDatasets dispatches to the per-DataType writer.
 func (f *File) writeAudioDatasets(nc *netcdfDimensions) error {
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		return f.writeFIRAudioDatasets(nc)
-	case dataTypeTF:
+	case DataTypeTF:
 		return f.writeTFAudioDatasets(nc)
-	case dataTypeTFE:
+	case DataTypeTFE:
 		return f.writeTFEAudioDatasets(nc)
-	case dataTypeSOS:
+	case DataTypeSOS:
 		return f.writeSOSAudioDatasets(nc)
 	default:
 		return fmt.Errorf("unsupported DataType %q", f.DataType)
