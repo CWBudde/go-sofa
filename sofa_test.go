@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"fmt"
 	"math"
 	"path/filepath"
 	"testing"
@@ -16,15 +17,15 @@ func TestOpen(t *testing.T) {
 		n    int
 		e    int
 	}{
-		{"testdata/MIT_KEMAR_normal_pinna.sofa", 710, 2, 512, 1},
-		{"testdata/CIPIC_subject_003_hrir_final.sofa", 1250, 2, 200, 1},
-		{"testdata/tester.sofa", 1250, 2, 256, 1},
+		{"MIT_KEMAR_normal_pinna.sofa", 710, 2, 512, 1},
+		{"CIPIC_subject_003_hrir_final.sofa", 1250, 2, 200, 1},
+		{"tester.sofa", 1250, 2, 256, 1},
+		{"Mesh2HRTF.sofa", 1850, 2, 320, 1},
 	}
 
 	for _, tt := range files {
 		t.Run(tt.path, func(t *testing.T) {
-			requireTestdata(t, tt.path)
-			f, err := Open(tt.path)
+			f, err := Open(testdataPath(t, tt.path))
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
@@ -47,8 +48,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpenMetadata(t *testing.T) {
-	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
-	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
+	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -74,8 +74,7 @@ func TestOpenMetadata(t *testing.T) {
 }
 
 func TestOpenImpulseResponses(t *testing.T) {
-	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
-	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
+	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -113,8 +112,7 @@ func TestOpenImpulseResponses(t *testing.T) {
 }
 
 func TestOpenSpatialData(t *testing.T) {
-	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
-	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
+	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -142,8 +140,7 @@ func TestOpenSpatialData(t *testing.T) {
 }
 
 func TestOpenSamplingRate(t *testing.T) {
-	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
-	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
+	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -185,8 +182,7 @@ func TestParseDimensionSize(t *testing.T) {
 }
 
 func TestIRAt(t *testing.T) {
-	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
-	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
+	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -370,4 +366,126 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestReadReferenceValues pins real values from third-party files, read
+// independently with h5py 3.11 / HDF5 1.14, so the reader is checked against
+// the producers' own output rather than against a go-hdf5 round trip. The set
+// covers files written by the SOFA API for Matlab/Octave (via netCDF-C), a
+// file written by sofar (Python) through netCDF-C 4.8.1, and the libmysofa
+// test corpus they are taken from; see testdata/PROVENANCE.md.
+func TestReadReferenceValues(t *testing.T) {
+	type sample struct {
+		m, r, n int
+		want    float64
+	}
+	cases := []struct {
+		file         string
+		apiName      string
+		sr           float64
+		m, r, n      int
+		samples      []sample
+		src0, src100 Vector3
+		recv         []Vector3
+		srcUnits     string
+	}{
+		{
+			file:    "MIT_KEMAR_normal_pinna.sofa",
+			apiName: "ARI SOFA API for Matlab/Octave",
+			sr:      44100, m: 710, r: 2, n: 512,
+			samples: []sample{
+				{0, 0, 0, 6.103515625e-05},
+				{0, 0, 3, 3.0517578125e-05},
+				{100, 1, 20, 0.000518798828125},
+				{547, 0, 37, -0.817657470703125},
+			},
+			src0:     Vector3{0, -40, 1.4},
+			src100:   Vector3{264, -30, 1.4},
+			recv:     []Vector3{{0, 0.09, 0}, {0, -0.09, 0}},
+			srcUnits: "degree, degree, metre",
+		},
+		{
+			file:    "CIPIC_subject_003_hrir_final.sofa",
+			apiName: "ARI SOFA API for Matlab/Octave",
+			sr:      44100, m: 1250, r: 2, n: 200,
+			samples: []sample{
+				{0, 0, 0, -1.3234222686339927e-07},
+				{1, 1, 10, -0.0006885273230664886},
+				{624, 0, 50, 0.04248973715168163},
+				{172, 0, 34, -1.7692432757103778},
+			},
+			src0:     Vector3{82.89292388955351, -7.053022130283171, 1},
+			src100:   Vector3{63.65899893141409, -23.927464720758916, 1},
+			recv:     []Vector3{{0, -0.09, 0}, {0, 0.09, 0}},
+			srcUnits: "degree, degree, meter",
+		},
+		{
+			file:    "Mesh2HRTF.sofa",
+			apiName: "sofar SOFA API for Python (pyfar.org)",
+			sr:      48000, m: 1850, r: 2, n: 320,
+			samples: []sample{
+				{0, 0, 0, 0.024958510714037214},
+				{0, 1, 5, 0.0005620974072178428},
+				{100, 0, 20, -0.00543749012045571},
+				{1329, 0, 41, -4.2614301601013365},
+			},
+			src0:     Vector3{0, -90, 1.5},
+			src100:   Vector3{150, -65, 1.5},
+			recv:     []Vector3{{0.005762, 0.062838, 0.001253}, {0.003341, -0.060828, 0.001562}},
+			srcUnits: "degree, degree, meter",
+		},
+	}
+
+	const tol = 1e-12
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			f, err := Open(testdataPath(t, tc.file))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer f.Close()
+
+			if f.APIName != tc.apiName {
+				t.Errorf("APIName = %q, want %q", f.APIName, tc.apiName)
+			}
+			if f.DataType != "FIR" {
+				t.Errorf("DataType = %q, want FIR", f.DataType)
+			}
+			if f.M != tc.m || f.R != tc.r || f.N != tc.n {
+				t.Fatalf("dims = M%d R%d N%d, want M%d R%d N%d", f.M, f.R, f.N, tc.m, tc.r, tc.n)
+			}
+			assertClose(t, "SamplingRate", f.SamplingRateScalar(), tc.sr, 0)
+
+			for _, s := range tc.samples {
+				got := f.ImpulseResponses[s.m][s.r][s.n]
+				assertClose(t, fmt.Sprintf("IR[%d][%d][%d]", s.m, s.r, s.n), got, s.want, tol)
+			}
+
+			if len(f.SourcePositions) != tc.m {
+				t.Fatalf("len(SourcePositions) = %d, want %d", len(f.SourcePositions), tc.m)
+			}
+			for i, want := range map[int]Vector3{0: tc.src0, 100: tc.src100} {
+				got := f.SourcePositions[i]
+				assertClose(t, fmt.Sprintf("SourcePositions[%d].X", i), got.X, want.X, tol)
+				assertClose(t, fmt.Sprintf("SourcePositions[%d].Y", i), got.Y, want.Y, tol)
+				assertClose(t, fmt.Sprintf("SourcePositions[%d].Z", i), got.Z, want.Z, tol)
+			}
+			if f.SourcePositionType != CoordinateSpherical {
+				t.Errorf("SourcePositionType = %q, want %q", f.SourcePositionType, CoordinateSpherical)
+			}
+			if f.SourcePositionUnits != tc.srcUnits {
+				t.Errorf("SourcePositionUnits = %q, want %q", f.SourcePositionUnits, tc.srcUnits)
+			}
+
+			if len(f.ReceiverPositions) != len(tc.recv) {
+				t.Fatalf("len(ReceiverPositions) = %d, want %d", len(f.ReceiverPositions), len(tc.recv))
+			}
+			for i, want := range tc.recv {
+				got := f.ReceiverPositions[i]
+				assertClose(t, fmt.Sprintf("ReceiverPositions[%d].X", i), got.X, want.X, tol)
+				assertClose(t, fmt.Sprintf("ReceiverPositions[%d].Y", i), got.Y, want.Y, tol)
+				assertClose(t, fmt.Sprintf("ReceiverPositions[%d].Z", i), got.Z, want.Z, tol)
+			}
+		})
+	}
 }

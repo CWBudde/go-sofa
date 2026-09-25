@@ -40,5 +40,8 @@ Thumbs.db
 # AI Agents
 .claude/
 
-# Test data
-/testdata/
+# Test data: third-party reference files are fetched by
+# scripts/fetch-testdata.sh and never committed (see testdata/PROVENANCE.md).
+# Everything else under testdata/ (PROVENANCE.md, fuzz corpora) is tracked.
+/testdata/*.sofa
+/testdata/.*.sofa.*

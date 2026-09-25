@@ -10,9 +10,13 @@ Oriented Format for Acoustics), built on top of
 
 ## Status
 
-Read, write, CLI tools, CI, lint, ≥80 % test coverage, and the `FIR`,
-`TF`, `TF-E`, and `SOS` `DataType`s are complete. See `git log` for
-history; this file tracks only what's still open.
+Read, write, CLI tools, CI, lint, and the `FIR`, `TF`, `TF-E`, and `SOS`
+`DataType`s are implemented. The 2026-09-24 review (Phase R below) found
+release-blocking defects; all except R1c (netCDF-4 dimension scales) are
+fixed: `Save` output now opens in h5py/netCDF4 (checked in CI), tests fetch
+their reference data, and crafted input no longer panics or OOMs.
+Phase R takes precedence over the remaining Phases C–E. See `git log` for history; this
+file tracks only what's still open.
 
 ## Prior Art & Key Resources
 
@@ -27,9 +31,181 @@ history; this file tracks only what's still open.
 
 ## Open work
 
-All work below is optional / future — nothing is blocking shipping. Each
-phase is independent and can be picked up on demand when a real use case
-appears.
+Phase R: R1a/R1b and R2–R4 are done (go-hdf5 fixes in
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1), consumed
+via a pseudo-version until it is merged and tagged). R1c is the last open
+blocker for a v0.1.0 release. Phases B–E are optional /
+future and can be picked up on demand when a real use case appears.
+
+### Phase R — Review findings 2026-09-24 (blocking)
+
+Multi-area review (read path 4/10, write path 2/10, API/CLI 4/10,
+tests/tooling 3/10; overall ≈3/10). Items are ordered by priority;
+R1–R4 are release blockers.
+
+#### R1 — Interoperability of written files (critical)
+
+- [x] **R1a. Fix go-hdf5 output so reference HDF5 can open it.** Every file
+      written by `Save` — and even an empty go-hdf5 `CreateForWrite`+`Close`
+      file — fails in h5py/HDF5 1.12/1.14/2.0 and netCDF-C 4.9 with
+      `actual len exceeds EOA` / `NetCDF: HDF error`. Suspected cause: root
+      OHDR v2 chunk/checksum extends past the superblock EOA. Fix upstream
+      in go-hdf5, bump [go.mod](go.mod).
+  - Acceptance: `h5py.File(out)` and `netCDF4.Dataset(out)` open FIR, TF,
+    TF-E and SOS files written by `Save`; `h5dump -H` exits 0.
+- [x] **R1b. Interop CI job.** Add a CI step (Python + h5py + netCDF4) that
+      writes one file per DataType via a small Go program and opens/reads it
+      back with h5py and netCDF4, comparing values.
+  - Acceptance: job fails on current `main`, passes after R1a.
+- [ ] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
+      `/R`, `/E`, `/N`, plus missing `/I`, `/C`) must have length equal to the
+      dimension (currently shape `[1]` holding the size,
+      `writeDimensionScale`); add `_Netcdf4Dimid`, `DIMENSION_LIST` /
+      `REFERENCE_LIST`, `_NCProperties`; attach position variables to `M|I`
+      and `C` (subsumes Phase E2).
+  - Acceptance: `ncdump -h` on a written file shows `M`, `R`, `N`, `C`, `I`
+    with correct lengths and named (non-phony) dims on every variable.
+
+#### R2 — Crash safety on untrusted input (critical)
+
+- [x] **R2a. Validate dimensions.** `parseDimensionSize` / `readDimensions`
+      must reject values ≤ 0, NaN/Inf and products that overflow `int` or
+      exceed a sane cap, _before_ any `Read`. Today `M=-1,R=-2` passes the
+      `M*R*N == len` check and `reshapeIR` panics (`makeslice`).
+- [x] **R2b. Upstream OOM in go-hdf5.** A 60 s `FuzzOpen` hits
+      `fatal error: out of memory` (unrecoverable) in
+      `internal/structures/localheap.go:94` and
+      `internal/core/dataset_reader.go:86`. Bound allocations by file size
+      upstream; file issues and link them here.
+- [x] **R2c. `FuzzOpen` target** committed in the repo with a seed corpus of
+      small valid files and the crashers found so far.
+  - Acceptance: `go test -fuzz FuzzOpen -fuzztime 5m` runs clean.
+
+#### R3 — Test suite must pass on a fresh clone (critical)
+
+- [x] **R3a.** `/testdata/` is in `.gitignore`, ~18 tests fail with ENOENT
+      and CI (`test-unit.yaml`) is therefore red. Either commit small
+      reference files (with `testdata/PROVENANCE.md` listing source URL,
+      licence, SHA-256) or add `just fetch-testdata` run by CI, and make
+      data-dependent tests `t.Skip` locally (not fail) when data is absent.
+- [x] **R3b. Third-party fixtures.** Include at least one file each from
+      SOFA API (Matlab/Octave), SOFAtoolbox, libmysofa test set and
+      netCDF-C/pysofaconventions — today every write test is a self
+      round-trip through go-hdf5's own reader.
+- [x] **R3c.** Remove the silent `t.Skip` in
+      `hdf5_validation_test.go:31-33` (it hides the failure it tests for).
+- [x] **R3d.** Add a `LICENSE` file (README links a non-existent one; no
+      licence = not reusable).
+
+#### R4 — Save durability and honesty (high)
+
+- [x] **R4a.** Return the `fw.Close()` error from `Save` (currently
+      `defer fw.Close()` swallows flush/disk-full errors → nil on a
+      truncated file).
+- [x] **R4b.** Write to a temp file in the same directory, `fsync`, then
+      `os.Rename` over the target, so a failed Save leaves the original
+      intact — as README and the `Save` godoc already (falsely) claim.
+- [x] **R4c.** Deterministic output: write dimension scales in fixed order
+      instead of iterating a map (currently 3 distinct md5s in 4 runs).
+
+#### R5 — Read-path correctness (high)
+
+- [ ] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
+      `ImpulseResponses` bounded by `f.M`/`f.R`; on TF/TF-E/SOS files the
+      slice is empty → panic. Check `DataType` / slice length and return an
+      error. `Duration()` must return an error/ok for non-FIR.
+- [ ] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
+      `flat[s:s+n]` with spare capacity, so `append` on one row overwrites
+      the next. Use full slice expressions `flat[s:s+n:s+n]`.
+- [ ] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
+      to FIR; return a typed `ErrUnsupportedDataType`. Explicitly handle or
+      reject `FIR-E` (GeneralFIR-E) and legacy `FIRE`.
+- [ ] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
+      element count (any axis permutation is accepted today). Support
+      `ReceiverPosition` `[R,C,M]` / `EmitterPosition` `[E,C,M]` (currently
+      silently misread as R·M vectors) and `ListenerView/Up` `[M,C]`
+      (currently truncated to element 0).
+- [ ] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
+      `DelayAt(m, r)`, `SamplingRateAt(m)` resolving I- vs M-sized
+      variables; make `SamplingRateScalar` report when rates vary.
+- [ ] **R5f. Stop swallowing errors.** Attribute read errors
+      (`readGlobalAttributes` `continue`) and position read errors
+      (`readSpatialData`) must propagate or be collected as warnings.
+- [ ] **R5g. SH detection per spec.** Use
+      `EmitterPosition:Type == "spherical harmonics"` as the primary signal;
+      demote "SH"-substring / History heuristics; allow `E=1` (order 0);
+      require `DataType == TF-E` in `SHOrder`.
+
+#### R6 — AES69 conformance of written files (medium)
+
+- [ ] **R6a.** Emit mandatory global attributes (`DateCreated`,
+      `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
+      `Organization`, `License`, `Title`, `RoomType`), defaulting
+      `APIName`/`APIVersion`/dates when empty; require
+      `SOFAConventionsVersion`.
+- [ ] **R6b.** Add required variable attributes: `Data.SamplingRate:Units`,
+      `N:Units`/`LongName` for TF, Type/Units for `ListenerView/Up`;
+      validate position `Type` ∈ {cartesian, spherical, spherical
+      harmonics} and require it.
+- [ ] **R6c.** Write `Data.Delay` as `[I,R]` or `[M,R]` (2-D), make it
+      mandatory for FIR/SOS, remove the M==R ambiguity.
+- [ ] **R6d.** Validate data: reject NaN/Inf where not allowed,
+      SamplingRate ≤ 0, zero View/Up vectors, non-monotonic frequencies,
+      and convention-specific constraints (e.g. `SimpleFreeFieldHRIR`
+      requires R=2, E=1) — overlaps Phase B.
+- [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
+      extra variables and variable attributes; stop lowercasing
+      `Type`/`Units` on read (normalise only for comparisons).
+
+#### R7 — API ergonomics (medium)
+
+- [ ] **R7a.** Sentinel/typed errors (`ErrNotSOFA`,
+      `ErrUnsupportedDataType`, `*ValidationError{Field}`) usable with
+      `errors.Is/As`; capitalise field names in messages.
+- [ ] **R7b.** Export DataType constants (`DataTypeFIR`, …).
+- [ ] **R7c.** `io.ReaderAt`/`io.Writer` entry points (`Read(r)`,
+      `(*File).WriteTo(w)`), if go-hdf5 allows.
+- [ ] **R7d.** Release the HDF5 handle after eager `Open` (or make `Close`
+      meaningful via Phase C lazy mode).
+- [ ] **R7e.** Fix godoc: `Vector3` "in meters" (wrong for spherical),
+      `File` "an open SOFA file", `Delay` shape.
+- [ ] **R7f.** Consider replacing parallel per-DataType fields (`TFReal` vs
+      `TFRealE`, …) with a `Data` interface / tagged union before v1 to
+      avoid API churn.
+
+#### R8 — CLIs (medium)
+
+- [ ] **R8a.** Use the `flag` package: `-h/--help`, usage text, reject
+      unknown flags; process _all_ file arguments (sofa2json/sofainfo
+      silently ignore all but the first).
+- [ ] **R8b.** Non-zero exit if any file fails; progress to stderr.
+- [ ] **R8c.** sofa2json: handle NaN/Inf (e.g. `null` or string), include
+      `Conventions`, `SOFAConventions`, versions, positions and coordinate
+      Type/Units; consistent keys matching library field names; don't
+      silently overwrite (`-f` to force); stream output instead of
+      `MarshalIndent` of the whole document.
+- [ ] **R8d.** sofainfo: show `SOFAConventions`, `Version`, full delay
+      summary; sofaprobe: support Real/Imag/SOS, don't read all of
+      `Data.IR` to print 6 values.
+- [ ] **R8e.** Smoke tests for each CLI (currently 0 % coverage).
+
+#### R9 — Docs, tooling, CI hygiene (low)
+
+- [ ] **R9a.** README: fix module path (`github.com/cwbudde/go-sofa`, not
+      `MeKo-Christian`) in all `go get`/`go install`/import lines and
+      go-hdf5 links; "reading" → "reading and writing"; update "Known
+      limitations" (CLASS/NAME are emitted), supported DataTypes, document
+      `--include-sos`.
+- [ ] **R9b.** justfile: `GOPRIVATE` points at the wrong owner;
+      `just build` builds only sofaprobe; add `-race` to `just test`.
+- [ ] **R9c.** CI: trigger on `pull_request`; pin tool and golangci-lint
+      versions; enforce a coverage floor; install shellcheck or drop it
+      from treefmt; optional Go-version matrix.
+- [ ] **R9d.** Tag `v0.1.0` only after R1–R4 (CHANGELOG documents a
+      release that has no tag).
+- [ ] **R9e.** Coverage gaps: `readGlobalAttributes` 50 % (15 of 20
+      attributes never read in tests), `Save` error branches,
+      `write*AudioDatasets` 66–71 %.
 
 ### Phase A — SH HRTF support ✅ done 2026-05-10
 
@@ -92,7 +268,7 @@ Tasks (one sub-bullet per convention; pick whichever has demand first):
 - [x] **B1. Convention dispatcher.** Introduce a small registry
       `map[string]conventionRules` keyed by `SOFAConventions` attribute
       and looked up after generic validation in `validate`
-      ([sofa.go:793](sofa.go#L793)).
+      (`validate` in [sofa.go](sofa.go)).
   - Acceptance: unknown conventions still pass through unchanged
     (back-compat); `TestUnknownConventionStillReads` passes.
   - (2026-09-25) — `conventionRegistry` + `validateConvention` in
@@ -237,6 +413,8 @@ certain features are absent.
 | go-hdf5 API changes                            | Medium | Pin dependency version; coordinate with fork.   |
 | SOFA files using unsupported `DataType` values | Low    | FIR/TF/TF-E/SOS covered; SH tracked in Phase A. |
 | SOFA convention evolution (2.0+)               | Low    | Phase A.                                        |
+| go-hdf5 output unreadable by reference HDF5    | High   | R1a upstream fix + R1b interop CI job.          |
+| Single-maintainer go-hdf5 fork (pre-1.0, OOMs) | High   | R2b upstream fixes; fuzzing in CI (R2c).        |
 
 ---
 
@@ -245,4 +423,3 @@ certain features are absent.
 - [SOFA Specifications](https://www.sofaconventions.org/mediawiki/index.php/SOFA_specifications)
 - [netCDF-4/HDF5 File Format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html)
 - [HDF5 Object Header Specification](https://docs.hdfgroup.org/hdf5/develop/_s_p_e_c.html#OHDRLayout)
-- [Detailed write-support implementation notes](/home/christian/.claude/plans/sofa-write-implementation.md)

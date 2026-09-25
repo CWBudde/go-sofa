@@ -145,7 +145,7 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 	}
 }
 
-// TestReadRealTFFile opens an upstream TF SOFA file shipped in testdata
+// TestReadRealTFFile opens upstream TF SOFA files from testdata
 // and confirms the high-level shape. Reading these files used to fail
 // in go-hdf5 (V2 object header continuation chunks were ignored, so
 // dataset layout messages were missing).
@@ -157,22 +157,23 @@ func TestReadRealTFFile(t *testing.T) {
 		wantM, wantR, wantE, wantNAtMin int
 	}{
 		{
-			path:         "testdata/GeneralTF_2.0.sofa",
+			path:         "GeneralTF_2.0.sofa",
 			wantSOFAConv: "GeneralTF",
 			wantDataType: "TF",
 			wantM:        4, wantR: 4, wantE: 1, wantNAtMin: 1,
 		},
 		{
-			path:         "testdata/FreeFieldHRTF_2.0.sofa",
+			// SimpleFreeFieldHRTF written by Mesh2HRTF via sofar/netCDF-C
+			// (see testdata/PROVENANCE.md).
+			path:         "Mesh2HRTF_HRTF_FourPointHorPlane_r100cm.sofa",
 			wantSOFAConv: "SimpleFreeFieldHRTF",
 			wantDataType: "TF",
-			wantM:        2354, wantR: 2, wantE: 1, wantNAtMin: 1,
+			wantM:        4, wantR: 2, wantE: 1, wantNAtMin: 60,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(filepath.Base(tc.path), func(t *testing.T) {
-			requireTestdata(t, tc.path)
-			f, err := Open(tc.path)
+			f, err := Open(testdataPath(t, tc.path))
 			if err != nil {
 				t.Fatalf("Open(%q): %v", tc.path, err)
 			}
@@ -221,5 +222,56 @@ func minimalTFFile() *File {
 		Frequencies:            freqs,
 		TFReal:                 tfR,
 		TFImag:                 tfI,
+	}
+}
+
+// TestReadRealTFValues pins values of a third-party SimpleFreeFieldHRTF file
+// (Mesh2HRTF output written by sofar through netCDF-C 4.8.1), as read with
+// h5py 3.11 / HDF5 1.14.
+func TestReadRealTFValues(t *testing.T) {
+	f, err := Open(testdataPath(t, "Mesh2HRTF_HRTF_FourPointHorPlane_r100cm.sofa"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	if f.M != 4 || f.R != 2 || f.E != 1 || f.N != 60 {
+		t.Fatalf("dims = M%d R%d E%d N%d, want M4 R2 E1 N60", f.M, f.R, f.E, f.N)
+	}
+	if len(f.Frequencies) != 60 {
+		t.Fatalf("len(Frequencies) = %d, want 60", len(f.Frequencies))
+	}
+	assertClose(t, "Frequencies[0]", f.Frequencies[0], 100, 0)
+	assertClose(t, "Frequencies[1]", f.Frequencies[1], 200, 0)
+	assertClose(t, "Frequencies[59]", f.Frequencies[59], 6000, 0)
+
+	const tol = 1e-12
+	for _, s := range []struct {
+		m, r, n    int
+		real, imag float64
+	}{
+		{0, 0, 0, 0.9856262425622925, 0.01443516805741925},
+		{0, 1, 5, 0.964167929129623, -0.11693616743738079},
+		{3, 1, 59, -2.08179116824254, 0.5348458624152954},
+	} {
+		assertClose(t, "TFReal", f.TFReal[s.m][s.r][s.n], s.real, tol)
+		assertClose(t, "TFImag", f.TFImag[s.m][s.r][s.n], s.imag, tol)
+	}
+
+	wantSrc := []Vector3{{0, 0, 1}, {90, 0, 1}, {180, 0, 1}, {270, 0, 1}}
+	if len(f.SourcePositions) != len(wantSrc) {
+		t.Fatalf("len(SourcePositions) = %d, want %d", len(f.SourcePositions), len(wantSrc))
+	}
+	for i, want := range wantSrc {
+		if f.SourcePositions[i] != want {
+			t.Errorf("SourcePositions[%d] = %+v, want %+v", i, f.SourcePositions[i], want)
+		}
+	}
+	wantRecv := []Vector3{{-0.00253, 0.087218, 0.000632}, {0.00401, -0.087165, -0.00047}}
+	for i, want := range wantRecv {
+		got := f.ReceiverPositions[i]
+		assertClose(t, "ReceiverPositions.X", got.X, want.X, tol)
+		assertClose(t, "ReceiverPositions.Y", got.Y, want.Y, tol)
+		assertClose(t, "ReceiverPositions.Z", got.Z, want.Z, tol)
 	}
 }

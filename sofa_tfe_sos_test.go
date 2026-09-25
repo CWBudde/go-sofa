@@ -239,20 +239,20 @@ func TestReadRealTFEAndSOS(t *testing.T) {
 		wantE, wantNAtMin int
 	}{
 		{
-			path:         "testdata/GeneralTF-E_1.0.sofa",
+			path:         "GeneralTF-E_1.0.sofa",
 			wantConv:     "GeneralTF-E",
 			wantDataType: "TF-E",
 			// This particular GeneralTF-E demo has M=4, R=4800, E=1, N=1.
 			wantM: 4, wantR: 4800, wantE: 1, wantNAtMin: 1,
 		},
 		{
-			path:         "testdata/FreeFieldHRTF_1.0.sofa",
+			path:         "FreeFieldHRTF_1.0.sofa",
 			wantConv:     "FreeFieldHRTF",
 			wantDataType: "TF-E",
 			wantM:        1, wantR: 2, wantE: 1, wantNAtMin: 1,
 		},
 		{
-			path:         "testdata/SimpleFreeFieldHRSOS_1.0.sofa",
+			path:         "SimpleFreeFieldHRSOS_1.0.sofa",
 			wantConv:     "SimpleFreeFieldHRSOS",
 			wantDataType: "SOS",
 			wantM:        1, wantR: 2, wantE: 1, wantNAtMin: 6,
@@ -260,8 +260,7 @@ func TestReadRealTFEAndSOS(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(filepath.Base(tc.path), func(t *testing.T) {
-			requireTestdata(t, tc.path)
-			f, err := Open(tc.path)
+			f, err := Open(testdataPath(t, tc.path))
 			if err != nil {
 				t.Fatalf("Open(%q): %v", tc.path, err)
 			}
