@@ -399,8 +399,12 @@ defer f.Close()
 #### `(*File).Save(path string) error`
 
 Validates the `File` against AES69 requirements (required attributes,
-positive dimensions, consistent array shapes) and writes it as a
-new SOFA file at `path`. The destination is created from scratch on
+positive dimensions, consistent array shapes) and its values (every number
+finite, sampling rates above zero, frequencies ascending from zero or above,
+per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
+new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
+the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
+`(0, 90, 1)`). The destination is created from scratch on
 each call; an existing file is overwritten only after validation
 succeeds. Works for both `DataType == "FIR"` and `DataType == "TF"`.
 
@@ -438,7 +442,9 @@ advisory findings that never block `Save` (`sofainfo` prints them).
 | -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`            |
 | SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²` |
-| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | None yet — needs example file. `M` indexes source orientation, not source position       |
+| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`         | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                               |
+| `FreeFieldHRTF`                              | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                          |
+| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
 read from their variables, or from root attributes of the same

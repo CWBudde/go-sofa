@@ -1,5 +1,18 @@
 package sofa
 
+import "fmt"
+
+// Conventions with a fixed DataType, and for the Simple* ones a fixed
+// layout, as given by the SOFA Toolbox convention tables: "Data" dimensions
+// mRn (R = 2 receivers, the ears) and "a single Emitter only" (E = 1).
+const (
+	conventionSimpleFreeFieldHRIR    = "SimpleFreeFieldHRIR"
+	conventionSimpleFreeFieldHRTF    = "SimpleFreeFieldHRTF"
+	conventionSimpleFreeFieldHRSOS   = "SimpleFreeFieldHRSOS"
+	conventionFreeFieldHRTF          = "FreeFieldHRTF"
+	conventionFreeFieldDirectivityTF = "FreeFieldDirectivityTF"
+)
+
 // conventionRules holds checks specific to one SOFAConventions value, run by
 // validate after the generic checks.
 type conventionRules struct {
@@ -15,6 +28,29 @@ var conventionRegistry = map[string]conventionRules{
 	conventionMultiSpeakerBRIR:   brirRules,
 	conventionSingleRoomSRIR:     srirRules,
 	conventionSingleRoomMIMOSRIR: srirRules,
+
+	conventionSimpleFreeFieldHRIR:    layoutRules(dataTypeFIR, 2, 1),
+	conventionSimpleFreeFieldHRTF:    layoutRules(dataTypeTF, 2, 1),
+	conventionSimpleFreeFieldHRSOS:   layoutRules(dataTypeSOS, 2, 1),
+	conventionFreeFieldHRTF:          layoutRules(dataTypeTFE, 0, 0),
+	conventionFreeFieldDirectivityTF: layoutRules(dataTypeTF, 0, 0),
+}
+
+// layoutRules requires DataType dataType and, when non-zero, exactly r
+// receivers and e emitters.
+func layoutRules(dataType string, r, e int) conventionRules {
+	return conventionRules{validate: func(f *File) error {
+		if f.DataType != dataType {
+			return fmt.Errorf("%s requires DataType %s, got %q", f.SOFAConventions, dataType, f.DataType)
+		}
+		if r != 0 && f.R != r {
+			return fmt.Errorf("%s requires R=%d receivers, got %d", f.SOFAConventions, r, f.R)
+		}
+		if e != 0 && f.E != e {
+			return fmt.Errorf("%s requires E=%d emitter, got %d", f.SOFAConventions, e, f.E)
+		}
+		return nil
+	}}
 }
 
 // validateConvention runs the rules registered for f.SOFAConventions, if any.

@@ -866,16 +866,18 @@ func (f *File) writeHDF5(path string) (err error) {
 		}
 	}
 
-	// Write listener orientation vectors, [M,C] when given per measurement.
-	// Both carry ListenerView's coordinate system.
+	// Write listener orientation vectors, [M,C] when given per measurement,
+	// else [I,C] with the conventions' default for an unset vector. Both
+	// carry ListenerView's coordinate system.
 	viewAttrs := positionAttributes(f.listenerViewCoordinates())
+	view, up := f.listenerOrientation()
 	for _, o := range []struct {
 		name string
 		one  Vector3
 		all  []Vector3
 	}{
-		{datasetListenerUp, f.ListenerUp, f.ListenerUps},
-		{datasetListenerView, f.ListenerView, f.ListenerViews},
+		{datasetListenerUp, up, f.ListenerUps},
+		{datasetListenerView, view, f.ListenerViews},
 	} {
 		vecs, rows := []Vector3{o.one}, dimI
 		if len(o.all) > 0 {
@@ -1028,6 +1030,9 @@ func (f *File) validate() error {
 		return err
 	}
 	if err := f.validateCoordinateTypes(); err != nil {
+		return err
+	}
+	if err := f.validateValues(); err != nil {
 		return err
 	}
 

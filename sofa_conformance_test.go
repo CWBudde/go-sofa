@@ -116,6 +116,7 @@ func TestSaveDelayLayouts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := minimalFIRFile()
+			f.SOFAConventions = "GeneralFIR" // SimpleFreeFieldHRIR requires R=2
 			f.M, f.R = tc.m, tc.r
 			f.ImpulseResponses = make([][][]float64, tc.m)
 			for m := range f.ImpulseResponses {
@@ -311,7 +312,8 @@ func TestSaveVariableAttributes(t *testing.T) {
 		}},
 		{"spherical view", func() *File {
 			f := minimalFIRFile()
-			f.ListenerViewType, f.ListenerViewUnits = CoordinateSpherical, UnitsSphericalDegrees
+			setSphericalOrientation(f)
+			f.ListenerViewUnits = UnitsSphericalDegrees
 			return f
 		}(), map[[2]string]string{
 			{"ListenerView", "Type"}:  "spherical",
@@ -320,7 +322,7 @@ func TestSaveVariableAttributes(t *testing.T) {
 		}},
 		{"spherical view without units", func() *File {
 			f := minimalFIRFile()
-			f.ListenerViewType = CoordinateSpherical
+			setSphericalOrientation(f)
 			return f
 		}(), map[[2]string]string{
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
@@ -343,7 +345,8 @@ func TestSaveVariableAttributes(t *testing.T) {
 
 	// Open reads the ListenerView coordinate system back.
 	f := minimalFIRFile()
-	f.ListenerViewType, f.ListenerViewUnits = CoordinateSpherical, UnitsSphericalDegrees
+	setSphericalOrientation(f)
+	f.ListenerViewUnits = UnitsSphericalDegrees
 	path := filepath.Join(t.TempDir(), "view.sofa")
 	if err := f.Save(path); err != nil {
 		t.Fatalf("Save: %v", err)

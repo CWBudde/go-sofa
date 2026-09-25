@@ -9,6 +9,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** `Save` validates values: it rejects NaN and ±Inf anywhere it
+  writes, sampling rates ≤ 0, negative or non-ascending `Frequencies`, and
+  zero rows in `ListenerViews`/`ListenerUps` (radius 0 when spherical).
+  `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS` files must have `DataType` FIR/TF/SOS,
+  `R = 2` and `E = 1`; `FreeFieldHRTF` must be TF-E and
+  `FreeFieldDirectivityTF` TF. An unset `ListenerView`/`ListenerUp` is written
+  as the conventions' default (`[1 0 0]`/`[0 0 1]`) instead of zeros; the
+  `File` is not modified.
 - **Breaking:** `Save` rejects a file without `SOFAConventionsVersion`, and
   every written position (listener, receiver, source, emitter) needs a
   `Type` of `cartesian`, `spherical` or `spherical harmonics`.
