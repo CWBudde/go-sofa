@@ -1204,17 +1204,18 @@ func (f *File) writeSamplingRateAndDelay(nc *netcdfDimensions) error {
 
 // delayDims names the dimensions of a Data.Delay with n values (validated
 // to be 1, M, R or M×R). An M×R delay is written two-dimensional so each
-// axis has a named dimension.
+// axis has a named dimension; it is checked before M and R so that it keeps
+// its [M,R] shape when M or R is 1.
 func delayDims(n, m, r int) []string {
 	switch n {
 	case 1:
 		return []string{dimI}
+	case m * r:
+		return []string{dimM, dimR}
 	case m:
 		return []string{dimM}
-	case r:
-		return []string{dimR}
 	default:
-		return []string{dimM, dimR}
+		return []string{dimR}
 	}
 }
 

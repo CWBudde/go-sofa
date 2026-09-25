@@ -172,6 +172,7 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
+			defer back.Close()
 			if back.M != tc.file.M || back.R != tc.file.R || back.E != tc.file.E || back.N != tc.file.N {
 				t.Errorf("dims after round trip M=%d R=%d E=%d N=%d, want M=%d R=%d E=%d N=%d",
 					back.M, back.R, back.E, back.N, tc.file.M, tc.file.R, tc.file.E, tc.file.N)
@@ -224,5 +225,24 @@ func minimalFIRFile() *File {
 		EmitterPositions:  []Vector3{{0, 0, 0}},
 		ListenerUp:        Vector3{0, 0, 1},
 		ListenerView:      Vector3{1, 0, 0},
+	}
+}
+
+func TestDelayDims(t *testing.T) {
+	for _, tc := range []struct {
+		n, m, r int
+		want    []string
+	}{
+		{1, 3, 2, []string{"I"}},
+		{3, 3, 2, []string{"M"}},
+		{2, 3, 2, []string{"R"}},
+		{6, 3, 2, []string{"M", "R"}},
+		{3, 3, 1, []string{"M", "R"}}, // M×R with R=1 keeps its 2-D shape
+		{2, 1, 2, []string{"M", "R"}}, // M×R with M=1
+		{1, 1, 1, []string{"I"}},
+	} {
+		if got := delayDims(tc.n, tc.m, tc.r); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("delayDims(n=%d, M=%d, R=%d) = %v, want %v", tc.n, tc.m, tc.r, got, tc.want)
+		}
 	}
 }
