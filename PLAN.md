@@ -34,7 +34,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 remains. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -326,21 +326,50 @@ R1–R4 are release blockers.
       `TFRealE`, …) with a `Data` interface / tagged union before v1 to
       avoid API churn.
 
-#### R8 — CLIs (medium)
+#### R8 — CLIs (medium) — ✅ DONE (2026-09-26)
 
-- [ ] **R8a.** Use the `flag` package: `-h/--help`, usage text, reject
+- [x] **R8a.** Use the `flag` package: `-h/--help`, usage text, reject
       unknown flags; process _all_ file arguments (sofa2json/sofainfo
       silently ignore all but the first).
-- [ ] **R8b.** Non-zero exit if any file fails; progress to stderr.
-- [ ] **R8c.** sofa2json: handle NaN/Inf (e.g. `null` or string), include
+  - (2026-09-26) — each `main` is `os.Exit(run(args, stdout, stderr))`
+    with a `flag.FlagSet` (ContinueOnError): `-h` prints usage and exits 0,
+    an unknown flag exits 2, and every file argument is processed (the
+    `*.sofa` glob fallback stays for sofa2json/sofainfo; sofainfo heads
+    each summary with `==> file <==` when there are several).
+    `TestHelp`, `TestUnknownFlag`/`TestUsage` and `TestAllFileArguments`
+    cover it.
+- [x] **R8b.** Non-zero exit if any file fails; progress to stderr.
+  - (2026-09-26) — a failing file is reported on stderr, the rest are
+    still processed, and the exit status is 1; sofa2json's progress
+    (`in -> out.json`) goes to stderr. `TestFailingFileSetsExitCode` in all
+    three commands.
+- [x] **R8c.** sofa2json: handle NaN/Inf (e.g. `null` or string), include
       `Conventions`, `SOFAConventions`, versions, positions and coordinate
       Type/Units; consistent keys matching library field names; don't
       silently overwrite (`-f` to force); stream output instead of
       `MarshalIndent` of the whole document.
-- [ ] **R8d.** sofainfo: show `SOFAConventions`, `Version`, full delay
+  - (2026-09-26) — a streaming `encoder` writes the object field by field
+    through a `bufio.Writer`, NaN/±Inf as `null`; keys are the `sofa.File`
+    field names (`M`, `SamplingRate`, `ImpulseResponses`, `TFRealE`, …)
+    plus positions with their `…Type`/`…Units`; output is opened
+    `O_EXCL` unless `-f`, and a failed export removes the partial file.
+    `TestMetadataKeys`, `TestIncludeData`, `TestNonFiniteValuesBecomeNull`,
+    `TestRefusesToOverwrite`.
+- [x] **R8d.** sofainfo: show `SOFAConventions`, `Version`, full delay
       summary; sofaprobe: support Real/Imag/SOS, don't read all of
       `Data.IR` to print 6 values.
-- [ ] **R8e.** Smoke tests for each CLI (currently 0 % coverage).
+  - (2026-09-26) — sofainfo prints `Conventions`, `Version`,
+    `SOFAConventions`, `SOFAConventionsVersion` and
+    `Delay: n values [layout], min, max: [values ≤ 8]`
+    (`TestConventionsAndDelay`, `TestDelaySummary`). sofaprobe previews
+    `Data.IR/Real/Imag/SOS` from their first and last rows via
+    `Dataset.ReadSlice` (no `Read()` left in the command; `TestDataPreview`),
+    matching a full read on all 28 data variables of the local fixtures.
+    Whole rows are read because of go-hdf5 bug E5.
+- [x] **R8e.** Smoke tests for each CLI (currently 0 % coverage).
+  - (2026-09-26) — `cmd/*/main_test.go` build their input with
+    `internal/clitest` (`Save` into `t.TempDir()`, no fetched fixtures):
+    coverage sofa2json 86.2 %, sofainfo 90.2 %, sofaprobe 84.0 %.
 
 #### R9 — Docs, tooling, CI hygiene (low)
 
@@ -573,6 +602,15 @@ certain features are absent.
       unsupported: "unsupported datatype class 6"). Add `Dataset.Shape()`
       and dimension-scale accessors upstream, then drop the parsers in
       [sofa_dataspace.go](sofa_dataspace.go) / [sofa_shapes.go](sofa_shapes.go).
+- [ ] **E5. `Dataset.ReadSlice` returns zeros for 3-D+ contiguous
+      hyperslabs that start inside a row.** Found in R8d (go-hdf5 v0.16.1):
+      on a contiguous `[3,2,8]` dataset, `ReadSlice([0,0,5], [1,1,3])` or
+      any non-zero start with a partial last axis returns `[0 0 0]` and no
+      error; `readContiguousRowByRow` reads a dense bounding box from the
+      start offset but extracts with absolute coordinates. Full-row
+      selections (linear path) are correct, which sofaprobe relies on.
+  - Acceptance: upstream fix and regression test merged; sofaprobe can
+    read just the first/last 3 values.
 
 ---
 
