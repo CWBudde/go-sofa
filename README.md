@@ -314,11 +314,13 @@ Number of Receivers: 2
 Number of Emitters: 1
 Number of DataSamples: 200
 SampleRate: 44100
-Delay: 2 values [R], min 0, max 0: [0 0]
+Delay: 2 values [I,R], min 0, max 0: [0 0]
 ```
 
-The `Delay` line gives the number of values, their layout (`[I]` shared,
-`[M]`, `[R]` or `[M,R]`), the range and, for up to 8 values, the values.
+The `Delay` line gives the number of values, their netCDF dimensions as
+stored in the file (`File.DelayDimensions`: `[I]`, `[I,R]`, `[M]`, `[R]` or
+`[M,R]`, so `[M]` and `[R]` are told apart even when M == R), the range and,
+for up to 8 values, the values.
 
 ### sofa2json
 
@@ -367,7 +369,9 @@ exports need no in-memory copy of the JSON document.
 Development tool: dumps the HDF5 structure, attributes and dimension
 scales of each file, then previews `Data.IR`, `Data.Real`, `Data.Imag` or
 `Data.SOS` (shape, first and last values) without reading the whole
-dataset.
+dataset. Attribute values go-hdf5 cannot decode are shown inline as
+`(unreadable: …)`; failures to read the structure or the data go to stderr
+and make the exit status 1.
 
 ```bash
 sofaprobe myfile.sofa

@@ -80,13 +80,16 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   every file argument instead of only the first, report progress and errors
   on stderr and exit 1 if any file failed.
 - `sofainfo` prints `Conventions`, `Version`, `SOFAConventions`,
-  `SOFAConventionsVersion` and a full delay summary (count, layout, range,
-  values); `sofaprobe` previews `Data.Real`, `Data.Imag` and `Data.SOS` as
+  `SOFAConventionsVersion` and a full delay summary (count, dimensions as
+  stored, range, values); `sofaprobe` previews `Data.Real`, `Data.Imag` and `Data.SOS` as
   well as `Data.IR`, reading two rows instead of the whole dataset.
 
 ### Added
 
 - `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
+- `(*File).DelayDimensions()` returns the netCDF dimensions of `Delay` as
+  `Open` read them (`[I,R]`, `[M]`, …), or the layout its length implies for
+  a `File` built in memory.
 - `ErrNotSOFA`, wrapped by `Open` when `Conventions` is not `SOFA`, and
   `*ValidationError{Field, Err}`, which `Save` returns for every validation
   failure; use `errors.Is` / `errors.As`. An unknown `DataType` is both a
