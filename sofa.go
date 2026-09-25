@@ -62,15 +62,19 @@ const (
 	UnitsCartesianMetres = "metre, metre, metre"
 )
 
-// Vector3 represents a 3D coordinate (X, Y, Z) in meters.
-// Used for positions and orientations in SOFA files.
+// Vector3 is one coordinate triplet of a position or orientation
+// variable. Its units are those the variable's Type and Units attributes
+// name: X, Y, Z in metres for "cartesian"; azimuth, elevation (degrees, or
+// radians where Units say so) and radius in metres for "spherical" and
+// "spherical harmonics" (where each EmitterPosition row is one SH
+// coefficient's emitter).
 type Vector3 struct {
 	X, Y, Z float64
 }
 
-// File represents an open SOFA file with all its data and metadata.
-// It provides access to spatial audio data including impulse responses,
-// positions, and AES69 standardized attributes.
+// File holds the contents of a SOFA file: its AES69 attributes, positions
+// and audio data. Open fills it completely (nothing is read lazily), and
+// Save writes one built or modified in memory.
 type File struct {
 	// Dimensions (M=measurements, R=receivers, E=emitters, N=samples)
 	M int // number of measurements
@@ -125,7 +129,7 @@ type File struct {
 	// Audio data — FIR (used when DataType == "FIR")
 	ImpulseResponses [][][]float64 // [M][R][N] the actual IR data
 	SamplingRate     []float64     // [M] sampling rate in Hz (may be scalar)
-	Delay            []float64     // [M] delay in samples
+	Delay            []float64     // delay in samples: 1 (shared), M, R or M×R (row-major [M][R]) values; see DelayAt
 
 	// Audio data — TF (used when DataType == "TF")
 	// Frequencies has length N. TFReal and TFImag have shape [M][R][N] and
