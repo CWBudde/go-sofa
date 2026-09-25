@@ -41,6 +41,9 @@ const (
 	// Coordinate systems a position dataset's Type attribute may name.
 	CoordinateCartesian = "cartesian"
 	CoordinateSpherical = "spherical"
+	// CoordinateSphericalHarmonics marks EmitterPosition data of SH-encoded
+	// files, where each emitter is one SH coefficient (see SHOrder).
+	CoordinateSphericalHarmonics = "spherical harmonics"
 
 	// UnitsSphericalDegrees is the conventional Units value for spherical
 	// positions measured in degrees.

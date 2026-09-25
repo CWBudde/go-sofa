@@ -18,6 +18,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Open` checks every variable's shape, not only its element count, using the
   file's netCDF dimension names where present; an axis permutation or any
   other layout AES69 does not allow is an error instead of a silent misread.
+- `Open` fails when a global attribute go-sofa maps to a field, a position or
+  orientation dataset, or its `Type`/`Units` attribute is present but cannot
+  be read, instead of leaving the field empty. Global attributes go-sofa does
+  not interpret are no longer decoded.
+- SH detection (`SHOrder`, `IsSHEncoded`, `SHCoefficientCount`) follows
+  AES69: `EmitterPositionType == "spherical harmonics"` decides when set, and
+  the convention-name / History heuristics apply only when it is empty.
+  `DataType` must be `TF-E`, and `E = 1` is order 0. A heuristic that
+  contradicts a set Type is reported by `SHWarnings`.
 
 ### Added
 

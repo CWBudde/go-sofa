@@ -441,16 +441,19 @@ coefficient index (`E = (Lmax+1)²`). go-sofa reads and writes such
 files via the standard TF-E path; use the helpers below to detect
 and inspect SH encoding:
 
-- `(*File).IsSHEncoded() bool` — true when convention name or
-  History attribute declares SH **and** `E` is a perfect square ≥ 4
+- `(*File).IsSHEncoded() bool` — true when `DataType` is `TF-E`,
+  `EmitterPositionType` is `"spherical harmonics"` (AES69's marker; only
+  when it is empty do a convention name containing "SH" or a History
+  mentioning spherical harmonics count instead) **and** `E` is `(L+1)²`
+  for some `L ≥ 0`
 - `(*File).SHOrder() (lmax int, ok bool)` — returns `Lmax`
 - `(*File).SHCoefficientCount() int` — returns `E` for SH files, 0 otherwise
 - `(*File).SHWarnings() []string` — advisory diagnostics for
   ambiguous or malformed SH metadata
 
 To **write** an SH-encoded file, populate a `File` with
-`DataType:"TF-E"`, `SOFAConventions:"FreeFieldHRSH"` (or any
-convention name containing "SH"), and `E = (Lmax+1)²` SH
+`DataType:"TF-E"`, `EmitterPositionType: sofa.CoordinateSphericalHarmonics`,
+a convention such as `FreeFieldHRTF`, and `E = (Lmax+1)²` SH
 coefficients per (measurement, receiver, frequency) tuple, then call
 `Save`.
 
