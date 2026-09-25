@@ -51,6 +51,9 @@ func TestBRIRMissingRoomType(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "RoomType") {
 				t.Fatalf("Save() error = %v, want error mentioning RoomType", err)
 			}
+			if ve := requireValidationError(t, err); ve.Field != "RoomType" {
+				t.Errorf("Field = %q, want RoomType", ve.Field)
+			}
 		})
 	}
 }

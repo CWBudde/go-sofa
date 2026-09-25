@@ -1,7 +1,5 @@
 package sofa
 
-import "fmt"
-
 // SOFAConventions values for binaural room impulse responses.
 const (
 	conventionSingleRoomDRIR   = "SingleRoomDRIR"
@@ -26,13 +24,13 @@ func (f *File) IsBRIR() bool {
 
 func validateBRIR(f *File) error {
 	if f.RoomType == "" {
-		return fmt.Errorf("%s requires the RoomType attribute", f.SOFAConventions)
+		return invalid("RoomType", "%s requires the RoomType attribute", f.SOFAConventions)
 	}
 	if f.ListenerView == (Vector3{}) {
-		return fmt.Errorf("%s requires a non-zero ListenerView", f.SOFAConventions)
+		return invalid("ListenerView", "%s requires a non-zero ListenerView", f.SOFAConventions)
 	}
 	if f.ListenerUp == (Vector3{}) {
-		return fmt.Errorf("%s requires a non-zero ListenerUp", f.SOFAConventions)
+		return invalid("ListenerUp", "%s requires a non-zero ListenerUp", f.SOFAConventions)
 	}
 	return nil
 }

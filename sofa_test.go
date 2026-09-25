@@ -283,8 +283,8 @@ func TestOpenNonSOFAHDF5(t *testing.T) {
 		f.Close()
 		t.Fatalf("Open(non-SOFA) succeeded, want error")
 	}
-	if !contains(err.Error(), "not a SOFA file") {
-		t.Errorf("Open(non-SOFA) error = %v, want %q", err, "not a SOFA file")
+	if !errors.Is(err, ErrNotSOFA) {
+		t.Errorf("Open(non-SOFA) error = %v, want ErrNotSOFA", err)
 	}
 }
 

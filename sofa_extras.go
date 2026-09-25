@@ -379,7 +379,7 @@ func (f *File) validateExtras() error {
 		_, ok := mapped[name]
 		return ok || netcdfAttribute(name)
 	}); err != nil {
-		return err
+		return invalid("Attributes", "%w", err)
 	}
 
 	written := f.writtenVariables()
@@ -391,12 +391,12 @@ func (f *File) validateExtras() error {
 	for _, name := range names {
 		owned, ok := written[name]
 		if !ok {
-			return fmt.Errorf("variable attributes for %s, which Save does not write", name)
+			return invalid("VariableAttributes", "%s: Save does not write a variable of that name", name)
 		}
 		if err := checkAttributes("attribute of "+name, f.VariableAttributes[name], func(a string) bool {
 			return plumbingAttribute(a) || slices.Contains(owned, a)
 		}); err != nil {
-			return err
+			return invalid("VariableAttributes", "%w", err)
 		}
 	}
 
@@ -404,22 +404,22 @@ func (f *File) validateExtras() error {
 	seen := map[string]bool{}
 	for _, v := range f.Variables {
 		if err := v.validate(sizes); err != nil {
-			return fmt.Errorf("variable %s: %w", v.Name, err)
+			return invalid("Variables", "variable %s: %w", v.Name, err)
 		}
 		if _, ok := written[v.Name]; ok {
-			return fmt.Errorf("variable %s: Save already writes a variable of that name", v.Name)
+			return invalid("Variables", "variable %s: Save already writes a variable of that name", v.Name)
 		}
 		if seen[v.Name] {
-			return fmt.Errorf("duplicate variable %s", v.Name)
+			return invalid("Variables", "duplicate variable %s", v.Name)
 		}
 		seen[v.Name] = true
 	}
 	for d := range sizes {
 		if seen[d] {
-			return fmt.Errorf("variable %s: name taken by dimension %s", d, d)
+			return invalid("Variables", "variable %s: name taken by dimension %s", d, d)
 		}
 		if _, ok := written[d]; ok && !slices.Contains(sofaDimensions, d) {
-			return fmt.Errorf("dimension %s: Save already writes a variable of that name", d)
+			return invalid("Variables", "dimension %s: Save already writes a variable of that name", d)
 		}
 	}
 	return nil

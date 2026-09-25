@@ -1,7 +1,6 @@
 package sofa
 
 import (
-	"fmt"
 	"math"
 	"strings"
 )
@@ -64,7 +63,7 @@ func (f *File) validateRateAndDelay() error {
 	}
 	for i, sr := range f.SamplingRate {
 		if sr <= 0 {
-			return fmt.Errorf("SamplingRate[%d] = %g must be > 0", i, sr)
+			return invalid("SamplingRate", "[%d] = %g must be > 0", i, sr)
 		}
 	}
 	return nil
@@ -78,10 +77,10 @@ func (f *File) validateFrequencies() error {
 	}
 	for i, fr := range f.Frequencies {
 		if fr < 0 {
-			return fmt.Errorf("negative frequency: Frequencies[%d] = %g", i, fr)
+			return invalid("Frequencies", "[%d] = %g is negative", i, fr)
 		}
 		if i > 0 && fr <= f.Frequencies[i-1] {
-			return fmt.Errorf("frequencies must be strictly increasing: Frequencies[%d] = %g follows %g",
+			return invalid("Frequencies", "must be strictly increasing: [%d] = %g follows %g",
 				i, fr, f.Frequencies[i-1])
 		}
 	}
@@ -118,7 +117,7 @@ func (f *File) validatePositionValues() error {
 		for i, row := range p.rows {
 			for j, v := range row {
 				if !finiteVector(v) {
-					return fmt.Errorf("%s[%d][%d] = %v is not finite", p.name, i, j, v)
+					return invalid(p.name, "[%d][%d] = %v is not finite", i, j, v)
 				}
 			}
 		}
@@ -133,7 +132,7 @@ func (f *File) validatePositionValues() error {
 		{"ListenerUp", f.ListenerUp},
 	} {
 		if o.vec != (Vector3{}) && zeroDirection(o.vec, spherical) {
-			return fmt.Errorf("%s %v has no direction", o.name, o.vec)
+			return invalid(o.name, "%v has no direction", o.vec)
 		}
 	}
 	for _, o := range []struct {
@@ -145,7 +144,7 @@ func (f *File) validatePositionValues() error {
 	} {
 		for i, v := range o.vecs {
 			if zeroDirection(v, spherical) {
-				return fmt.Errorf("%s[%d] %v has no direction", o.name, i, v)
+				return invalid(o.name, "[%d] = %v has no direction", i, v)
 			}
 		}
 	}
@@ -211,7 +210,7 @@ func finiteVector(v Vector3) bool { return finite(v.X) && finite(v.Y) && finite(
 func checkFinite(name string, vals []float64) error {
 	for i, v := range vals {
 		if !finite(v) {
-			return fmt.Errorf("%s[%d] = %g is not finite", name, i, v)
+			return invalid(name, "[%d] = %g is not finite", i, v)
 		}
 	}
 	return nil
@@ -222,7 +221,7 @@ func checkFinite3D(name string, data [][][]float64) error {
 		for j, b := range a {
 			for k, v := range b {
 				if !finite(v) {
-					return fmt.Errorf("%s[%d][%d][%d] = %g is not finite", name, i, j, k, v)
+					return invalid(name, "[%d][%d][%d] = %g is not finite", i, j, k, v)
 				}
 			}
 		}
@@ -236,7 +235,7 @@ func checkFinite4D(name string, data [][][][]float64) error {
 			for k, c := range b {
 				for l, v := range c {
 					if !finite(v) {
-						return fmt.Errorf("%s[%d][%d][%d][%d] = %g is not finite", name, i, j, k, l, v)
+						return invalid(name, "[%d][%d][%d][%d] = %g is not finite", i, j, k, l, v)
 					}
 				}
 			}
@@ -248,7 +247,7 @@ func checkFinite4D(name string, data [][][][]float64) error {
 func checkFiniteVectors(name string, vecs []Vector3) error {
 	for i, v := range vecs {
 		if !finiteVector(v) {
-			return fmt.Errorf("%s[%d] = %v is not finite", name, i, v)
+			return invalid(name, "[%d] = %v is not finite", i, v)
 		}
 	}
 	return nil

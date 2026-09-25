@@ -127,6 +127,8 @@ func TestValidateRejectsBadData(t *testing.T) {
 				t.Errorf("validate accepted %s", tc.name)
 			case tc.want != "" && !strings.Contains(err.Error(), tc.want):
 				t.Errorf("error %q does not name %s", err, tc.want)
+			case tc.want != "":
+				requireValidationError(t, err)
 			}
 		})
 	}

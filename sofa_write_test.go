@@ -30,7 +30,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "conventions must be \"SOFA\"",
+			wantErr: "Conventions: must be \"SOFA\"",
 		},
 		{
 			name: "invalid Conventions value",
@@ -49,7 +49,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "conventions must be \"SOFA\"",
+			wantErr: "Conventions: must be \"SOFA\"",
 		},
 		{
 			name: "missing Version",
@@ -67,7 +67,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "version is required",
+			wantErr: "Version: is required",
 		},
 		{
 			name: "missing SOFAConventions",
@@ -84,7 +84,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:     []float64{44100},
 				}
 			},
-			wantErr: "sofaConventions is required",
+			wantErr: "SOFAConventions: is required",
 		},
 		{
 			name: "missing DataType",
@@ -102,7 +102,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "dataType is required",
+			wantErr: "DataType: is required",
 		},
 		{
 			name: "zero M dimension",
@@ -120,7 +120,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "m must be > 0",
+			wantErr: "M: must be > 0",
 		},
 		{
 			name: "zero R dimension",
@@ -138,7 +138,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100},
 				}
 			},
-			wantErr: "r must be > 0",
+			wantErr: "R: must be > 0",
 		},
 		{
 			name: "IR dimensions mismatch M",
@@ -157,7 +157,7 @@ func TestSaveValidation(t *testing.T) {
 					SamplingRate:           []float64{44100, 44100},
 				}
 			},
-			wantErr: "ImpulseResponses length 1 does not match M=2",
+			wantErr: "ImpulseResponses: length 1 does not match M=2",
 		},
 		{
 			name: "IR dimensions mismatch R",
@@ -226,7 +226,7 @@ func TestSaveValidation(t *testing.T) {
 				}
 				return f
 			},
-			wantErr: "samplingRate length 3 must be M=2 or 1",
+			wantErr: "SamplingRate: length 3 must be M=2 or 1",
 		},
 	}
 
@@ -240,6 +240,7 @@ func TestSaveValidation(t *testing.T) {
 			if !contains(err.Error(), tt.wantErr) {
 				t.Errorf("validate() error = %v, want error containing %q", err, tt.wantErr)
 			}
+			requireValidationError(t, err)
 		})
 	}
 }

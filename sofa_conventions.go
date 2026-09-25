@@ -1,7 +1,5 @@
 package sofa
 
-import "fmt"
-
 // Conventions with a fixed DataType, and for the Simple* ones a fixed
 // layout, as given by the SOFA Toolbox convention tables: "Data" dimensions
 // mRn (R = 2 receivers, the ears) and "a single Emitter only" (E = 1).
@@ -41,13 +39,13 @@ var conventionRegistry = map[string]conventionRules{
 func layoutRules(dataType string, r, e int) conventionRules {
 	return conventionRules{validate: func(f *File) error {
 		if f.DataType != dataType {
-			return fmt.Errorf("%s requires DataType %s, got %q", f.SOFAConventions, dataType, f.DataType)
+			return invalid("DataType", "%s requires %s, got %q", f.SOFAConventions, dataType, f.DataType)
 		}
 		if r != 0 && f.R != r {
-			return fmt.Errorf("%s requires R=%d receivers, got %d", f.SOFAConventions, r, f.R)
+			return invalid("R", "%s requires R=%d, got %d", f.SOFAConventions, r, f.R)
 		}
 		if e != 0 && f.E != e {
-			return fmt.Errorf("%s requires E=%d emitter, got %d", f.SOFAConventions, e, f.E)
+			return invalid("E", "%s requires E=%d, got %d", f.SOFAConventions, e, f.E)
 		}
 		return nil
 	}}
