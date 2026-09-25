@@ -79,3 +79,16 @@ and licence are unverified; pin them on the first successful fetch.
 | `FreeFieldHRTF_1.0.sofa`        | https://sofacoustics.org/data/examples/FreeFieldHRTF_1.0.sofa               | `TestReadRealTFEAndSOS`                 | Tests expect FreeFieldHRTF / TF-E, R=2.                     |
 | `SimpleFreeFieldHRSOS_1.0.sofa` | https://sofacoustics.org/data/examples/SimpleFreeFieldHRSOS_1.0.sofa        | `TestReadRealTFEAndSOS`                 | Tests expect SimpleFreeFieldHRSOS / SOS, R=2, N≥6.          |
 | `demo_FreeFieldHRTF_4_SH.sofa`  | https://sofacoustics.org/data/sofatoolbox_test/demo_FreeFieldHRTF_4_SH.sofa | `TestReadSHEncodedTFE`                  | Tests expect FreeFieldHRTF / TF-E, E=1156 (Lmax=33), N=129. |
+
+## Local-only (no known download URL)
+
+Used by the BRIR/SRIR convention tests (Phase B). Both come from the
+sofacoustics.org data server, but no stable URL could be confirmed (the server
+answers 403, including to browser user agents), so `scripts/fetch-testdata.sh`
+does not list them. Copy them into `testdata/` by hand; the hashes below
+identify the expected files.
+
+| File                      | Needed by                   | Producer (from the file)                                                                                                     | Licence as stated by the file                                                                                                                      | Size (bytes) | SHA-256                                                            |
+| ------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -----------: | ------------------------------------------------------------------ |
+| `OfficeII.sofa`           | `TestBRIRRoundTripOfficeII` | ARI SOFA API for Matlab/Octave 1.0.3; Kayser et al. 2009 Oldenburg in-ear/BTE BRIR database, SingleRoomDRIR, M=8 R=8 N=22000 | "Permission to use this database for purely research or educational purposes is granted. No commercial exploitation of this database is permitted" |     10099121 | `0491f6eb95f8c8768726c43b0f15e3194f1d57dabe1d380db283ca1a8949b8e8` |
+| `SingleRoomSRIR_1.1.sofa` | `TestSRIRReadKnownFile`     | SOFA Toolbox for Matlab/Octave 2.2.1 demo script, SingleRoomSRIR, M=4800 R=1 N=1                                             | "No license provided, ask the author for permission"                                                                                               |        95529 | `60e965aa7e71675391b442376d059b6095f587cfbb7cb018c391c6bdafc4f614` |
