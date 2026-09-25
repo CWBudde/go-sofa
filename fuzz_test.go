@@ -39,10 +39,10 @@ func FuzzOpen(f *testing.F) {
 		defer sf.Close()
 
 		_ = sf.SamplingRateScalar()
-		_ = sf.Duration()
+		_, _ = sf.Duration()
 		for _, idx := range [][2]int{{0, 0}, {sf.M - 1, sf.R - 1}, {sf.M, 0}, {-1, 0}} {
-			_ = sf.IRAt(idx[0], idx[1])
-			_ = sf.IRPeakdB(idx[0], idx[1])
+			_, _ = sf.IRAt(idx[0], idx[1])
+			_, _ = sf.IRPeakdB(idx[0], idx[1])
 		}
 		_, _ = sf.SHOrder()
 		_ = sf.SHCoefficientCount()

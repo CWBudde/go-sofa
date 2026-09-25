@@ -50,28 +50,6 @@ const (
 	UnitsCartesianMetres = "metre, metre, metre"
 )
 
-// ErrUnsupportedDataType reports a DataType this package cannot read or
-// write: an empty or unknown value, GeneralFIR-E's "FIR-E" and the legacy
-// "FIRE". Test for it with errors.Is.
-var ErrUnsupportedDataType = errors.New("unsupported DataType")
-
-// checkDataType returns an ErrUnsupportedDataType-wrapping error unless dt
-// is one of the DataTypes this package reads and writes.
-func checkDataType(dt string) error {
-	switch dt {
-	case dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS:
-		return nil
-	case "":
-		return fmt.Errorf("%w: DataType attribute is missing or empty", ErrUnsupportedDataType)
-	case "FIR-E", "FIRE":
-		return fmt.Errorf("%w %q: per-emitter impulse responses (GeneralFIR-E) are not supported",
-			ErrUnsupportedDataType, dt)
-	default:
-		return fmt.Errorf("%w %q (want %q, %q, %q, or %q)",
-			ErrUnsupportedDataType, dt, dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS)
-	}
-}
-
 // Vector3 represents a 3D coordinate (X, Y, Z) in meters.
 // Used for positions and orientations in SOFA files.
 type Vector3 struct {
@@ -736,60 +714,6 @@ func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
 		}
 	}
 	return result
-}
-
-// SamplingRateScalar returns the sampling rate as a scalar value.
-// If multiple sampling rates are stored, it returns the first one.
-// Returns 0 if no sampling rate is available.
-func (f *File) SamplingRateScalar() float64 {
-	if len(f.SamplingRate) > 0 {
-		return f.SamplingRate[0]
-	}
-	return 0
-}
-
-// Duration returns the duration of the impulse responses in seconds.
-func (f *File) Duration() float64 {
-	sr := f.SamplingRateScalar()
-	if sr == 0 || f.N == 0 {
-		return 0
-	}
-	return float64(f.N) / sr
-}
-
-// IRAt returns the impulse response for measurement m, receiver r.
-// Returns nil if indices are out of range or the file holds no impulse
-// responses (DataType other than "FIR").
-func (f *File) IRAt(m, r int) []float64 {
-	if f.DataType != dataTypeFIR {
-		return nil
-	}
-	if m < 0 || m >= f.M || r < 0 || r >= f.R {
-		return nil
-	}
-	if m >= len(f.ImpulseResponses) || r >= len(f.ImpulseResponses[m]) {
-		return nil
-	}
-	return f.ImpulseResponses[m][r]
-}
-
-// IRPeakdB returns the peak level in dB (relative to 1.0) for measurement m, receiver r.
-// Returns -Inf when IRAt(m, r) is nil (out of range or non-FIR file) or silent.
-func (f *File) IRPeakdB(m, r int) float64 {
-	ir := f.IRAt(m, r)
-	if ir == nil {
-		return math.Inf(-1)
-	}
-	peak := 0.0
-	for _, v := range ir {
-		if abs := math.Abs(v); abs > peak {
-			peak = abs
-		}
-	}
-	if peak == 0 {
-		return math.Inf(-1)
-	}
-	return 20 * math.Log10(peak)
 }
 
 // Save writes the SOFA file to the specified path.

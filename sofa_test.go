@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -104,7 +105,10 @@ func TestOpenImpulseResponses(t *testing.T) {
 	}
 
 	// Peak level should be reasonable for HRTF data.
-	peak := f.IRPeakdB(0, 0)
+	peak, err := f.IRPeakdB(0, 0)
+	if err != nil {
+		t.Fatalf("IRPeakdB: %v", err)
+	}
 	if peak < -60 || peak > 20 {
 		t.Errorf("peak = %f dB, expected reasonable range", peak)
 	}
@@ -152,7 +156,10 @@ func TestOpenSamplingRate(t *testing.T) {
 	}
 	t.Logf("SamplingRate = %.0f Hz", sr)
 
-	dur := f.Duration()
+	dur, err := f.Duration()
+	if err != nil {
+		t.Fatalf("Duration: %v", err)
+	}
 	if dur <= 0 {
 		t.Errorf("Duration = %f, want > 0", dur)
 	}
@@ -189,25 +196,22 @@ func TestIRAt(t *testing.T) {
 	defer f.Close()
 
 	// Valid access.
-	ir := f.IRAt(0, 0)
-	if ir == nil {
-		t.Fatal("IRAt(0,0) returned nil")
+	ir, err := f.IRAt(0, 0)
+	if err != nil {
+		t.Fatalf("IRAt(0,0): %v", err)
 	}
 	if len(ir) != f.N {
 		t.Errorf("IRAt(0,0) len = %d, want %d", len(ir), f.N)
 	}
 
 	// Out-of-range access.
-	if f.IRAt(-1, 0) != nil {
-		t.Error("IRAt(-1,0) should return nil")
-	}
-	if f.IRAt(f.M, 0) != nil {
-		t.Error("IRAt(M,0) should return nil")
-	}
-
-	// Peak dB for out-of-range should be -Inf.
-	if peak := f.IRPeakdB(-1, 0); !math.IsInf(peak, -1) {
-		t.Errorf("IRPeakdB(-1,0) = %f, want -Inf", peak)
+	for _, idx := range [][2]int{{-1, 0}, {f.M, 0}, {0, -1}, {0, f.R}} {
+		if _, err := f.IRAt(idx[0], idx[1]); !errors.Is(err, ErrIndexOutOfRange) {
+			t.Errorf("IRAt(%d,%d) error = %v, want ErrIndexOutOfRange", idx[0], idx[1], err)
+		}
+		if _, err := f.IRPeakdB(idx[0], idx[1]); !errors.Is(err, ErrIndexOutOfRange) {
+			t.Errorf("IRPeakdB(%d,%d) error = %v, want ErrIndexOutOfRange", idx[0], idx[1], err)
+		}
 	}
 }
 
@@ -247,13 +251,14 @@ func TestOpenErrors(t *testing.T) {
 // IRPeakdB, where peak == 0 and the function should return -Inf.
 func TestIRPeakdBZeroSilence(t *testing.T) {
 	f := &File{
+		DataType:         dataTypeFIR,
 		M:                1,
 		R:                1,
 		N:                4,
 		ImpulseResponses: [][][]float64{{{0, 0, 0, 0}}},
 	}
-	if got := f.IRPeakdB(0, 0); !math.IsInf(got, -1) {
-		t.Errorf("IRPeakdB(0,0) on silence = %v, want -Inf", got)
+	if got, err := f.IRPeakdB(0, 0); err != nil || !math.IsInf(got, -1) {
+		t.Errorf("IRPeakdB(0,0) on silence = %v, %v; want -Inf, nil", got, err)
 	}
 }
 
@@ -309,38 +314,48 @@ func TestSamplingRateScalarEmpty(t *testing.T) {
 }
 
 func TestDurationEdgeCases(t *testing.T) {
+	fir := func(sr []float64, n int) *File {
+		return &File{DataType: dataTypeFIR, SamplingRate: sr, N: n}
+	}
 	tests := []struct {
-		name string
-		f    *File
-		want float64
+		name    string
+		f       *File
+		want    float64
+		wantErr error // nil: any error; checked only when wantOK is false
+		wantOK  bool
 	}{
+		{name: "zero sample rate", f: fir([]float64{0}, 100)},
+		{name: "negative sample rate", f: fir([]float64{-48000}, 100)},
+		{name: "NaN sample rate", f: fir([]float64{math.NaN()}, 100)},
+		{name: "zero samples", f: fir([]float64{44100}, 0)},
+		{name: "empty sampling rate", f: fir([]float64{}, 100)},
 		{
-			name: "zero sample rate",
-			f:    &File{SamplingRate: []float64{0}, N: 100},
-			want: 0,
+			name:    "TF counts frequency bins, not samples",
+			f:       &File{DataType: dataTypeTF, SamplingRate: []float64{44100}, N: 441},
+			wantErr: ErrUnsupportedDataType,
 		},
 		{
-			name: "zero samples",
-			f:    &File{SamplingRate: []float64{44100}, N: 0},
-			want: 0,
+			name:    "SOS counts coefficients",
+			f:       &File{DataType: dataTypeSOS, SamplingRate: []float64{44100}, N: 6},
+			wantErr: ErrUnsupportedDataType,
 		},
-		{
-			name: "empty sampling rate",
-			f:    &File{SamplingRate: []float64{}, N: 100},
-			want: 0,
-		},
-		{
-			name: "valid",
-			f:    &File{SamplingRate: []float64{44100}, N: 441},
-			want: 0.01,
-		},
+		{name: "valid", f: fir([]float64{44100}, 441), want: 0.01, wantOK: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.f.Duration()
-			if math.Abs(got-tt.want) > 0.0001 {
-				t.Errorf("Duration() = %f, want %f", got, tt.want)
+			got, err := tt.f.Duration()
+			if !tt.wantOK {
+				if err == nil {
+					t.Fatalf("Duration() = %f, nil; want error", got)
+				}
+				if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Duration() error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || math.Abs(got-tt.want) > 0.0001 {
+				t.Errorf("Duration() = %f, %v; want %f, nil", got, err, tt.want)
 			}
 		})
 	}

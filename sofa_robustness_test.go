@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"errors"
 	"math"
 	"path/filepath"
 	"strings"
@@ -193,8 +194,8 @@ func TestOpenCraftedValidDimensions(t *testing.T) {
 	if f.M != 2 || f.R != 2 || f.E != 1 || f.N != 4 {
 		t.Fatalf("dims = M=%d R=%d E=%d N=%d, want 2 2 1 4", f.M, f.R, f.E, f.N)
 	}
-	if got := len(f.IRAt(1, 1)); got != 4 {
-		t.Fatalf("len(IRAt(1,1)) = %d, want 4", got)
+	if ir, err := f.IRAt(1, 1); err != nil || len(ir) != 4 {
+		t.Fatalf("IRAt(1,1) = %v, %v; want 4 samples", ir, err)
 	}
 }
 
@@ -233,7 +234,7 @@ func TestIRAccessorsOnNonFIR(t *testing.T) {
 	for _, f := range []*File{robustTFFile(), robustTFEFile(), robustSOSFile()} {
 		t.Run(f.DataType, func(t *testing.T) {
 			// In-memory value.
-			checkNoIR(t, f)
+			checkNoIR(t, f, ErrUnsupportedDataType)
 			// After a Save/Open round trip.
 			path := filepath.Join(t.TempDir(), "x.sofa")
 			if err := f.Save(path); err != nil {
@@ -244,22 +245,29 @@ func TestIRAccessorsOnNonFIR(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 			defer g.Close()
-			checkNoIR(t, g)
+			checkNoIR(t, g, ErrUnsupportedDataType)
 		})
 	}
 	// Non-FIR file that nonetheless carries ImpulseResponses.
-	checkNoIR(t, &File{DataType: "TF", M: 1, R: 1, N: 1, ImpulseResponses: [][][]float64{{{1}}}})
+	checkNoIR(t, &File{DataType: "TF", M: 1, R: 1, N: 1, ImpulseResponses: [][][]float64{{{1}}}}, ErrUnsupportedDataType)
 	// Inconsistent in-memory FIR value (dims larger than data).
-	checkNoIR(t, &File{DataType: "FIR", M: 3, R: 2, N: 4, ImpulseResponses: [][][]float64{{}}})
+	checkNoIR(t, &File{DataType: "FIR", M: 3, R: 2, N: 4, ImpulseResponses: [][][]float64{{}}}, ErrIndexOutOfRange)
 }
 
-func checkNoIR(t *testing.T, f *File) {
+// checkNoIR asserts that the IR accessors fail with want instead of
+// panicking or returning data.
+func checkNoIR(t *testing.T, f *File, want error) {
 	t.Helper()
-	if ir := f.IRAt(0, 0); ir != nil {
-		t.Errorf("IRAt(0,0) = %v, want nil", ir)
+	if ir, err := f.IRAt(0, 0); !errors.Is(err, want) {
+		t.Errorf("IRAt(0,0) = %v, %v; want %v", ir, err, want)
 	}
-	if db := f.IRPeakdB(0, 0); !math.IsInf(db, -1) {
-		t.Errorf("IRPeakdB(0,0) = %v, want -Inf", db)
+	if db, err := f.IRPeakdB(0, 0); !errors.Is(err, want) {
+		t.Errorf("IRPeakdB(0,0) = %v, %v; want %v", db, err, want)
+	}
+	if f.DataType != dataTypeFIR {
+		if d, err := f.Duration(); !errors.Is(err, want) {
+			t.Errorf("Duration() = %v, %v; want %v", d, err, want)
+		}
 	}
 }
 

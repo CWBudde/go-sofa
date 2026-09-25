@@ -55,7 +55,9 @@ func main() {
     fmt.Printf("Receivers: %d\n", f.R)
     fmt.Printf("Samples: %d\n", f.N)
     fmt.Printf("Sample Rate: %.0f Hz\n", f.SamplingRateScalar())
-    fmt.Printf("Duration: %.3f seconds\n", f.Duration())
+    if d, err := f.Duration(); err == nil { // FIR only
+        fmt.Printf("Duration: %.3f seconds\n", d)
+    }
 }
 ```
 
@@ -63,11 +65,12 @@ func main() {
 
 ```go
 // Get impulse response for measurement 0, receiver 0 (left ear)
-ir := f.IRAt(0, 0)
-if ir != nil {
-    fmt.Printf("IR samples: %d\n", len(ir))
-    fmt.Printf("Peak level: %.1f dB\n", f.IRPeakdB(0, 0))
+ir, err := f.IRAt(0, 0) // ErrUnsupportedDataType for non-FIR files
+if err != nil {
+    log.Fatal(err)
 }
+peak, _ := f.IRPeakdB(0, 0)
+fmt.Printf("IR samples: %d, peak level: %.1f dB\n", len(ir), peak)
 
 // Access all impulse responses
 for m := 0; m < f.M; m++ {
@@ -343,9 +346,14 @@ Represents an open SOFA file with all its data and metadata.
 - `Close() error` — Closes the file and releases resources
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `SamplingRateScalar() float64` — Returns sampling rate as scalar (first value)
-- `Duration() float64` — Returns IR duration in seconds
-- `IRAt(m, r int) []float64` — Returns impulse response for measurement m, receiver r
-- `IRPeakdB(m, r int) float64` — Returns peak level in dB for measurement m, receiver r
+- `Duration() (float64, error)` — Returns IR duration in seconds (FIR only)
+- `IRAt(m, r int) ([]float64, error)` — Returns impulse response for measurement m, receiver r
+- `IRPeakdB(m, r int) (float64, error)` — Returns peak level in dB for measurement m, receiver r
+
+Accessors fail with `ErrUnsupportedDataType` on non-FIR files and with
+`ErrIndexOutOfRange` for indices outside the file's dimensions; `Open` fails
+with `ErrUnsupportedDataType` for an empty, unknown, `FIR-E` or `FIRE`
+`DataType`. Test for both with `errors.Is`.
 
 #### `Vector3`
 
