@@ -23,6 +23,7 @@ func TestOpen(t *testing.T) {
 
 	for _, tt := range files {
 		t.Run(tt.path, func(t *testing.T) {
+			requireTestdata(t, tt.path)
 			f, err := Open(tt.path)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -46,6 +47,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpenMetadata(t *testing.T) {
+	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
 	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -72,6 +74,7 @@ func TestOpenMetadata(t *testing.T) {
 }
 
 func TestOpenImpulseResponses(t *testing.T) {
+	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
 	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -110,6 +113,7 @@ func TestOpenImpulseResponses(t *testing.T) {
 }
 
 func TestOpenSpatialData(t *testing.T) {
+	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
 	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -138,6 +142,7 @@ func TestOpenSpatialData(t *testing.T) {
 }
 
 func TestOpenSamplingRate(t *testing.T) {
+	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
 	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -180,6 +185,7 @@ func TestParseDimensionSize(t *testing.T) {
 }
 
 func TestIRAt(t *testing.T) {
+	requireTestdata(t, "testdata/MIT_KEMAR_normal_pinna.sofa")
 	f, err := Open("testdata/MIT_KEMAR_normal_pinna.sofa")
 	if err != nil {
 		t.Fatalf("Open: %v", err)

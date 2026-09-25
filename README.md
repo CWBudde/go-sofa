@@ -407,6 +407,23 @@ This library supports SOFA files (AES69-2015) based on HDF5 with netCDF-4 conven
 - **Dimensions:** Standard M, R, E, N dimensions and dimension scales
 - **Attributes:** Dense (fractal heap) and compact attribute storage
 
+### Conventions
+
+Any AES69 convention name is accepted and written unchanged. A few
+conventions get extra behaviour: `Save` enforces their required
+metadata, and `(*File).ConventionWarnings() []string` reports
+advisory findings that never block `Save` (`sofainfo` prints them).
+
+| Convention                                   | Accessors                                   | Checks                                                                                   |
+| -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`            |
+| SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²` |
+| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | None yet — needs example file. `M` indexes source orientation, not source position       |
+
+`RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
+read from their variables, or from root attributes of the same
+name, and written as variables when non-zero.
+
 ### Spherical-harmonic (SH) HRTFs
 
 AES69-2022 introduced spherical-harmonic representations such as

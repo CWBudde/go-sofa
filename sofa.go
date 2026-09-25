@@ -111,26 +111,28 @@ type File struct {
 	SOSCoefficients [][][]float64 // [M][R][N]
 
 	// AES69 Metadata (global attributes)
-	Conventions            string // "SOFA" for SOFA files
-	Version                string // SOFA version (e.g., "1.0")
-	SOFAConventions        string // specific convention (e.g., "SimpleFreeFieldHRIR", "SimpleFreeFieldHRSH" for SH-encoded HRTFs)
-	SOFAConventionsVersion string // convention version
-	DataType               string // data type (e.g., "FIR")
-	RoomType               string // room type if applicable
-	Title                  string // descriptive title
-	DateCreated            string // ISO 8601 date
-	DateModified           string // ISO 8601 date
-	APIName                string // API used to create the file
-	APIVersion             string // API version
-	AuthorContact          string // author contact information
-	Organization           string // organization
-	License                string // license information
-	ApplicationName        string // application name
-	ApplicationVersion     string // application version
-	Comment                string // additional comments
-	History                string // processing history
-	References             string // references
-	Origin                 string // origin of the data
+	Conventions            string  // "SOFA" for SOFA files
+	Version                string  // SOFA version (e.g., "1.0")
+	SOFAConventions        string  // specific convention (e.g., "SimpleFreeFieldHRIR", "SimpleFreeFieldHRSH" for SH-encoded HRTFs)
+	SOFAConventionsVersion string  // convention version
+	DataType               string  // data type (e.g., "FIR")
+	RoomType               string  // room type if applicable
+	RoomVolume             float64 // room volume in cubic metres; 0 when absent
+	RoomTemperature        float64 // room temperature in kelvin; 0 when absent
+	Title                  string  // descriptive title
+	DateCreated            string  // ISO 8601 date
+	DateModified           string  // ISO 8601 date
+	APIName                string  // API used to create the file
+	APIVersion             string  // API version
+	AuthorContact          string  // author contact information
+	Organization           string  // organization
+	License                string  // license information
+	ApplicationName        string  // application name
+	ApplicationVersion     string  // application version
+	Comment                string  // additional comments
+	History                string  // processing history
+	References             string  // references
+	Origin                 string  // origin of the data
 
 	// Internal
 	hdf5File *hdf5.File // underlying HDF5 file handle
@@ -182,6 +184,7 @@ func Open(path string) (*File, error) {
 
 	// Read spatial data (best effort; missing datasets are skipped).
 	f.readSpatialData(datasets)
+	f.readRoomScalars(datasets)
 
 	return f, nil
 }
@@ -221,6 +224,10 @@ func (f *File) readGlobalAttributes(root *hdf5.Group) error {
 			f.DataType = s
 		case "RoomType":
 			f.RoomType = s
+		case datasetRoomVolume:
+			f.RoomVolume = parseRoomAttribute(s)
+		case datasetRoomTemperature:
+			f.RoomTemperature = parseRoomAttribute(s)
 		case "Title":
 			f.Title = s
 		case "DateCreated":
@@ -742,6 +749,9 @@ func (f *File) Save(path string) error {
 	if err := writeVector3Dataset(fw, "/ListenerView", []Vector3{f.ListenerView}); err != nil {
 		return fmt.Errorf("write ListenerView: %w", err)
 	}
+	if err := f.writeRoomScalars(fw); err != nil {
+		return err
+	}
 
 	// Write audio data
 	if err := f.writeAudioDatasets(fw); err != nil {
@@ -860,7 +870,7 @@ func (f *File) validate() error {
 			len(f.EmitterPositions), f.E)
 	}
 
-	return nil
+	return f.validateConvention()
 }
 
 // validateFIR checks FIR-specific fields: ImpulseResponses [M][R][N],

@@ -342,6 +342,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	for _, testFile := range testFiles {
 		t.Run(filepath.Base(testFile), func(t *testing.T) {
 			// Open original file
+			requireTestdata(t, testFile)
 			f1, err := Open(testFile)
 			if err != nil {
 				t.Fatalf("Open(%s) failed: %v", testFile, err)
@@ -402,6 +403,7 @@ func TestSaveRoundTrip(t *testing.T) {
 // TestSaveModifyRoundTrip tests modifying a SOFA file and saving changes.
 func TestSaveModifyRoundTrip(t *testing.T) {
 	// Open test file
+	requireTestdata(t, "testdata/tester.sofa")
 	f1, err := Open("testdata/tester.sofa")
 	if err != nil {
 		t.Fatalf("Open() failed: %v", err)
@@ -444,6 +446,7 @@ func TestSaveModifyRoundTrip(t *testing.T) {
 
 	// Check modified IR data (sample a few points)
 	// Reopen original to compare
+	requireTestdata(t, "testdata/tester.sofa")
 	fOrig, err := Open("testdata/tester.sofa")
 	if err != nil {
 		t.Fatalf("Open(original) failed: %v", err)

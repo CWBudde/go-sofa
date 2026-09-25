@@ -16,6 +16,7 @@ const testFile = "testdata/MIT_KEMAR_normal_pinna.sofa"
 // Known go-hdf5 gap: Group.Attributes() returns empty when attributes use dense
 // storage. This test documents the limitation.
 func TestReadRootGroupAttributes(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -54,6 +55,7 @@ func TestReadRootGroupAttributes(t *testing.T) {
 }
 
 func TestOpenSOFAFile(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -72,6 +74,7 @@ func TestOpenSOFAFile(t *testing.T) {
 }
 
 func TestWalkGroupsAndDatasets(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -103,6 +106,7 @@ func TestWalkGroupsAndDatasets(t *testing.T) {
 }
 
 func TestReadDataIR(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -133,6 +137,7 @@ func TestReadDataIR(t *testing.T) {
 }
 
 func TestReadDatasetStringAttributes(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -170,6 +175,7 @@ func TestReadDatasetStringAttributes(t *testing.T) {
 }
 
 func TestReadDimensionScaleAttributes(t *testing.T) {
+	requireTestdata(t, testFile)
 	f, err := hdf5.Open(testFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -229,6 +235,7 @@ func TestSOFAIntegration(t *testing.T) {
 
 	for _, path := range files {
 		t.Run(path, func(t *testing.T) {
+			requireTestdata(t, path)
 			f, err := hdf5.Open(path)
 			if err != nil {
 				t.Fatalf("Open: %v", err)

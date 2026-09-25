@@ -260,6 +260,7 @@ func TestReadRealTFEAndSOS(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			requireTestdata(t, tc.path)
 			f, err := Open(tc.path)
 			if err != nil {
 				t.Fatalf("Open(%q): %v", tc.path, err)
