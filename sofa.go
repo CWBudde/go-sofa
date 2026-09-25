@@ -1448,7 +1448,7 @@ func (nc *netcdfDimensions) writeVariableWithAttrs(name string, data []float64, 
 		return fmt.Errorf("write %s data: %w", name, err)
 	}
 	for i, d := range dims {
-		if err := nc.fw.AttachDimensionScale(ds, nc.scales[d], i); err != nil {
+		if err := ds.AttachDimensionScale(i, nc.scales[d]); err != nil {
 			return fmt.Errorf("attach dimension %s to %s: %w", d, name, err)
 		}
 	}
