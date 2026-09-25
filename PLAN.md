@@ -34,7 +34,8 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 is done; R6–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 is done; R6 is done except R6d (data validation) and
+R6e (lossless round-trip); R7–R9 remain. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -197,17 +198,43 @@ R1–R4 are release blockers.
 
 #### R6 — AES69 conformance of written files (medium)
 
-- [ ] **R6a.** Emit mandatory global attributes (`DateCreated`,
+- [x] **R6a.** Emit mandatory global attributes (`DateCreated`,
       `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
       `Organization`, `License`, `Title`, `RoomType`), defaulting
       `APIName`/`APIVersion`/dates when empty; require
       `SOFAConventionsVersion`.
-- [ ] **R6b.** Add required variable attributes: `Data.SamplingRate:Units`,
+  - (2026-09-25) — `Save` always writes `Title`, `DateCreated`,
+    `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
+    `Organization`, `License` and `RoomType`; empty ones get defaults in the
+    file only (`go-sofa`, the module version, now in UTC as
+    `YYYY-MM-DD HH:MM:SS`, and the SOFA Toolbox's License/RoomType
+    defaults), `f` is not changed. `validate` requires
+    `SOFAConventionsVersion`. Needed go-hdf5 v0.16.1
+    ([CWBudde/go-hdf5#4](https://github.com/CWBudde/go-hdf5/pull/4)): dense
+    attributes with 12-byte names (`DateModified`, `Organization`) were
+    unreadable by libhdf5. `TestSaveMandatoryGlobalAttributes`,
+    `TestValidateRequiresConventionsVersion`; `just interop` passes with
+    netCDF4.
+- [x] **R6b.** Add required variable attributes: `Data.SamplingRate:Units`,
       `N:Units`/`LongName` for TF, Type/Units for `ListenerView/Up`;
       validate position `Type` ∈ {cartesian, spherical, spherical
       harmonics} and require it.
-- [ ] **R6c.** Write `Data.Delay` as `[I,R]` or `[M,R]` (2-D), make it
+  - (2026-09-25) — `Data.SamplingRate:Units = hertz`; TF/TF-E `N` carries
+    `LongName = frequency`, `Units = hertz`; `ListenerView` and
+    `ListenerUp` both carry Type/Units from the new
+    `ListenerViewType`/`ListenerViewUnits` fields (read by `Open`, default
+    cartesian/metre). `validate` requires a Type
+    in {cartesian, spherical, spherical harmonics} on every written
+    position (breaking). `TestSaveVariableAttributes`,
+    `TestValidateRejectsPositionType`.
+- [x] **R6c.** Write `Data.Delay` as `[I,R]` or `[M,R]` (2-D), make it
       mandatory for FIR/SOS, remove the M==R ambiguity.
+  - (2026-09-25) — `Data.Delay` is always written 2-D: empty → zeros
+    `[I,R]` (convention default), `[I]`/`[R]` → `[I,R]`, `[M]` → `[M,R]`,
+    resolved with `DelayAt` so M == R follows the layout `Open` found.
+    SOS files get it too. `TestSaveDelayLayouts` checks the written shape
+    and dimension names and `DelayAt` after reopening for each input
+    layout.
 - [ ] **R6d.** Validate data: reject NaN/Inf where not allowed,
       SamplingRate ≤ 0, zero View/Up vectors, non-monotonic frequencies,
       and convention-specific constraints (e.g. `SimpleFreeFieldHRIR`
@@ -215,14 +242,25 @@ R1–R4 are release blockers.
 - [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
       extra variables and variable attributes; stop lowercasing
       `Type`/`Units` on read (normalise only for comparisons).
-- [ ] **R6f. TF-E axis order on write.** `Save` writes TF-E
+- [x] **R6f. TF-E axis order on write.** `Save` writes TF-E
       `Data.Real/Imag` as `[M,R,E,N]`; the SOFA Toolbox (2.2.1) writes
       `[M,R,N,E]` for FreeFieldHRTF and GeneralTF-E. Check the AES69
       convention tables and write the conformant order (the reader accepts
       both since R5d).
-- [ ] **R6g. Write per-measurement layouts.** `Save` ignores
+  - (2026-09-25) — the SOFA Toolbox convention tables give `mrne` for
+    GeneralTF-E and FreeFieldHRTF; `Save` now writes `[M,R,N,E]` with
+    matching dimension names. `TestSaveTFEAxisOrder` checks the raw shape,
+    the dimension labels and the values after reopening; `just interop`
+    expects `M,R,N,E`.
+- [x] **R6g. Write per-measurement layouts.** `Save` ignores
       `ReceiverPositionsM`, `EmitterPositionsM`, `ListenerViews` and
       `ListenerUps` (read since R5d), so such files do not round-trip.
+  - (2026-09-25) — `Save` writes `ReceiverPositionsM`/`EmitterPositionsM`
+    as `[R,C,M]`/`[E,C,M]` and `ListenerViews`/`ListenerUps` as `[M,C]`;
+    `validate` checks their lengths. `TestSavePerMeasurementLayouts`
+    round-trips each; `TestValidatePerMeasurementLayouts` rejects wrong
+    sizes; `TestSaveOfficeIIRoundTrip` round-trips a Toolbox file with
+    `[R,C,M]` receivers (skipped when the fixture is not fetched).
 
 #### R7 — API ergonomics (medium)
 
