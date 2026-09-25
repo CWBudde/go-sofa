@@ -60,9 +60,9 @@ func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
 		}
 		var scale *hdf5.DatasetWriter
 		if name == dimN && (spec.dataType == dataTypeTF || spec.dataType == dataTypeTFE) {
-			scale, err = writeFrequencyDimension(fw, make([]float64, size), id)
+			scale, err = writeFrequencyDimension(fw, make([]float64, size), id, nil)
 		} else {
-			scale, err = writeDimensionScale(fw, "/"+name, size, id)
+			scale, err = writeDimensionScale(fw, "/"+name, size, id, nil)
 		}
 		if err != nil {
 			t.Fatalf("scale %s: %v", name, err)

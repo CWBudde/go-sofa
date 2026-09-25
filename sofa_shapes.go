@@ -13,17 +13,21 @@ import (
 // the dimension index a crafted REFERENCE_LIST entry may claim.
 const maxRank = 32
 
+// sofaDimensions are the dimensions go-sofa itself reads and writes.
+var sofaDimensions = []string{dimM, dimR, dimE, dimN, dimC, dimI}
+
 // dimensionLabels maps each variable to the names of the dimensions attached
 // to its axes, reconstructed from the REFERENCE_LIST attribute that netCDF-4
-// writes on every dimension scale. Variables with any unlabelled axis are
-// left out, so their layout is inferred from sizes alone.
-func dimensionLabels(datasets map[string]*hdf5.Dataset) map[string][]string {
+// writes on each of the given dimension scales. Variables with any axis
+// unlabelled by those scales are left out, so their layout is inferred from
+// sizes alone.
+func dimensionLabels(datasets map[string]*hdf5.Dataset, scales []string) map[string][]string {
 	byAddr := make(map[uint64]string, len(datasets))
 	for name, ds := range datasets {
 		byAddr[ds.Address()] = name
 	}
 	labels := map[string][]string{}
-	for _, scale := range []string{dimM, dimR, dimE, dimN, dimC, dimI} {
+	for _, scale := range scales {
 		ds, ok := datasets[scale]
 		if !ok {
 			continue

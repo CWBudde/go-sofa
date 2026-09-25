@@ -3,6 +3,7 @@ package sofa
 import (
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
@@ -72,26 +73,38 @@ type netcdfDimensions struct {
 	fw     *hdf5.FileWriter
 	sizes  map[string]int
 	scales map[string]*hdf5.DatasetWriter
+	attrs  map[string][]Attribute // File.VariableAttributes, added to every variable written by name
 }
 
 // writeDimensionScales writes one dimension-scale dataset per SOFA
-// dimension, in a fixed order (which is also their _Netcdf4Dimid order) so
-// output is deterministic. For TF and TF-E, /N is the frequency coordinate
-// variable; otherwise every scale is a netCDF "dimension without variable"
-// whose length is the dimension size.
+// dimension, then one per further dimension the extra variables use (such
+// as the string length S), in a fixed order (which is also their
+// _Netcdf4Dimid order) so output is deterministic. For TF and TF-E, /N is
+// the frequency coordinate variable; otherwise every scale is a netCDF
+// "dimension without variable" whose length is the dimension size.
 func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, error) {
 	nc := &netcdfDimensions{
 		fw:     fw,
 		sizes:  map[string]int{dimM: f.M, dimR: f.R, dimE: f.E, dimN: f.N, dimC: 3, dimI: 1},
 		scales: map[string]*hdf5.DatasetWriter{},
+		attrs:  f.VariableAttributes,
 	}
-	for id, name := range []string{dimM, dimR, dimE, dimN, dimC, dimI} {
+	names := []string{dimM, dimR, dimE, dimN, dimC, dimI}
+	for _, v := range f.Variables {
+		for i, d := range v.Dims {
+			if _, ok := nc.sizes[d]; !ok {
+				nc.sizes[d] = v.Shape[i]
+				names = append(names, d)
+			}
+		}
+	}
+	for id, name := range names {
 		var ds *hdf5.DatasetWriter
 		var err error
 		if name == dimN && (f.DataType == dataTypeTF || f.DataType == dataTypeTFE) {
-			ds, err = writeFrequencyDimension(fw, f.Frequencies, id)
+			ds, err = writeFrequencyDimension(fw, f.Frequencies, id, nc.attrs[name])
 		} else {
-			ds, err = writeDimensionScale(fw, "/"+name, nc.sizes[name], id)
+			ds, err = writeDimensionScale(fw, "/"+name, nc.sizes[name], id, nc.attrs[name])
 		}
 		if err != nil {
 			return nil, fmt.Errorf("write dimension /%s: %w", name, err)
@@ -104,13 +117,16 @@ func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, err
 // writeDimensionScale writes a netCDF-4 dimension that has no variable of
 // its own: a dataset of the dimension's length with CLASS=DIMENSION_SCALE,
 // the netCDF NAME carrying the size, and _Netcdf4Dimid. Like netCDF-C, it
-// holds no values.
-func writeDimensionScale(fw *hdf5.FileWriter, name string, size, id int) (*hdf5.DatasetWriter, error) {
-	ds, err := fw.CreateDataset(name, hdf5.Float32,
-		[]uint64{uint64(size)}, //nolint:gosec // size > 0 by validate()
+// holds no values. extra are further attributes (File.VariableAttributes).
+func writeDimensionScale(fw *hdf5.FileWriter, name string, size, id int, extra []Attribute) (*hdf5.DatasetWriter, error) {
+	opts := append([]hdf5.DatasetOption{
 		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
 		hdf5.WithAttribute("NAME", netcdfDimensionNAME(size)),
-		hdf5.WithAttribute("_Netcdf4Dimid", int32(id))) //nolint:gosec // id < 6
+		hdf5.WithAttribute("_Netcdf4Dimid", int32(id)), //nolint:gosec // id < number of dimensions
+	}, attributeOptions(extra)...)
+	ds, err := fw.CreateDataset(name, hdf5.Float32,
+		[]uint64{uint64(size)}, //nolint:gosec // size > 0 by validate()
+		opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create dimension dataset: %w", err)
 	}
@@ -121,18 +137,20 @@ func writeDimensionScale(fw *hdf5.FileWriter, name string, size, id int) (*hdf5.
 // The dataset is the netCDF coordinate variable of dimension N:
 // CLASS=DIMENSION_SCALE and NAME equal to the dimension label, matching
 // what upstream tools emit for /N in TF files, plus the LongName and Units
-// the TF conventions require.
-func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64, id int) (*hdf5.DatasetWriter, error) {
+// the TF conventions require, and any extra attributes
+// (File.VariableAttributes).
+func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64, id int, extra []Attribute) (*hdf5.DatasetWriter, error) {
 	if len(freqs) == 0 {
 		return nil, fmt.Errorf("frequencies must be non-empty for TF data")
 	}
-	ds, err := fw.CreateDataset("/N", hdf5.Float64,
-		[]uint64{uint64(len(freqs))},
+	opts := append([]hdf5.DatasetOption{
 		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
 		hdf5.WithAttribute("NAME", dimN),
-		hdf5.WithAttribute("_Netcdf4Dimid", int32(id)), //nolint:gosec // id < 6
+		hdf5.WithAttribute("_Netcdf4Dimid", int32(id)), //nolint:gosec // id < number of dimensions
 		hdf5.WithAttribute("LongName", "frequency"),
-		hdf5.WithAttribute("Units", "hertz"))
+		hdf5.WithAttribute("Units", "hertz"),
+	}, attributeOptions(extra)...)
+	ds, err := fw.CreateDataset("/N", hdf5.Float64, []uint64{uint64(len(freqs))}, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create /N dataset: %w", err)
 	}
@@ -161,6 +179,9 @@ func (nc *netcdfDimensions) writeVariableWithAttrs(name string, data []float64, 
 		shape[i] = uint64(size) //nolint:gosec // sizes > 0 by validate()
 	}
 
+	if extra := nc.attrs[strings.TrimPrefix(name, "/")]; len(extra) > 0 {
+		attrs = append(slices.Clip(attrs), attributeOptions(extra)...)
+	}
 	ds, err := nc.fw.CreateDataset(name, hdf5.Float64, shape, attrs...)
 	if err != nil {
 		return fmt.Errorf("create %s dataset: %w", name, err)

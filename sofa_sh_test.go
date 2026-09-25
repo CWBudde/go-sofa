@@ -28,8 +28,8 @@ func TestReadSHEncodedTFE(t *testing.T) {
 		t.Errorf("N = %d, want 129", f.N)
 	}
 	// EmitterPosition:Type is "Spherical Harmonics", the AES69 marker.
-	if f.EmitterPositionType != CoordinateSphericalHarmonics {
-		t.Errorf("EmitterPositionType = %q, want %q", f.EmitterPositionType, CoordinateSphericalHarmonics)
+	if f.EmitterPositionType != "Spherical Harmonics" {
+		t.Errorf("EmitterPositionType = %q, want %q", f.EmitterPositionType, "Spherical Harmonics")
 	}
 	if !f.IsSHEncoded() {
 		t.Errorf("IsSHEncoded() = false, want true (EmitterPosition Type should match)")

@@ -21,6 +21,10 @@ type dataset struct {
 	Shape  []int     `json:"shape"`
 	Dims   []string  `json:"dims"`   // netCDF dimension names, one per axis
 	Values []float64 `json:"values"` // row-major (C order)
+	// Chars holds a char array's bytes, row-major, instead of Values.
+	Chars string `json:"chars,omitempty"`
+	// Attrs are string attributes the variable must carry.
+	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
 // expectation is what a reference reader must find in one written file.
@@ -52,10 +56,11 @@ func run(dir string) error {
 	}
 
 	builders := map[string]func() (*sofa.File, map[string]dataset){
-		"fir.sofa": buildFIR,
-		"tf.sofa":  buildTF,
-		"tfe.sofa": buildTFE,
-		"sos.sofa": buildSOS,
+		"fir.sofa":    buildFIR,
+		"tf.sofa":     buildTF,
+		"tfe.sofa":    buildTFE,
+		"sos.sofa":    buildSOS,
+		"extras.sofa": buildExtras,
 	}
 
 	expected := make(map[string]expectation, len(builders))
@@ -67,7 +72,13 @@ func run(dir string) error {
 		for k, v := range positionDatasets(f) {
 			data[k] = v
 		}
-		expected[name] = expectation{
+		dims := map[string]int{"M": f.M, "R": f.R, "E": f.E, "N": f.N, "C": 3, "I": 1}
+		for _, v := range f.Variables {
+			for i, d := range v.Dims {
+				dims[d] = v.Shape[i]
+			}
+		}
+		exp := expectation{
 			Attributes: map[string]string{
 				"Conventions":     f.Conventions,
 				"Version":         f.Version,
@@ -81,9 +92,13 @@ func run(dir string) error {
 				"AuthorContact": "",
 				"Organization":  "",
 			},
-			Dimensions: map[string]int{"M": f.M, "R": f.R, "E": f.E, "N": f.N, "C": 3, "I": 1},
+			Dimensions: dims,
 			Datasets:   data,
 		}
+		for _, a := range f.Attributes {
+			exp.Attributes[a.Name] = fmt.Sprint(a.Value)
+		}
+		expected[name] = exp
 		fmt.Println("wrote", filepath.Join(dir, name))
 	}
 
@@ -211,6 +226,34 @@ func buildFIR() (*sofa.File, map[string]dataset) {
 		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},
 		"Data.Delay":        {Shape: []int{1, numR}, Dims: []string{"I", "R"}, Values: f.Delay},
 	}
+}
+
+// buildExtras is buildFIR plus content go-sofa does not interpret: a global
+// attribute, an attribute on Data.IR, a numeric variable and a char array
+// with its own string-length dimension S.
+func buildExtras() (*sofa.File, map[string]dataset) {
+	f, data := buildFIR()
+	f.Title = "go-sofa interop extras"
+	f.Attributes = []sofa.Attribute{{Name: "DatabaseName", Value: "go-sofa interop"}}
+	f.VariableAttributes = map[string][]sofa.Attribute{
+		"Data.IR": {{Name: "ChannelOrdering", Value: "left, right"}},
+	}
+	f.Variables = []sofa.Variable{
+		{
+			Name: "SourceView", Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: []float64{1, 0, 0},
+			Attributes: []sofa.Attribute{{Name: "Type", Value: "cartesian"}, {Name: "Units", Value: "metre"}},
+		},
+		{Name: "ReceiverDescriptions", Dims: []string{"R", "S"}, Shape: []int{numR, 5}, Chars: []byte("left\x00right")},
+	}
+	ir := data["Data.IR"]
+	ir.Attrs = map[string]string{"ChannelOrdering": "left, right"}
+	data["Data.IR"] = ir
+	data["SourceView"] = dataset{
+		Shape: []int{1, 3}, Dims: []string{"I", "C"}, Values: []float64{1, 0, 0},
+		Attrs: map[string]string{"Type": "cartesian", "Units": "metre"},
+	}
+	data["ReceiverDescriptions"] = dataset{Shape: []int{numR, 5}, Dims: []string{"R", "S"}, Chars: "left\x00right"}
+	return f, data
 }
 
 func buildTF() (*sofa.File, map[string]dataset) {

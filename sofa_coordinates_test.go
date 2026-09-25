@@ -99,10 +99,10 @@ func TestPositionCoordinateAttributesWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestPositionCoordinateAttributesNormalized checks that values are lowercased
-// and trimmed on read, so callers can compare against the exported constants
-// without normalizing every file's spelling themselves.
-func TestPositionCoordinateAttributesNormalized(t *testing.T) {
+// TestPositionCoordinateAttributesTrimmed checks that values are trimmed on
+// read but keep their case, so a round trip does not rewrite the file's
+// spelling; callers compare them case-insensitively.
+func TestPositionCoordinateAttributesTrimmed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mixed-case.sofa")
 	if err := coordinateTestFile("  Spherical ", " Degree, degree, metre ").Save(path); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -114,8 +114,8 @@ func TestPositionCoordinateAttributesNormalized(t *testing.T) {
 	}
 	defer got.Close()
 
-	compareStrings(t, "SourcePositionType", CoordinateSpherical, got.SourcePositionType)
-	compareStrings(t, "SourcePositionUnits", UnitsSphericalDegrees, got.SourcePositionUnits)
+	compareStrings(t, "SourcePositionType", "Spherical", got.SourcePositionType)
+	compareStrings(t, "SourcePositionUnits", "Degree, degree, metre", got.SourcePositionUnits)
 }
 
 // TestReadRealFileCoordinateType checks the attributes against a real measured
