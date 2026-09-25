@@ -194,35 +194,32 @@ type File struct {
 	Dropped            []string
 
 	// Internal
-	hdf5File    *hdf5.File // underlying HDF5 file handle
-	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
+	delayLayout []string // Data.Delay dimensions as resolved by Open; see delayAxes
 }
 
-// Open opens a SOFA file for reading.
-// It validates that the file is a valid SOFA file and reads all data and metadata.
-// The caller must call Close() when done with the file.
+// Open reads a SOFA file. It checks that the file is a SOFA file, reads all
+// data and metadata into the returned File and closes the file again before
+// it returns, so the File holds no open handle.
 func Open(path string) (*File, error) {
 	h, err := hdf5.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
+	defer h.Close()
 
-	f := &File{hdf5File: h}
+	f := &File{}
 	root := h.Root()
 
 	// Read global attributes from root group.
 	if err := f.readGlobalAttributes(root); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read attributes: %w", err)
 	}
 
 	// Validate SOFA convention.
 	if f.Conventions != conventionSOFA {
-		h.Close()
 		return nil, fmt.Errorf("not a SOFA file: Conventions=%q", f.Conventions)
 	}
 	if err := checkDataType(f.DataType); err != nil {
-		h.Close()
 		return nil, err
 	}
 
@@ -236,21 +233,18 @@ func Open(path string) (*File, error) {
 
 	// Read dimensions from dimension-scale datasets.
 	if err := f.readDimensions(datasets); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read dimensions: %w", err)
 	}
 
 	// Read audio data.
 	labels := dimensionLabels(datasets, sofaDimensions)
 	if err := f.readAudioData(datasets, labels); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
 	// Read spatial data. Missing datasets are skipped; unreadable ones and
 	// shapes that match no allowed layout fail.
 	if err := f.readSpatialData(datasets, labels); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read spatial data: %w", err)
 	}
 	f.readRoomScalars(datasets)
@@ -261,11 +255,9 @@ func Open(path string) (*File, error) {
 	return f, nil
 }
 
-// Close closes the SOFA file and releases associated resources.
+// Close does nothing and returns nil: Open already closes the file it
+// reads. It is kept so that existing `defer f.Close()` code still compiles.
 func (f *File) Close() error {
-	if f.hdf5File != nil {
-		return f.hdf5File.Close()
-	}
 	return nil
 }
 

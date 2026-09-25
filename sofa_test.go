@@ -365,9 +365,9 @@ func TestDurationEdgeCases(t *testing.T) {
 }
 
 func TestCloseNil(t *testing.T) {
-	f := &File{hdf5File: nil}
+	f := &File{}
 	if err := f.Close(); err != nil {
-		t.Errorf("Close() on nil hdf5File = %v, want nil", err)
+		t.Errorf("Close() on a File built in memory = %v, want nil", err)
 	}
 }
 
