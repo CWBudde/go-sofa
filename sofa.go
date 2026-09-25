@@ -15,10 +15,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
@@ -35,8 +35,13 @@ const (
 	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
 	dataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
 
-	// datasetSourcePosition is the SOFA dataset name for source-position data.
-	datasetSourcePosition = "SourcePosition"
+	// SOFA dataset names of the position and orientation variables.
+	datasetListenerPosition = "ListenerPosition"
+	datasetReceiverPosition = "ReceiverPosition"
+	datasetSourcePosition   = "SourcePosition"
+	datasetEmitterPosition  = "EmitterPosition"
+	datasetListenerView     = "ListenerView"
+	datasetListenerUp       = "ListenerUp"
 
 	// Coordinate systems a position dataset's Type attribute may name.
 	CoordinateCartesian = "cartesian"
@@ -81,7 +86,8 @@ type File struct {
 	// Measurement-dependent layouts, filled by Open only when a file stores
 	// them: ReceiverPosition [R,C,M] and EmitterPosition [E,C,M] as [M][R]
 	// and [M][E], ListenerView and ListenerUp [M,C] as [M]. The fields above
-	// then hold measurement 0. Save does not write these fields yet.
+	// then hold measurement 0. When set, Save writes these fields in the
+	// same layouts instead of the singular ones.
 	ReceiverPositionsM [][]Vector3
 	EmitterPositionsM  [][]Vector3
 	ListenerViews      []Vector3
@@ -94,6 +100,9 @@ type File struct {
 	// trimmed, and are empty when the file omits the attribute — absence is
 	// distinguishable from a value, because a reader that must know the
 	// coordinate system should say so rather than guess.
+	//
+	// Save requires a Type ("cartesian", "spherical" or "spherical
+	// harmonics") on every position it writes.
 	ListenerPositionType  string
 	ListenerPositionUnits string
 	ReceiverPositionType  string
@@ -102,6 +111,12 @@ type File struct {
 	SourcePositionUnits   string
 	EmitterPositionType   string
 	EmitterPositionUnits  string
+
+	// Coordinate system of ListenerView and ListenerUp, from ListenerView's
+	// Type and Units attributes. Save writes "cartesian" and "metre" when
+	// they are empty.
+	ListenerViewType  string
+	ListenerViewUnits string
 
 	// Audio data — FIR (used when DataType == "FIR")
 	ImpulseResponses [][][]float64 // [M][R][N] the actual IR data
@@ -464,8 +479,8 @@ func (f *File) readAudioData(datasets map[string]*hdf5.Dataset, labels map[strin
 // Layouts of the audio variables, in order of preference.
 var (
 	layoutMRN  = []string{dimM, dimR, dimN}
-	layoutMREN = []string{dimM, dimR, dimE, dimN} // go-sofa's TF-E order
-	layoutMRNE = []string{dimM, dimR, dimN, dimE} // SOFA Toolbox's TF-E order
+	layoutMREN = []string{dimM, dimR, dimE, dimN} // TF-E order older go-sofa versions wrote
+	layoutMRNE = []string{dimM, dimR, dimN, dimE} // AES69 TF-E order ("mrne"); SOFA Toolbox and Save write it
 )
 
 func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
@@ -572,8 +587,8 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 
 // readTFEAudioData reads /Data.Real and /Data.Imag as 4D arrays of
 // shape [M][R][E][N], plus the frequency vector from /N. Used for
-// DataType == "TF-E". Files store the arrays either [M,R,E,N] (go-sofa) or
-// [M,R,N,E] (SOFA Toolbox); the latter is transposed on read.
+// DataType == "TF-E". Files store the arrays [M,R,N,E] (AES69, SOFA
+// Toolbox, Save), transposed on read, or [M,R,E,N] (older go-sofa).
 func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	if err := f.readFrequencyVector(datasets, labels); err != nil {
 		return err
@@ -820,31 +835,52 @@ func (f *File) writeHDF5(path string) (err error) {
 		return err
 	}
 
-	// Write spatial position datasets
+	// Write spatial position datasets; per-measurement receiver and
+	// emitter positions, when set, replace the shared ones.
 	for _, p := range []struct {
 		name       string
 		positions  []Vector3
+		perM       [][]Vector3
 		dim        string
 		size       int
 		typ, units string
 	}{
-		{"ListenerPosition", f.ListenerPositions, dimM, f.M, f.ListenerPositionType, f.ListenerPositionUnits},
-		{"ReceiverPosition", f.ReceiverPositions, dimR, f.R, f.ReceiverPositionType, f.ReceiverPositionUnits},
-		{"SourcePosition", f.SourcePositions, dimM, f.M, f.SourcePositionType, f.SourcePositionUnits},
-		{"EmitterPosition", f.EmitterPositions, dimE, f.E, f.EmitterPositionType, f.EmitterPositionUnits},
+		{datasetListenerPosition, f.ListenerPositions, nil, dimM, f.M, f.ListenerPositionType, f.ListenerPositionUnits},
+		{datasetReceiverPosition, f.ReceiverPositions, f.ReceiverPositionsM, dimR, f.R, f.ReceiverPositionType, f.ReceiverPositionUnits},
+		{datasetSourcePosition, f.SourcePositions, nil, dimM, f.M, f.SourcePositionType, f.SourcePositionUnits},
+		{datasetEmitterPosition, f.EmitterPositions, f.EmitterPositionsM, dimE, f.E, f.EmitterPositionType, f.EmitterPositionUnits},
 	} {
-		if err := nc.writePositionDataset("/"+p.name, p.positions,
-			rowDim(len(p.positions), p.dim, p.size), p.typ, p.units); err != nil {
+		var err error
+		if len(p.perM) > 0 {
+			err = nc.writePositionDatasetPerM("/"+p.name, p.perM,
+				rowDim(len(p.perM[0]), p.dim, p.size), p.typ, p.units)
+		} else {
+			err = nc.writePositionDataset("/"+p.name, p.positions,
+				rowDim(len(p.positions), p.dim, p.size), p.typ, p.units)
+		}
+		if err != nil {
 			return fmt.Errorf("write %s: %w", p.name, err)
 		}
 	}
 
-	// Write listener orientation vectors
-	if err := nc.writeVariable("/ListenerUp", flattenVector3s([]Vector3{f.ListenerUp}), dimI, dimC); err != nil {
-		return fmt.Errorf("write ListenerUp: %w", err)
-	}
-	if err := nc.writeVariable("/ListenerView", flattenVector3s([]Vector3{f.ListenerView}), dimI, dimC); err != nil {
-		return fmt.Errorf("write ListenerView: %w", err)
+	// Write listener orientation vectors, [M,C] when given per measurement.
+	// Both carry ListenerView's coordinate system.
+	viewAttrs := positionAttributes(f.listenerViewCoordinates())
+	for _, o := range []struct {
+		name string
+		one  Vector3
+		all  []Vector3
+	}{
+		{datasetListenerUp, f.ListenerUp, f.ListenerUps},
+		{datasetListenerView, f.ListenerView, f.ListenerViews},
+	} {
+		vecs, rows := []Vector3{o.one}, dimI
+		if len(o.all) > 0 {
+			vecs, rows = o.all, dimM
+		}
+		if err := nc.writeVariableWithAttrs("/"+o.name, flattenVector3s(vecs), []string{rows, dimC}, viewAttrs); err != nil {
+			return fmt.Errorf("write %s: %w", o.name, err)
+		}
 	}
 	if err := f.writeRoomScalars(nc); err != nil {
 		return err
@@ -868,33 +904,55 @@ type rootAttribute struct {
 	name, value string
 }
 
+// Defaults Save writes for mandatory global attributes left empty, taken
+// from the SOFA conventions' default values.
+const (
+	defaultAPIName  = "go-sofa"
+	defaultLicense  = "No license provided, ask the author for permission"
+	defaultRoomType = "free field"
+	sofaDateLayout  = "2006-01-02 15:04:05" // the SOFA Toolbox's date format
+)
+
+// saveTime returns the time Save stamps into empty DateCreated and
+// DateModified attributes; tests replace it.
+var saveTime = time.Now
+
 // collectRootAttributes returns the global attributes to write, in a
-// fixed order. Required AES69 attributes are always emitted; optional
-// ones are skipped when empty.
+// fixed order. The attributes AES69 makes mandatory are always emitted,
+// with defaults for empty APIName, APIVersion, dates, License and
+// RoomType (AuthorContact, Organization and Title may be empty); the File
+// itself is not changed. Optional attributes are skipped when empty.
 func (f *File) collectRootAttributes() []rootAttribute {
+	or := func(v, def string) string {
+		if v == "" {
+			return def
+		}
+		return v
+	}
+	now := saveTime().UTC().Format(sofaDateLayout)
 	attrs := []rootAttribute{
 		{"Conventions", f.Conventions},
 		{"Version", f.Version},
 		{"SOFAConventions", f.SOFAConventions},
 		{"SOFAConventionsVersion", f.SOFAConventionsVersion},
 		{"DataType", f.DataType},
-	}
-	for _, opt := range []rootAttribute{
 		{"Title", f.Title},
-		{"DateCreated", f.DateCreated},
-		{"DateModified", f.DateModified},
-		{"APIName", f.APIName},
-		{"APIVersion", f.APIVersion},
+		{"DateCreated", or(f.DateCreated, now)},
+		{"DateModified", or(f.DateModified, now)},
+		{"APIName", or(f.APIName, defaultAPIName)},
+		{"APIVersion", or(f.APIVersion, moduleVersion())},
 		{"AuthorContact", f.AuthorContact},
 		{"Organization", f.Organization},
-		{"License", f.License},
+		{"License", or(f.License, defaultLicense)},
+		{"RoomType", or(f.RoomType, defaultRoomType)},
+	}
+	for _, opt := range []rootAttribute{
 		{"ApplicationName", f.ApplicationName},
 		{"ApplicationVersion", f.ApplicationVersion},
 		{"Comment", f.Comment},
 		{"History", f.History},
 		{"References", f.References},
 		{"Origin", f.Origin},
-		{"RoomType", f.RoomType},
 	} {
 		if opt.value != "" {
 			attrs = append(attrs, opt)
@@ -906,18 +964,8 @@ func (f *File) collectRootAttributes() []rootAttribute {
 // validate checks that the File struct contains all required fields
 // and that dimensions are consistent.
 func (f *File) validate() error {
-	// Check required string attributes
-	if f.Conventions != conventionSOFA {
-		return fmt.Errorf("conventions must be %q, got %q", conventionSOFA, f.Conventions)
-	}
-	if f.Version == "" {
-		return fmt.Errorf("version is required")
-	}
-	if f.SOFAConventions == "" {
-		return fmt.Errorf("sofaConventions is required")
-	}
-	if f.DataType == "" {
-		return fmt.Errorf("dataType is required")
+	if err := f.validateRequiredAttributes(); err != nil {
+		return err
 	}
 
 	// Check dimensions are non-zero
@@ -973,8 +1021,104 @@ func (f *File) validate() error {
 		return fmt.Errorf("EmitterPositions length %d must be E=%d, 1 (scalar), or 0",
 			len(f.EmitterPositions), f.E)
 	}
+	if err := f.validatePerMeasurement(); err != nil {
+		return err
+	}
+	if err := f.validateCoordinateTypes(); err != nil {
+		return err
+	}
 
 	return f.validateConvention()
+}
+
+// validateCoordinateTypes checks that every position Save writes names its
+// coordinate system with an AES69 Type, and that a ListenerView Type, when
+// set, is one too. Types are compared case-insensitively.
+func (f *File) validateCoordinateTypes() error {
+	for _, p := range []struct {
+		name    string
+		written bool
+		typ     string
+	}{
+		{datasetListenerPosition, len(f.ListenerPositions) > 0, f.ListenerPositionType},
+		{datasetReceiverPosition, len(f.ReceiverPositions) > 0 || len(f.ReceiverPositionsM) > 0, f.ReceiverPositionType},
+		{datasetSourcePosition, len(f.SourcePositions) > 0, f.SourcePositionType},
+		{datasetEmitterPosition, len(f.EmitterPositions) > 0 || len(f.EmitterPositionsM) > 0, f.EmitterPositionType},
+		{datasetListenerView, f.ListenerViewType != "", f.ListenerViewType},
+	} {
+		if !p.written {
+			continue
+		}
+		if p.typ == "" {
+			return fmt.Errorf("%sType is required", p.name)
+		}
+		switch strings.ToLower(strings.TrimSpace(p.typ)) {
+		case CoordinateCartesian, CoordinateSpherical, CoordinateSphericalHarmonics:
+		default:
+			return fmt.Errorf("%sType %q must be %q, %q or %q", p.name, p.typ,
+				CoordinateCartesian, CoordinateSpherical, CoordinateSphericalHarmonics)
+		}
+	}
+	return nil
+}
+
+// validateRequiredAttributes checks the global attributes Save cannot
+// default: Conventions, Version, SOFAConventions, SOFAConventionsVersion
+// and DataType.
+func (f *File) validateRequiredAttributes() error {
+	if f.Conventions != conventionSOFA {
+		return fmt.Errorf("conventions must be %q, got %q", conventionSOFA, f.Conventions)
+	}
+	if f.Version == "" {
+		return fmt.Errorf("version is required")
+	}
+	if f.SOFAConventions == "" {
+		return fmt.Errorf("sofaConventions is required")
+	}
+	if f.SOFAConventionsVersion == "" {
+		return fmt.Errorf("sofaConventionsVersion is required")
+	}
+	if f.DataType == "" {
+		return fmt.Errorf("dataType is required")
+	}
+	return nil
+}
+
+// validatePerMeasurement checks the per-measurement layouts: M rows of R
+// (E) or 1 receivers (emitters) each, and M listener orientations.
+func (f *File) validatePerMeasurement() error {
+	for _, p := range []struct {
+		name string
+		perM [][]Vector3
+		dim  string
+		size int
+	}{
+		{"ReceiverPositionsM", f.ReceiverPositionsM, dimR, f.R},
+		{"EmitterPositionsM", f.EmitterPositionsM, dimE, f.E},
+	} {
+		if len(p.perM) == 0 {
+			continue
+		}
+		if len(p.perM) != f.M {
+			return fmt.Errorf("%s has %d rows, want M=%d", p.name, len(p.perM), f.M)
+		}
+		width := len(p.perM[0])
+		if width != p.size && width != 1 {
+			return fmt.Errorf("%s[0] length %d must be %s=%d or 1", p.name, width, p.dim, p.size)
+		}
+		for i, row := range p.perM {
+			if len(row) != width {
+				return fmt.Errorf("%s[%d] length %d differs from %s[0] length %d", p.name, i, len(row), p.name, width)
+			}
+		}
+	}
+	if n := len(f.ListenerViews); n != 0 && n != f.M {
+		return fmt.Errorf("ListenerViews length %d must be M=%d or 0", n, f.M)
+	}
+	if n := len(f.ListenerUps); n != 0 && n != f.M {
+		return fmt.Errorf("ListenerUps length %d must be M=%d or 0", n, f.M)
+	}
+	return nil
 }
 
 // validateFIR checks FIR-specific fields: ImpulseResponses [M][R][N],
@@ -1131,25 +1275,50 @@ func (f *File) writeFIRAudioDatasets(nc *netcdfDimensions) error {
 	return f.writeSamplingRateAndDelay(nc)
 }
 
-// writeSamplingRateAndDelay writes Data.SamplingRate ([M] or [I]) and, if
-// present, Data.Delay, shared by FIR and SOS.
+// writeSamplingRateAndDelay writes Data.SamplingRate ([M] or [I]) and
+// Data.Delay, shared by FIR and SOS.
 func (f *File) writeSamplingRateAndDelay(nc *netcdfDimensions) error {
-	if err := nc.writeVariable("/Data.SamplingRate", f.SamplingRate,
-		rowDim(len(f.SamplingRate), dimM, f.M)); err != nil {
+	if err := nc.writeVariableWithAttrs("/Data.SamplingRate", f.SamplingRate,
+		[]string{rowDim(len(f.SamplingRate), dimM, f.M)},
+		[]hdf5.DatasetOption{hdf5.WithAttribute("Units", "hertz")}); err != nil {
 		return err
 	}
-	if len(f.Delay) > 0 {
-		if err := nc.writeVariable("/Data.Delay", f.Delay, delayDims(len(f.Delay), f.M, f.R)...); err != nil {
-			return err
-		}
-	}
-	return nil
+	delay, dims := f.writtenDelay()
+	return nc.writeVariable("/Data.Delay", delay, dims...)
 }
 
-// delayDims names the dimensions of a Data.Delay with n values (validated
-// to be 1, M, R or M×R). An M×R delay is written two-dimensional so each
-// axis has a named dimension; it is checked before M and R so that it keeps
-// its [M,R] shape when M or R is 1.
+// writtenDelay returns Data.Delay in one of the two layouts AES69 allows,
+// [I,R] or [M,R]; the variable is mandatory for FIR and SOS. The 1-D
+// layouts go-sofa accepts in memory are expanded by broadcasting ([I] and
+// [R] to [I,R], [M] to [M,R]; see delayAxes for M == R), and an absent
+// delay is written as zeros, the conventions' default.
+func (f *File) writtenDelay() ([]float64, []string) {
+	if len(f.Delay) == 0 {
+		return make([]float64, f.R), []string{dimI, dimR}
+	}
+	axes := f.delayAxes()
+	if len(axes) == 2 {
+		return f.Delay, axes
+	}
+	rows, dims := 1, []string{dimI, dimR}
+	if axes[0] == dimM {
+		rows, dims = f.M, []string{dimM, dimR}
+	}
+	out := make([]float64, 0, rows*f.R)
+	for m := range rows {
+		for r := range f.R {
+			// Indices are in range: validate checked len(f.Delay).
+			v, _ := f.DelayAt(m, r)
+			out = append(out, v)
+		}
+	}
+	return out, dims
+}
+
+// delayDims names the dimensions of an in-memory Data.Delay with n values
+// (validated to be 1, M, R or M×R). M×R is checked before M and R so that
+// it keeps its [M,R] shape when M or R is 1, and M before R, so that a
+// delay with M == R values is per measurement.
 func delayDims(n, m, r int) []string {
 	switch n {
 	case 1:
@@ -1173,14 +1342,21 @@ func (f *File) writeTFAudioDatasets(nc *netcdfDimensions) error {
 	return nc.writeVariable("/Data.Imag", flattenIR(f.TFImag), dimM, dimR, dimN)
 }
 
-// writeTFEAudioDatasets writes Data.Real / Data.Imag as 4D arrays of
-// shape [M][R][E][N] for DataType == "TF-E". The frequency vector is
-// the /N coordinate variable as for plain TF.
+// writeTFEAudioDatasets writes Data.Real / Data.Imag for DataType ==
+// "TF-E" as [M,R,N,E], the order of the GeneralTF-E and FreeFieldHRTF
+// convention tables, transposing the in-memory [M][R][E][N]. The frequency
+// vector is the /N coordinate variable as for plain TF.
 func (f *File) writeTFEAudioDatasets(nc *netcdfDimensions) error {
-	if err := nc.writeVariable("/Data.Real", flatten4D(f.TFRealE), dimM, dimR, dimE, dimN); err != nil {
-		return err
+	for _, v := range []struct {
+		name string
+		data [][][][]float64
+	}{{"/Data.Real", f.TFRealE}, {"/Data.Imag", f.TFImagE}} {
+		flat := swapLastAxes(flatten4D(v.data), f.M*f.R, f.E, f.N)
+		if err := nc.writeVariable(v.name, flat, layoutMRNE...); err != nil {
+			return err
+		}
 	}
-	return nc.writeVariable("/Data.Imag", flatten4D(f.TFImagE), dimM, dimR, dimE, dimN)
+	return nil
 }
 
 // writeSOSAudioDatasets writes Data.SOS as [M][R][N] biquad
@@ -1245,184 +1421,4 @@ func flattenVector3s(vecs []Vector3) []float64 {
 		flat[i*3+2] = v.Z
 	}
 	return flat
-}
-
-// netCDF-4 dimension names used by SOFA. C (coordinate triplets) and I
-// (singleton) have fixed sizes.
-const (
-	dimM = "M"
-	dimR = "R"
-	dimE = "E"
-	dimN = "N"
-	dimC = "C"
-	dimI = "I"
-)
-
-// netcdfDimensionNAME formats the netCDF-4 NAME attribute used on
-// dimension-scale datasets that are *not* coordinate variables: a fixed
-// text followed by the dimension size in a 10-character field, exactly as
-// netCDF-C writes it (and as our reader parses it).
-func netcdfDimensionNAME(size int) string {
-	return fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.%10d", size)
-}
-
-// ncProperties returns the _NCProperties root attribute that marks a file
-// as netCDF-4 and records the library that wrote it.
-func ncProperties() string {
-	sofaVersion, hdf5Version := "unknown", "unknown"
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		if bi.Main.Path == modulePath {
-			sofaVersion = bi.Main.Version
-		}
-		for _, dep := range bi.Deps {
-			switch dep.Path {
-			case modulePath:
-				sofaVersion = dep.Version
-			case hdf5ModulePath:
-				hdf5Version = dep.Version
-			}
-		}
-	}
-	return fmt.Sprintf("version=2,go-sofa=%s,go-hdf5=%s", sofaVersion, hdf5Version)
-}
-
-const (
-	modulePath     = "github.com/cwbudde/go-sofa"
-	hdf5ModulePath = "github.com/cwbudde/go-hdf5"
-)
-
-// netcdfDimensions holds the dimension scales of a file being written, so
-// each variable can be created with its shape taken from, and attached to,
-// named netCDF-4 dimensions.
-type netcdfDimensions struct {
-	fw     *hdf5.FileWriter
-	sizes  map[string]int
-	scales map[string]*hdf5.DatasetWriter
-}
-
-// writeDimensionScales writes one dimension-scale dataset per SOFA
-// dimension, in a fixed order (which is also their _Netcdf4Dimid order) so
-// output is deterministic. For TF and TF-E, /N is the frequency coordinate
-// variable; otherwise every scale is a netCDF "dimension without variable"
-// whose length is the dimension size.
-func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, error) {
-	nc := &netcdfDimensions{
-		fw:     fw,
-		sizes:  map[string]int{dimM: f.M, dimR: f.R, dimE: f.E, dimN: f.N, dimC: 3, dimI: 1},
-		scales: map[string]*hdf5.DatasetWriter{},
-	}
-	for id, name := range []string{dimM, dimR, dimE, dimN, dimC, dimI} {
-		var ds *hdf5.DatasetWriter
-		var err error
-		if name == dimN && (f.DataType == dataTypeTF || f.DataType == dataTypeTFE) {
-			ds, err = writeFrequencyDimension(fw, f.Frequencies, id)
-		} else {
-			ds, err = writeDimensionScale(fw, "/"+name, nc.sizes[name], id)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("write dimension /%s: %w", name, err)
-		}
-		nc.scales[name] = ds
-	}
-	return nc, nil
-}
-
-// writeDimensionScale writes a netCDF-4 dimension that has no variable of
-// its own: a dataset of the dimension's length with CLASS=DIMENSION_SCALE,
-// the netCDF NAME carrying the size, and _Netcdf4Dimid. Like netCDF-C, it
-// holds no values.
-func writeDimensionScale(fw *hdf5.FileWriter, name string, size, id int) (*hdf5.DatasetWriter, error) {
-	ds, err := fw.CreateDataset(name, hdf5.Float32,
-		[]uint64{uint64(size)}, //nolint:gosec // size > 0 by validate()
-		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
-		hdf5.WithAttribute("NAME", netcdfDimensionNAME(size)),
-		hdf5.WithAttribute("_Netcdf4Dimid", int32(id))) //nolint:gosec // id < 6
-	if err != nil {
-		return nil, fmt.Errorf("create dimension dataset: %w", err)
-	}
-	return ds, nil
-}
-
-// writeFrequencyDimension writes /N as a vector of frequency values (Hz).
-// The dataset is the netCDF coordinate variable of dimension N:
-// CLASS=DIMENSION_SCALE and NAME equal to the dimension label, matching
-// what upstream tools emit for /N in TF files.
-func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64, id int) (*hdf5.DatasetWriter, error) {
-	if len(freqs) == 0 {
-		return nil, fmt.Errorf("frequencies must be non-empty for TF data")
-	}
-	ds, err := fw.CreateDataset("/N", hdf5.Float64,
-		[]uint64{uint64(len(freqs))},
-		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
-		hdf5.WithAttribute("NAME", dimN),
-		hdf5.WithAttribute("_Netcdf4Dimid", int32(id))) //nolint:gosec // id < 6
-	if err != nil {
-		return nil, fmt.Errorf("create /N dataset: %w", err)
-	}
-	if err := ds.Write(freqs); err != nil {
-		return nil, fmt.Errorf("write /N values: %w", err)
-	}
-	return ds, nil
-}
-
-// writeVariable creates a float64 variable whose shape is given by the
-// named dimensions, writes data and attaches the dimension scales, so
-// netCDF-4 readers see named (not phony) dimensions.
-func (nc *netcdfDimensions) writeVariable(name string, data []float64, dims ...string) error {
-	return nc.writeVariableWithAttrs(name, data, dims, nil)
-}
-
-func (nc *netcdfDimensions) writeVariableWithAttrs(name string, data []float64, dims []string,
-	attrs []hdf5.DatasetOption,
-) error {
-	shape := make([]uint64, len(dims))
-	for i, d := range dims {
-		size, ok := nc.sizes[d]
-		if !ok {
-			return fmt.Errorf("%s: unknown dimension %q", name, d)
-		}
-		shape[i] = uint64(size) //nolint:gosec // sizes > 0 by validate()
-	}
-
-	ds, err := nc.fw.CreateDataset(name, hdf5.Float64, shape, attrs...)
-	if err != nil {
-		return fmt.Errorf("create %s dataset: %w", name, err)
-	}
-	if err := ds.Write(data); err != nil {
-		return fmt.Errorf("write %s data: %w", name, err)
-	}
-	for i, d := range dims {
-		if err := ds.AttachDimensionScale(i, nc.scales[d]); err != nil {
-			return fmt.Errorf("attach dimension %s to %s: %w", d, name, err)
-		}
-	}
-	return nil
-}
-
-// rowDim names the first dimension of a variable with n rows that is
-// either per-element of dimension dim (n == size) or constant (n == 1, I).
-func rowDim(n int, dim string, size int) string {
-	if n == size {
-		return dim
-	}
-	return dimI
-}
-
-// writePositionDataset writes a position variable [rows, C] tagged with the
-// Type and Units attributes that name its coordinate system. Empty type or
-// units are omitted rather than written as empty strings.
-func (nc *netcdfDimensions) writePositionDataset(name string, positions []Vector3, rows, typ, units string) error {
-	if len(positions) == 0 {
-		// Skip if no positions provided
-		return nil
-	}
-
-	var attrs []hdf5.DatasetOption
-	if typ != "" {
-		attrs = append(attrs, hdf5.WithAttribute("Type", typ))
-	}
-	if units != "" {
-		attrs = append(attrs, hdf5.WithAttribute("Units", units))
-	}
-	return nc.writeVariableWithAttrs(name, flattenVector3s(positions), []string{rows, dimC}, attrs)
 }

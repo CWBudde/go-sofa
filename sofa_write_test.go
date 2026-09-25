@@ -18,15 +18,16 @@ func TestSaveValidation(t *testing.T) {
 			name: "missing Conventions",
 			setup: func() *File {
 				return &File{
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "conventions must be \"SOFA\"",
@@ -35,16 +36,17 @@ func TestSaveValidation(t *testing.T) {
 			name: "invalid Conventions value",
 			setup: func() *File {
 				return &File{
-					Conventions:      "HDF5",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Conventions:            "HDF5",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "conventions must be \"SOFA\"",
@@ -53,15 +55,16 @@ func TestSaveValidation(t *testing.T) {
 			name: "missing Version",
 			setup: func() *File {
 				return &File{
-					Conventions:      "SOFA",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Conventions:            "SOFA",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "version is required",
@@ -87,15 +90,16 @@ func TestSaveValidation(t *testing.T) {
 			name: "missing DataType",
 			setup: func() *File {
 				return &File{
-					Conventions:      "SOFA",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "dataType is required",
@@ -104,15 +108,16 @@ func TestSaveValidation(t *testing.T) {
 			name: "zero M dimension",
 			setup: func() *File {
 				return &File{
-					Conventions:     "SOFA",
-					Version:         "1.0",
-					SOFAConventions: "SimpleFreeFieldHRIR",
-					DataType:        "FIR",
-					M:               0,
-					R:               2,
-					E:               1,
-					N:               64,
-					SamplingRate:    []float64{44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      0,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "m must be > 0",
@@ -121,15 +126,16 @@ func TestSaveValidation(t *testing.T) {
 			name: "zero R dimension",
 			setup: func() *File {
 				return &File{
-					Conventions:     "SOFA",
-					Version:         "1.0",
-					SOFAConventions: "SimpleFreeFieldHRIR",
-					DataType:        "FIR",
-					M:               1,
-					R:               0,
-					E:               1,
-					N:               64,
-					SamplingRate:    []float64{44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      0,
+					E:                      1,
+					N:                      64,
+					SamplingRate:           []float64{44100},
 				}
 			},
 			wantErr: "r must be > 0",
@@ -138,16 +144,17 @@ func TestSaveValidation(t *testing.T) {
 			name: "IR dimensions mismatch M",
 			setup: func() *File {
 				return &File{
-					Conventions:      "SOFA",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                2,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1), // M=2 but length=1
-					SamplingRate:     []float64{44100, 44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      2,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1), // M=2 but length=1
+					SamplingRate:           []float64{44100, 44100},
 				}
 			},
 			wantErr: "ImpulseResponses length 1 does not match M=2",
@@ -156,16 +163,17 @@ func TestSaveValidation(t *testing.T) {
 			name: "IR dimensions mismatch R",
 			setup: func() *File {
 				f := &File{
-					Conventions:      "SOFA",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 				f.ImpulseResponses[0] = make([][]float64, 1) // R=2 but length=1
 				return f
@@ -176,16 +184,17 @@ func TestSaveValidation(t *testing.T) {
 			name: "IR dimensions mismatch N",
 			setup: func() *File {
 				f := &File{
-					Conventions:      "SOFA",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                1,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 1),
-					SamplingRate:     []float64{44100},
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      1,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 1),
+					SamplingRate:           []float64{44100},
 				}
 				f.ImpulseResponses[0] = make([][]float64, 2)
 				f.ImpulseResponses[0][0] = make([]float64, 32) // N=64 but length=32
@@ -197,16 +206,17 @@ func TestSaveValidation(t *testing.T) {
 			name: "SamplingRate wrong length",
 			setup: func() *File {
 				f := &File{
-					Conventions:      "SOFA",
-					Version:          "1.0",
-					SOFAConventions:  "SimpleFreeFieldHRIR",
-					DataType:         "FIR",
-					M:                2,
-					R:                2,
-					E:                1,
-					N:                64,
-					ImpulseResponses: make([][][]float64, 2),
-					SamplingRate:     []float64{44100, 44100, 44100}, // M=2 but length=3
+					Conventions:            "SOFA",
+					Version:                "1.0",
+					SOFAConventions:        "SimpleFreeFieldHRIR",
+					SOFAConventionsVersion: "1.0",
+					DataType:               "FIR",
+					M:                      2,
+					R:                      2,
+					E:                      1,
+					N:                      64,
+					ImpulseResponses:       make([][][]float64, 2),
+					SamplingRate:           []float64{44100, 44100, 44100}, // M=2 but length=3
 				}
 				for i := range f.ImpulseResponses {
 					f.ImpulseResponses[i] = make([][]float64, 2)
@@ -268,6 +278,10 @@ func TestSaveMinimal(t *testing.T) {
 	f.ReceiverPositions = []Vector3{{-0.09, 0, 0}, {0.09, 0, 0}}
 	f.SourcePositions = []Vector3{{1, 0, 0}}
 	f.EmitterPositions = []Vector3{{0, 0, 0}}
+	f.ListenerPositionType = CoordinateCartesian
+	f.ReceiverPositionType = CoordinateCartesian
+	f.SourcePositionType = CoordinateCartesian
+	f.EmitterPositionType = CoordinateCartesian
 	f.ListenerUp = Vector3{0, 0, 1}
 	f.ListenerView = Vector3{1, 0, 0}
 

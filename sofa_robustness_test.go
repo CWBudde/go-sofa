@@ -286,12 +286,20 @@ func robustBase(dataType string, m, r, e, n int) *File {
 		SOFAConventionsVersion: "1.0",
 		DataType:               dataType,
 		Title:                  "robustness fixture",
-		ListenerPositions:      []Vector3{{0, 0, 0}},
-		ReceiverPositions:      make([]Vector3, r),
-		SourcePositions:        make([]Vector3, m),
-		EmitterPositions:       make([]Vector3, e),
-		ListenerView:           Vector3{1, 0, 0},
-		ListenerUp:             Vector3{0, 0, 1},
+		// Fixed dates: Save stamps the current time into empty ones, which
+		// would make repeated saves differ.
+		DateCreated:          "2026-01-01 00:00:00",
+		DateModified:         "2026-01-01 00:00:00",
+		ListenerPositions:    []Vector3{{0, 0, 0}},
+		ListenerPositionType: CoordinateCartesian,
+		ReceiverPositionType: CoordinateCartesian,
+		SourcePositionType:   CoordinateCartesian,
+		EmitterPositionType:  CoordinateCartesian,
+		ReceiverPositions:    make([]Vector3, r),
+		SourcePositions:      make([]Vector3, m),
+		EmitterPositions:     make([]Vector3, e),
+		ListenerView:         Vector3{1, 0, 0},
+		ListenerUp:           Vector3{0, 0, 1},
 	}
 }
 

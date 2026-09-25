@@ -74,6 +74,12 @@ func run(dir string) error {
 				"SOFAConventions": f.SOFAConventions,
 				"DataType":        f.DataType,
 				"Title":           f.Title,
+				"APIName":         f.APIName,
+				"License":         f.License,
+				"RoomType":        f.RoomType,
+				// Mandatory but left empty by base: written as empty strings.
+				"AuthorContact": "",
+				"Organization":  "",
 			},
 			Dimensions: map[string]int{"M": f.M, "R": f.R, "E": f.E, "N": f.N, "C": 3, "I": 1},
 			Datasets:   data,
@@ -155,10 +161,11 @@ func grid3(scale float64, n int) ([][][]float64, []float64) {
 	return out, flat
 }
 
+// grid4 returns TF-E data as go-sofa holds it, [M][R][E][N], and flattened
+// in the [M,R,N,E] order Save writes to the file.
 func grid4(scale float64, e, n int) ([][][][]float64, []float64) {
 	m, r := numM, numR
 	out := make([][][][]float64, m)
-	flat := make([]float64, 0, m*r*e*n)
 	for i := range m {
 		out[i] = make([][][]float64, r)
 		for j := range r {
@@ -167,6 +174,15 @@ func grid4(scale float64, e, n int) ([][][][]float64, []float64) {
 				out[i][j][l] = make([]float64, n)
 				for k := range n {
 					out[i][j][l][k] = value(scale, i, j, l, k)
+				}
+			}
+		}
+	}
+	flat := make([]float64, 0, m*r*e*n)
+	for i := range m {
+		for j := range r {
+			for k := range n {
+				for l := range e {
 					flat = append(flat, out[i][j][l][k])
 				}
 			}
@@ -193,7 +209,7 @@ func buildFIR() (*sofa.File, map[string]dataset) {
 	return f, map[string]dataset{
 		"Data.IR":           {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: flat},
 		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},
-		"Data.Delay":        {Shape: []int{numR}, Dims: []string{"R"}, Values: f.Delay},
+		"Data.Delay":        {Shape: []int{1, numR}, Dims: []string{"I", "R"}, Values: f.Delay},
 	}
 }
 
@@ -219,8 +235,8 @@ func buildTFE() (*sofa.File, map[string]dataset) {
 	f.TFRealE, f.TFImagE = re, im
 	f.Frequencies = frequencies(n)
 	return f, map[string]dataset{
-		"Data.Real": {Shape: []int{numM, numR, e, n}, Dims: []string{"M", "R", "E", "N"}, Values: reFlat},
-		"Data.Imag": {Shape: []int{numM, numR, e, n}, Dims: []string{"M", "R", "E", "N"}, Values: imFlat},
+		"Data.Real": {Shape: []int{numM, numR, n, e}, Dims: []string{"M", "R", "N", "E"}, Values: reFlat},
+		"Data.Imag": {Shape: []int{numM, numR, n, e}, Dims: []string{"M", "R", "N", "E"}, Values: imFlat},
 		"N":         {Shape: []int{n}, Dims: []string{"N"}, Values: f.Frequencies},
 	}
 }
@@ -234,6 +250,8 @@ func buildSOS() (*sofa.File, map[string]dataset) {
 	return f, map[string]dataset{
 		"Data.SOS":          {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: flat},
 		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},
+		// No Delay is set: Save writes the mandatory Data.Delay as zeros.
+		"Data.Delay": {Shape: []int{1, numR}, Dims: []string{"I", "R"}, Values: make([]float64, numR)},
 	}
 }
 
