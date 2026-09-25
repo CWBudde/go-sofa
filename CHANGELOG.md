@@ -13,14 +13,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ErrUnsupportedDataType` on non-FIR files (where `Duration` used to divide
   a frequency-bin or coefficient count by the sampling rate) and
   `ErrIndexOutOfRange` for indices outside the file's dimensions.
+- **Breaking:** `SamplingRateScalar` returns `(float64, error)`:
+  `ErrNoSamplingRate` when no rate is stored and `ErrVaryingSamplingRate` when
+  the per-measurement rates differ, instead of silently returning the first.
 - `Open` rejects an empty, unknown, `FIR-E` or `FIRE` `DataType` with
   `ErrUnsupportedDataType` instead of reading it as FIR.
 - `Open` checks every variable's shape, not only its element count, using the
   file's netCDF dimension names where present; an axis permutation or any
   other layout AES69 does not allow is an error instead of a silent misread.
+- `Open` fails when a global attribute go-sofa maps to a field, a position or
+  orientation dataset, or its `Type`/`Units` attribute is present but cannot
+  be read, instead of leaving the field empty. Global attributes go-sofa does
+  not interpret are no longer decoded.
+- SH detection (`SHOrder`, `IsSHEncoded`, `SHCoefficientCount`) follows
+  AES69: `EmitterPositionType == "spherical harmonics"` decides when set, and
+  the convention-name / History heuristics apply only when it is empty.
+  `DataType` must be `TF-E`, and `E = 1` is order 0. A heuristic that
+  contradicts a set Type is reported by `SHWarnings`.
 
 ### Added
 
+- `SamplingRateAt(m)`, `SourcePositionAt(m)` and `DelayAt(m, r)` resolve
+  `[I]`- versus `[M]`-sized variables (and every `Data.Delay` layout, using
+  the dimension names `Open` found, so `[M]` and `[R]` are told apart when
+  M == R).
 - `ReceiverPositionsM`, `EmitterPositionsM` (`[R,C,M]` / `[E,C,M]` read as
   `[M][R]` / `[M][E]`) and `ListenerViews`, `ListenerUps` (`[M,C]`), filled by
   `Open` for measurement-dependent layouts. `Save` does not write them yet.

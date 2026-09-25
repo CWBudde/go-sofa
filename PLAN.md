@@ -34,7 +34,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5a/R5c/R5d are done; R5b, R5e–R5g and R6–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 is done; R6–R9 remain. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -119,7 +119,7 @@ R1–R4 are release blockers.
 - [x] **R4c.** Deterministic output: write dimension scales in fixed order
       instead of iterating a map (currently 3 distinct md5s in 4 runs).
 
-#### R5 — Read-path correctness (high)
+#### R5 — Read-path correctness (high) — ✅ DONE (2026-09-25)
 
 - [x] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
       `ImpulseResponses` bounded by `f.M`/`f.R`; on TF/TF-E/SOS files the
@@ -132,9 +132,12 @@ R1–R4 are release blockers.
     ([sofa_accessors.go](sofa_accessors.go)); breaking, noted in
     CHANGELOG. `TestIRAccessorsOnNonFIR`, `TestIRAt`,
     `TestDurationEdgeCases` assert the sentinels with `errors.Is`.
-- [ ] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
+- [x] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
       `flat[s:s+n]` with spare capacity, so `append` on one row overwrites
       the next. Use full slice expressions `flat[s:s+n:s+n]`.
+  - (2026-09-25) — done in 319ed76: both reshapes use full slice
+    expressions; `TestReshapeNoAliasing` appends to one row and checks the
+    next is untouched.
 - [x] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
       to FIR; return a typed `ErrUnsupportedDataType`. Explicitly handle or
       reject `FIR-E` (GeneralFIR-E) and legacy `FIRE`.
@@ -162,16 +165,35 @@ R1–R4 are release blockers.
     `TestOpenPerMeasurementPositions`,
     `TestOpenOfficeIIListenerViewPerMeasurement`; disabling the transpose
     or the Data.IR check makes them fail.
-- [ ] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
+- [x] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
       `DelayAt(m, r)`, `SamplingRateAt(m)` resolving I- vs M-sized
       variables; make `SamplingRateScalar` report when rates vary.
-- [ ] **R5f. Stop swallowing errors.** Attribute read errors
+  - (2026-09-25) — the three helpers return `(value, error)`
+    ([sofa_accessors.go](sofa_accessors.go)). `DelayAt` handles `[I]`,
+    `[I,R]`, `[R]`, `[M]`, `[M,R]` and the legacy flat M·R, using the
+    layout `Open` resolved (so a labelled `[R]` is not read as `[M]` when
+    M == R), and returns 0 without a Delay. Breaking: `SamplingRateScalar`
+    returns `(float64, error)` with the new `ErrNoSamplingRate` /
+    `ErrVaryingSamplingRate`. `TestSamplingRateScalarVarying`,
+    `TestSamplingRateAt`, `TestSourcePositionAt`, `TestDelayAtInMemory`,
+    `TestDelayAtFileLayouts`, `TestBroadcastFixtures`.
+- [x] **R5f. Stop swallowing errors.** Attribute read errors
       (`readGlobalAttributes` `continue`) and position read errors
       (`readSpatialData`) must propagate or be collected as warnings.
-- [ ] **R5g. SH detection per spec.** Use
+  - (2026-09-25) — they propagate: `Open` fails when a global attribute
+    go-sofa maps to a field, a position/orientation dataset, or its
+    `Type`/`Units` attribute is present but unreadable. Unknown global
+    attributes are no longer decoded at all. `TestOpenPropagatesPositionReadError`
+    (int16 `ReceiverPosition`), `TestSetGlobalAttributes`.
+- [x] **R5g. SH detection per spec.** Use
       `EmitterPosition:Type == "spherical harmonics"` as the primary signal;
       demote "SH"-substring / History heuristics; allow `E=1` (order 0);
       require `DataType == TF-E` in `SHOrder`.
+  - (2026-09-25) — a set `EmitterPositionType` decides; the name/History
+    heuristics apply only when it is empty, and `SHWarnings` reports one
+    that contradicts a set Type. `SHOrder` requires TF-E and accepts E=1.
+    New `CoordinateSphericalHarmonics`. Both SH fixtures carry the Type.
+    `TestSHDetectionByEmitterType`, `TestSHFixturesByEmitterType`.
 
 #### R6 — AES69 conformance of written files (medium)
 

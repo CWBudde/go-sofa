@@ -150,7 +150,10 @@ func TestOpenSamplingRate(t *testing.T) {
 	}
 	defer f.Close()
 
-	sr := f.SamplingRateScalar()
+	sr, err := f.SamplingRateScalar()
+	if err != nil {
+		t.Fatalf("SamplingRateScalar: %v", err)
+	}
 	if sr <= 0 {
 		t.Fatalf("SamplingRate = %f, want > 0", sr)
 	}
@@ -308,8 +311,8 @@ func TestParseDimensionSizeErrors(t *testing.T) {
 
 func TestSamplingRateScalarEmpty(t *testing.T) {
 	f := &File{SamplingRate: []float64{}}
-	if got := f.SamplingRateScalar(); got != 0 {
-		t.Errorf("SamplingRateScalar() on empty = %f, want 0", got)
+	if got, err := f.SamplingRateScalar(); got != 0 || !errors.Is(err, ErrNoSamplingRate) {
+		t.Errorf("SamplingRateScalar() on empty = (%f, %v), want (0, ErrNoSamplingRate)", got, err)
 	}
 }
 
@@ -469,7 +472,11 @@ func TestReadReferenceValues(t *testing.T) {
 			if f.M != tc.m || f.R != tc.r || f.N != tc.n {
 				t.Fatalf("dims = M%d R%d N%d, want M%d R%d N%d", f.M, f.R, f.N, tc.m, tc.r, tc.n)
 			}
-			assertClose(t, "SamplingRate", f.SamplingRateScalar(), tc.sr, 0)
+			sr, err := f.SamplingRateScalar()
+			if err != nil {
+				t.Fatalf("SamplingRateScalar: %v", err)
+			}
+			assertClose(t, "SamplingRate", sr, tc.sr, 0)
 
 			for _, s := range tc.samples {
 				got := f.ImpulseResponses[s.m][s.r][s.n]

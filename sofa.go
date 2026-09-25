@@ -41,6 +41,9 @@ const (
 	// Coordinate systems a position dataset's Type attribute may name.
 	CoordinateCartesian = "cartesian"
 	CoordinateSpherical = "spherical"
+	// CoordinateSphericalHarmonics marks EmitterPosition data of SH-encoded
+	// files, where each emitter is one SH coefficient (see SHOrder).
+	CoordinateSphericalHarmonics = "spherical harmonics"
 
 	// UnitsSphericalDegrees is the conventional Units value for spherical
 	// positions measured in degrees.
@@ -149,7 +152,8 @@ type File struct {
 	Origin                 string  // origin of the data
 
 	// Internal
-	hdf5File *hdf5.File // underlying HDF5 file handle
+	hdf5File    *hdf5.File // underlying HDF5 file handle
+	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
 }
 
 // Open opens a SOFA file for reading.
@@ -201,8 +205,8 @@ func Open(path string) (*File, error) {
 		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
-	// Read spatial data. Missing or unreadable datasets are skipped, but a
-	// shape that matches no allowed layout fails.
+	// Read spatial data. Missing datasets are skipped; unreadable ones and
+	// shapes that match no allowed layout fail.
 	if err := f.readSpatialData(datasets, labels); err != nil {
 		h.Close()
 		return nil, fmt.Errorf("read spatial data: %w", err)
@@ -220,66 +224,67 @@ func (f *File) Close() error {
 	return nil
 }
 
+// globalAttribute is a root attribute's name and a deferred read of its
+// value, so that attributes go-sofa does not interpret are never decoded.
+type globalAttribute struct {
+	name string
+	read func() (interface{}, error)
+}
+
 // readGlobalAttributes reads AES69 global attributes from the root group.
 func (f *File) readGlobalAttributes(root *hdf5.Group) error {
 	attrs, err := root.Attributes()
 	if err != nil {
 		return err
 	}
+	global := make([]globalAttribute, len(attrs))
+	for i, a := range attrs {
+		global[i] = globalAttribute{name: a.Name, read: a.ReadValue}
+	}
+	return f.setGlobalAttributes(global)
+}
 
-	for _, attr := range attrs {
-		val, err := attr.ReadValue()
-		if err != nil {
+// setGlobalAttributes stores the attributes go-sofa maps to File fields.
+// Other attributes (_NCProperties, application-specific ones) are skipped
+// unread; a known attribute that cannot be read is an error rather than a
+// silently empty field.
+func (f *File) setGlobalAttributes(attrs []globalAttribute) error {
+	setString := func(dst *string) func(string) { return func(s string) { *dst = s } }
+	setRoom := func(dst *float64) func(string) { return func(s string) { *dst = parseRoomAttribute(s) } }
+	fields := map[string]func(string){
+		"Conventions":            setString(&f.Conventions),
+		"Version":                setString(&f.Version),
+		"SOFAConventions":        setString(&f.SOFAConventions),
+		"SOFAConventionsVersion": setString(&f.SOFAConventionsVersion),
+		"DataType":               setString(&f.DataType),
+		"RoomType":               setString(&f.RoomType),
+		datasetRoomVolume:        setRoom(&f.RoomVolume),
+		datasetRoomTemperature:   setRoom(&f.RoomTemperature),
+		"Title":                  setString(&f.Title),
+		"DateCreated":            setString(&f.DateCreated),
+		"DateModified":           setString(&f.DateModified),
+		"APIName":                setString(&f.APIName),
+		"APIVersion":             setString(&f.APIVersion),
+		"AuthorContact":          setString(&f.AuthorContact),
+		"Organization":           setString(&f.Organization),
+		"License":                setString(&f.License),
+		"ApplicationName":        setString(&f.ApplicationName),
+		"ApplicationVersion":     setString(&f.ApplicationVersion),
+		"Comment":                setString(&f.Comment),
+		"History":                setString(&f.History),
+		"References":             setString(&f.References),
+		"Origin":                 setString(&f.Origin),
+	}
+	for _, a := range attrs {
+		set, ok := fields[a.name]
+		if !ok {
 			continue
 		}
-		s := fmt.Sprintf("%v", val)
-
-		switch attr.Name {
-		case "Conventions":
-			f.Conventions = s
-		case "Version":
-			f.Version = s
-		case "SOFAConventions":
-			f.SOFAConventions = s
-		case "SOFAConventionsVersion":
-			f.SOFAConventionsVersion = s
-		case "DataType":
-			f.DataType = s
-		case "RoomType":
-			f.RoomType = s
-		case datasetRoomVolume:
-			f.RoomVolume = parseRoomAttribute(s)
-		case datasetRoomTemperature:
-			f.RoomTemperature = parseRoomAttribute(s)
-		case "Title":
-			f.Title = s
-		case "DateCreated":
-			f.DateCreated = s
-		case "DateModified":
-			f.DateModified = s
-		case "APIName":
-			f.APIName = s
-		case "APIVersion":
-			f.APIVersion = s
-		case "AuthorContact":
-			f.AuthorContact = s
-		case "Organization":
-			f.Organization = s
-		case "License":
-			f.License = s
-		case "ApplicationName":
-			f.ApplicationName = s
-		case "ApplicationVersion":
-			f.ApplicationVersion = s
-		case "Comment":
-			f.Comment = s
-		case "History":
-			f.History = s
-		case "References":
-			f.References = s
-		case "Origin":
-			f.Origin = s
+		val, err := a.read()
+		if err != nil {
+			return fmt.Errorf("attribute %s: %w", a.name, err)
 		}
+		set(fmt.Sprintf("%v", val))
 	}
 	return nil
 }
@@ -502,14 +507,17 @@ func (f *File) readRateAndDelay(datasets map[string]*hdf5.Dataset, labels map[st
 		}
 	}
 	if ds, ok := datasets["Data.Delay"]; ok {
-		if _, err := f.resolveLayout("Data.Delay", ds, labels["Data.Delay"],
-			[]string{dimI, dimR}, []string{dimM, dimR}, []string{dimI}, []string{dimM}, []string{dimR}); err != nil {
+		layout, err := f.resolveLayout("Data.Delay", ds, labels["Data.Delay"],
+			[]string{dimI, dimR}, []string{dimM, dimR}, []string{dimI}, []string{dimM}, []string{dimR})
+		if err != nil {
 			shape, _ := datasetShape(ds)
 			legacy := labels["Data.Delay"] == nil && len(shape) == 1 && shape[0] == uint64(f.M*f.R) //nolint:gosec // bounded by dimProduct
 			if !legacy {
 				return err
 			}
+			layout = []string{dimM, dimR}
 		}
+		f.delayLayout = layout
 		f.Delay, err = ds.Read()
 		if err != nil {
 			return fmt.Errorf("read Data.Delay: %w", err)

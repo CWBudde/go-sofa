@@ -27,10 +27,12 @@ func TestReadSHEncodedTFE(t *testing.T) {
 	if f.N != 129 {
 		t.Errorf("N = %d, want 129", f.N)
 	}
-	// History attribute carries "Converted to Spherical Harmonics", so
-	// IsSHEncoded picks the file up via the History detection path.
+	// EmitterPosition:Type is "Spherical Harmonics", the AES69 marker.
+	if f.EmitterPositionType != CoordinateSphericalHarmonics {
+		t.Errorf("EmitterPositionType = %q, want %q", f.EmitterPositionType, CoordinateSphericalHarmonics)
+	}
 	if !f.IsSHEncoded() {
-		t.Errorf("IsSHEncoded() = false, want true (History should match)")
+		t.Errorf("IsSHEncoded() = false, want true (EmitterPosition Type should match)")
 	}
 	if lmax, ok := f.SHOrder(); !ok || lmax != 33 {
 		t.Errorf("SHOrder() = (%d, %v), want (33, true)", lmax, ok)
@@ -119,13 +121,15 @@ func TestSHDetection(t *testing.T) {
 			wantCoeffs: 9,
 		},
 		{
-			// Convention claims SH but E<4 (below the L≥1 floor).
-			// Exercises the E<4 early-return inside SHOrder.
-			name:       "HRSH but E=1 below SH floor",
+			// E=1 is a single SH coefficient: order 0.
+			name:       "HRSH with E=1 is order 0",
 			convention: "FreeFieldHRSH",
 			dataType:   dataTypeTFE,
 			e:          1,
-			wantSH:     false,
+			wantSH:     true,
+			wantLmax:   0,
+			wantOK:     true,
+			wantCoeffs: 1,
 		},
 	}
 
@@ -222,7 +226,7 @@ func TestSHWarnings(t *testing.T) {
 			},
 			wantSubs: []string{
 				"perfect square consistent with SH order 2",
-				"neither SOFAConventions nor History",
+				"neither EmitterPosition Type nor SOFAConventions/History",
 			},
 		},
 	}
@@ -344,5 +348,104 @@ func TestWriteSHEncodedRoundTrip(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestSHDetectionByEmitterType checks that EmitterPosition:Type decides
+// SH detection when set, overriding the convention-name and History
+// heuristics in both directions, and that DataType must be TF-E.
+func TestSHDetectionByEmitterType(t *testing.T) {
+	cases := []struct {
+		name     string
+		f        File
+		wantLmax int
+		wantOK   bool
+		wantWarn string // substring of some warning; "" means no warnings
+	}{
+		{
+			name:     "Type SH without any heuristic",
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 16, EmitterPositionType: "spherical harmonics"},
+			wantLmax: 3, wantOK: true,
+		},
+		{
+			name:     "Type SH is case-insensitive",
+			f:        File{SOFAConventions: "GeneralTF-E", DataType: dataTypeTFE, E: 4, EmitterPositionType: "Spherical Harmonics"},
+			wantLmax: 1, wantOK: true,
+		},
+		{
+			name:     "Type SH with E=1 is order 0",
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 1, EmitterPositionType: "spherical harmonics"},
+			wantLmax: 0, wantOK: true,
+		},
+		{
+			name:     "cartesian Type overrides HRSH convention name",
+			f:        File{SOFAConventions: "FreeFieldHRSH", DataType: dataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
+			wantWarn: "EmitterPosition Type is \"cartesian\"",
+		},
+		{
+			name:     "spherical Type overrides History",
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 9, EmitterPositionType: "spherical", History: "Converted to Spherical Harmonics"},
+			wantWarn: "not treated as SH",
+		},
+		{
+			name: "cartesian TF-E with square E is quietly not SH",
+			f:    File{SOFAConventions: "GeneralTF-E", DataType: dataTypeTFE, E: 9, EmitterPositionType: "cartesian"},
+		},
+		{
+			name:     "Type SH requires TF-E",
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTF, E: 4, EmitterPositionType: "spherical harmonics"},
+			wantWarn: "DataType is TF",
+		},
+		{
+			name:     "Type SH with non-square E",
+			f:        File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, E: 5, EmitterPositionType: "spherical harmonics"},
+			wantWarn: "E is not (L+1)²",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lmax, ok := tc.f.SHOrder()
+			if ok != tc.wantOK || (ok && lmax != tc.wantLmax) {
+				t.Errorf("SHOrder() = (%d, %v), want (%d, %v)", lmax, ok, tc.wantLmax, tc.wantOK)
+			}
+			if got := tc.f.IsSHEncoded(); got != tc.wantOK {
+				t.Errorf("IsSHEncoded() = %v, want %v", got, tc.wantOK)
+			}
+			warnings := strings.Join(tc.f.SHWarnings(), " | ")
+			if tc.wantWarn == "" && warnings != "" {
+				t.Errorf("SHWarnings() = %q, want none", warnings)
+			}
+			if !strings.Contains(warnings, tc.wantWarn) {
+				t.Errorf("SHWarnings() = %q, want substring %q", warnings, tc.wantWarn)
+			}
+		})
+	}
+}
+
+// TestSHFixturesByEmitterType checks the SH detection of every fixture
+// against its EmitterPosition Type: the two "Spherical Harmonics" files are
+// SH (order 33), cartesian ones are not. Only MIT KEMAR is fetched in CI;
+// the others are optional and skip there.
+func TestSHFixturesByEmitterType(t *testing.T) {
+	for _, tc := range []struct {
+		file   string
+		wantSH bool
+	}{
+		{"FreeFieldHRTF_1.0.sofa", true},
+		{"demo_FreeFieldHRTF_4_SH.sofa", true},
+		{"MIT_KEMAR_normal_pinna.sofa", false},
+		{"GeneralTF-E_1.0.sofa", false},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			f, err := Open(testdataPath(t, tc.file))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer f.Close()
+			lmax, ok := f.SHOrder()
+			if ok != tc.wantSH || (ok && lmax != 33) {
+				t.Errorf("SHOrder() = (%d, %v) with EmitterPositionType %q, want SH=%v", lmax, ok, f.EmitterPositionType, tc.wantSH)
+			}
+		})
 	}
 }

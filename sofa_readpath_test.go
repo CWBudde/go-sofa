@@ -31,6 +31,9 @@ type craftedSpec struct {
 	dataType string         // omitted from the file when ""
 	dims     map[string]int // dimension scales, written at full length
 	vars     map[string]craftedVar
+	// extra, when set, writes further objects the craftedVar model cannot
+	// express (other datatypes) before the file is closed.
+	extra func(t *testing.T, fw *hdf5.FileWriter)
 }
 
 func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
@@ -68,6 +71,9 @@ func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
 	}
 	for name, v := range spec.vars {
 		writeCraftedVar(t, nc, name, v)
+	}
+	if spec.extra != nil {
+		spec.extra(t, fw)
 	}
 	if err := fw.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
