@@ -46,13 +46,17 @@ func TestTFRoundTrip(t *testing.T) {
 		SourcePositions: []Vector3{
 			{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0},
 		},
-		ListenerPositions: []Vector3{{0, 0, 0}},
-		ReceiverPositions: []Vector3{{0, 0, 0}},
-		EmitterPositions:  []Vector3{{0, 0, 0}},
-		ListenerUp:        Vector3{0, 0, 1},
-		ListenerView:      Vector3{1, 0, 0},
-		Title:             "tf round-trip fixture",
-		ApplicationName:   "go-sofa-test",
+		ListenerPositions:    []Vector3{{0, 0, 0}},
+		ListenerPositionType: CoordinateCartesian,
+		ReceiverPositionType: CoordinateCartesian,
+		SourcePositionType:   CoordinateCartesian,
+		EmitterPositionType:  CoordinateCartesian,
+		ReceiverPositions:    []Vector3{{0, 0, 0}},
+		EmitterPositions:     []Vector3{{0, 0, 0}},
+		ListenerUp:           Vector3{0, 0, 1},
+		ListenerView:         Vector3{1, 0, 0},
+		Title:                "tf round-trip fixture",
+		ApplicationName:      "go-sofa-test",
 	}
 
 	path := filepath.Join(t.TempDir(), "tf_roundtrip.sofa")

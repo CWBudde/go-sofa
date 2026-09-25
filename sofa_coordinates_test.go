@@ -76,24 +76,24 @@ func TestPositionCoordinateAttributesRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPositionCoordinateAttributesOmittedWhenEmpty checks that an empty type
-// or units writes no attribute at all, so that a reader can still distinguish
-// "the file does not say" from "the file says cartesian".
-func TestPositionCoordinateAttributesOmittedWhenEmpty(t *testing.T) {
+// TestPositionCoordinateAttributesWhenEmpty checks that Save refuses a
+// position without a Type (AES69 requires one) and omits an empty Units
+// rather than writing an empty string, which then reads back empty.
+func TestPositionCoordinateAttributesWhenEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "no-coords.sofa")
-	if err := coordinateTestFile("", "").Save(path); err != nil {
-		t.Fatalf("Save() error = %v", err)
+	if err := coordinateTestFile("", "").Save(path); err == nil {
+		t.Fatal("Save() accepted positions without a Type")
 	}
 
+	if err := coordinateTestFile(CoordinateSpherical, "").Save(path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
 	got, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer got.Close()
 
-	if got.SourcePositionType != "" {
-		t.Errorf("SourcePositionType = %q, want empty", got.SourcePositionType)
-	}
 	if got.SourcePositionUnits != "" {
 		t.Errorf("SourcePositionUnits = %q, want empty", got.SourcePositionUnits)
 	}

@@ -29,10 +29,10 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[str
 	}
 	perMeasurement := [][]string{{dimI, dimC}, {dimM, dimC}}
 	for _, pt := range []posTarget{
-		{"ListenerPosition", &f.ListenerPositions, nil, &f.ListenerPositionType, &f.ListenerPositionUnits, perMeasurement},
-		{"ReceiverPosition", &f.ReceiverPositions, &f.ReceiverPositionsM, &f.ReceiverPositionType, &f.ReceiverPositionUnits, perObject(dimR)},
+		{datasetListenerPosition, &f.ListenerPositions, nil, &f.ListenerPositionType, &f.ListenerPositionUnits, perMeasurement},
+		{datasetReceiverPosition, &f.ReceiverPositions, &f.ReceiverPositionsM, &f.ReceiverPositionType, &f.ReceiverPositionUnits, perObject(dimR)},
 		{datasetSourcePosition, &f.SourcePositions, nil, &f.SourcePositionType, &f.SourcePositionUnits, perMeasurement},
-		{"EmitterPosition", &f.EmitterPositions, &f.EmitterPositionsM, &f.EmitterPositionType, &f.EmitterPositionUnits, perObject(dimE)},
+		{datasetEmitterPosition, &f.EmitterPositions, &f.EmitterPositionsM, &f.EmitterPositionType, &f.EmitterPositionUnits, perObject(dimE)},
 	} {
 		ds, ok := datasets[pt.name]
 		if !ok {
@@ -65,14 +65,16 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[str
 	}
 
 	// Orientation datasets: [I,C], or [M,C] kept in full in the plural field.
+	// ListenerView's Type and Units name the coordinate system of both.
 	type orientTarget struct {
-		name string
-		dst  *Vector3
-		all  *[]Vector3
+		name       string
+		dst        *Vector3
+		all        *[]Vector3
+		typ, units *string
 	}
 	for _, ot := range []orientTarget{
-		{"ListenerUp", &f.ListenerUp, &f.ListenerUps},
-		{"ListenerView", &f.ListenerView, &f.ListenerViews},
+		{datasetListenerUp, &f.ListenerUp, &f.ListenerUps, nil, nil},
+		{datasetListenerView, &f.ListenerView, &f.ListenerViews, &f.ListenerViewType, &f.ListenerViewUnits},
 	} {
 		ds, ok := datasets[ot.name]
 		if !ok {
@@ -81,6 +83,14 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[str
 		layout, err := f.resolveLayout(ot.name, ds, labels[ot.name], perMeasurement...)
 		if err != nil {
 			return err
+		}
+		if ot.typ != nil {
+			if *ot.typ, err = readStringAttribute(ds, "Type"); err != nil {
+				return fmt.Errorf("%s: %w", ot.name, err)
+			}
+			if *ot.units, err = readStringAttribute(ds, "Units"); err != nil {
+				return fmt.Errorf("%s: %w", ot.name, err)
+			}
 		}
 		vecs, err := readVector3s(ds)
 		if err != nil {

@@ -9,6 +9,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** `Save` rejects a file without `SOFAConventionsVersion`, and
+  every written position (listener, receiver, source, emitter) needs a
+  `Type` of `cartesian`, `spherical` or `spherical harmonics`.
+- **Breaking (file layout):** TF-E `Data.Real`/`Data.Imag` are written as
+  `[M,R,N,E]`, the order of the AES69 convention tables and the SOFA
+  Toolbox (was `[M,R,E,N]`). `Open` reads both.
+- **Breaking (file layout):** `Data.Delay` is always written 2-D, `[I,R]` or
+  `[M,R]`: `[I]`/`[R]` delays are expanded to `[I,R]`, `[M]` to `[M,R]`, and
+  an empty Delay is written as zeros `[I,R]` (SOS files included).
+- `Save` always writes the mandatory global attributes `Title`,
+  `DateCreated`, `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
+  `Organization`, `License` and `RoomType`. Empty ones get defaults in the
+  file only: `go-sofa`, the module version, the current UTC time as
+  `YYYY-MM-DD HH:MM:SS`, and the SOFA Toolbox's License and RoomType
+  (`free field`) defaults. The `File` is not modified.
+- `Save` writes `Data.SamplingRate:Units = hertz`, `LongName = frequency` and
+  `Units = hertz` on the TF/TF-E `N` variable, and `Type`/`Units` on
+  `ListenerView` and `ListenerUp`.
+- Requires go-hdf5 v0.16.1: with v0.16.0, libhdf5 and netCDF-C could not open
+  the `DateModified` and `Organization` attributes.
 - **Breaking:** `IRAt`, `IRPeakdB` and `Duration` return an error:
   `ErrUnsupportedDataType` on non-FIR files (where `Duration` used to divide
   a frequency-bin or coefficient count by the sampling rate) and
@@ -39,7 +59,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   M == R).
 - `ReceiverPositionsM`, `EmitterPositionsM` (`[R,C,M]` / `[E,C,M]` read as
   `[M][R]` / `[M][E]`) and `ListenerViews`, `ListenerUps` (`[M,C]`), filled by
-  `Open` for measurement-dependent layouts. `Save` does not write them yet.
+  `Open` for measurement-dependent layouts and written back by `Save`.
+- `ListenerViewType` and `ListenerViewUnits` hold the coordinate system of
+  `ListenerView`/`ListenerUp`; `Open` reads them and `Save` writes them
+  (default `cartesian`/`metre`), so spherical orientations are no longer
+  relabelled cartesian.
 
 ### Fixed
 

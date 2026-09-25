@@ -49,6 +49,10 @@ func TestTFERoundTrip(t *testing.T) {
 		TFRealE:                tfReal,
 		TFImagE:                tfImag,
 		ListenerPositions:      []Vector3{{0, 0, 0}},
+		ListenerPositionType:   CoordinateCartesian,
+		ReceiverPositionType:   CoordinateCartesian,
+		SourcePositionType:     CoordinateCartesian,
+		EmitterPositionType:    CoordinateCartesian,
 		ReceiverPositions:      []Vector3{{0, 0.09, 0}, {0, -0.09, 0}},
 		SourcePositions: []Vector3{
 			{1, 0, 0}, {0, 1, 0}, {-1, 0, 0},
@@ -125,6 +129,10 @@ func TestSOSRoundTrip(t *testing.T) {
 		SamplingRate:           []float64{48000},
 		Delay:                  []float64{0, 0},
 		ListenerPositions:      []Vector3{{0, 0, 0}},
+		ListenerPositionType:   CoordinateCartesian,
+		ReceiverPositionType:   CoordinateCartesian,
+		SourcePositionType:     CoordinateCartesian,
+		EmitterPositionType:    CoordinateCartesian,
 		ReceiverPositions:      []Vector3{{0, 0.09, 0}, {0, -0.09, 0}},
 		SourcePositions: []Vector3{
 			{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0},

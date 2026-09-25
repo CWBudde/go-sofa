@@ -133,8 +133,8 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 			file:   minimalTFEFile(),
 			scales: map[string]uint64{"M": 2, "R": 1, "E": 2, "N": 3, "C": 3, "I": 1},
 			variables: map[string][]string{
-				"Data.Real":    {"M", "R", "E", "N"},
-				"Data.Imag":    {"M", "R", "E", "N"},
+				"Data.Real":    {"M", "R", "N", "E"},
+				"Data.Imag":    {"M", "R", "N", "E"},
 				"ListenerUp":   {"I", "C"},
 				"ListenerView": {"I", "C"},
 			},
@@ -146,6 +146,7 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 			variables: map[string][]string{
 				"Data.SOS":          {"M", "R", "N"},
 				"Data.SamplingRate": {"M"},
+				"Data.Delay":        {"I", "R"}, // mandatory; zeros when absent
 				"ListenerUp":        {"I", "C"},
 				"ListenerView":      {"I", "C"},
 			},
@@ -225,6 +226,11 @@ func minimalFIRFile() *File {
 		EmitterPositions:  []Vector3{{0, 0, 0}},
 		ListenerUp:        Vector3{0, 0, 1},
 		ListenerView:      Vector3{1, 0, 0},
+
+		ListenerPositionType: CoordinateCartesian,
+		ReceiverPositionType: CoordinateCartesian,
+		SourcePositionType:   CoordinateSpherical,
+		EmitterPositionType:  CoordinateCartesian,
 	}
 }
 
