@@ -31,10 +31,10 @@ file tracks only what's still open.
 
 ## Open work
 
-Phase R: the release blockers R1–R4 are done (go-hdf5 fixes in
-[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and the
-stacked `feat/dimension-scales` branch, consumed via a pseudo-version until
-they are merged and tagged). R5–R9 remain. Phases B–E are optional /
+Phase R: the release blockers R1–R4 are done (go-hdf5 fixes in the merged
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and in
+[CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), consumed via
+a pseudo-version until #2 is merged and a release is tagged). R5–R9 remain. Phases B–E are optional /
 future and can be picked up on demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -65,10 +65,10 @@ R1–R4 are release blockers.
       and `C` (subsumes Phase E2).
   - Acceptance: `ncdump -h` on a written file shows `M`, `R`, `N`, `C`, `I`
     with correct lengths and named (non-phony) dims on every variable.
-  - (2026-09-25) — go-hdf5 gained `FileWriter.AttachDimensionScale` /
-    `DatasetWriter.Address` (DIMENSION_LIST + REFERENCE_LIST written on
-    Close), libhdf5-readable VLEN data and >255-byte dataset headers
-    (branch `feat/dimension-scales`, stacked on go-hdf5#1). `Save` now
+  - (2026-09-25) — go-hdf5 gained `DatasetWriter.AttachDimensionScale`
+    (DIMENSION_LIST + REFERENCE_LIST written on Close) and >255-byte
+    dataset headers (go-hdf5#1); go-hdf5#2 adds libhdf5-readable VLEN data
+    and an unsigned REFERENCE_LIST dimension. `Save` now
     writes `M R E N C I` scales of full length with the netCDF-C `NAME`
     and `_Netcdf4Dimid`, `_NCProperties`, and creates every variable from
     named dimensions (`writeDimensionScales` / `writeVariable` in
@@ -415,7 +415,7 @@ certain features are absent.
     `nc-config --has-nc4` netCDF-4 dimension scale validation
     (or `ncdump -h` shows attached dimension names) for `Data.IR`.
   - (2026-09-25) — covered by R1c: `ncdump -h` shows
-    `Data.IR(M, R, N)`. Left unticked until the go-hdf5 PR is merged.
+    `Data.IR(M, R, N)`; the DIMENSION_LIST support is in the merged go-hdf5#1.
 - [ ] **E3. go-hdf5 encoder/test defects found during R1c.** Not needed by
       go-sofa, but wrong for other users: `EncodeCompoundDatatypeV3` /
       `parseCompoundV3` put the member count in the properties (spec: class
