@@ -11,10 +11,10 @@ Oriented Format for Acoustics), built on top of
 ## Status
 
 Read, write, CLI tools, CI, lint, and the `FIR`, `TF`, `TF-E`, and `SOS`
-`DataType`s are implemented. **However, the 2026-09-24 review (Phase R
-below) found release-blocking defects**: `Save` output cannot be opened by
-any reference HDF5/netCDF reader, `go test ./...` fails on a fresh clone
-(testdata is gitignored), and crafted input can panic or OOM the process.
+`DataType`s are implemented. The 2026-09-24 review (Phase R below) found
+release-blocking defects; all except R1c (netCDF-4 dimension scales) are
+fixed: `Save` output now opens in h5py/netCDF4 (checked in CI), tests fetch
+their reference data, and crafted input no longer panics or OOMs.
 Phase R takes precedence over the remaining Phases C–E. See `git log` for history; this
 file tracks only what's still open.
 
@@ -31,7 +31,10 @@ file tracks only what's still open.
 
 ## Open work
 
-Phase R is **blocking** for a v0.1.0 release. Phases B–E are optional /
+Phase R: R1a/R1b and R2–R4 are done (go-hdf5 fixes in
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1), consumed
+via a pseudo-version until it is merged and tagged). R1c is the last open
+blocker for a v0.1.0 release. Phases B–E are optional /
 future and can be picked up on demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -42,7 +45,7 @@ R1–R4 are release blockers.
 
 #### R1 — Interoperability of written files (critical)
 
-- [ ] **R1a. Fix go-hdf5 output so reference HDF5 can open it.** Every file
+- [x] **R1a. Fix go-hdf5 output so reference HDF5 can open it.** Every file
       written by `Save` — and even an empty go-hdf5 `CreateForWrite`+`Close`
       file — fails in h5py/HDF5 1.12/1.14/2.0 and netCDF-C 4.9 with
       `actual len exceeds EOA` / `NetCDF: HDF error`. Suspected cause: root
@@ -50,7 +53,7 @@ R1–R4 are release blockers.
       in go-hdf5, bump [go.mod](go.mod).
   - Acceptance: `h5py.File(out)` and `netCDF4.Dataset(out)` open FIR, TF,
     TF-E and SOS files written by `Save`; `h5dump -H` exits 0.
-- [ ] **R1b. Interop CI job.** Add a CI step (Python + h5py + netCDF4) that
+- [x] **R1b. Interop CI job.** Add a CI step (Python + h5py + netCDF4) that
       writes one file per DataType via a small Go program and opens/reads it
       back with h5py and netCDF4, comparing values.
   - Acceptance: job fails on current `main`, passes after R1a.
@@ -65,44 +68,44 @@ R1–R4 are release blockers.
 
 #### R2 — Crash safety on untrusted input (critical)
 
-- [ ] **R2a. Validate dimensions.** `parseDimensionSize` / `readDimensions`
+- [x] **R2a. Validate dimensions.** `parseDimensionSize` / `readDimensions`
       must reject values ≤ 0, NaN/Inf and products that overflow `int` or
       exceed a sane cap, _before_ any `Read`. Today `M=-1,R=-2` passes the
       `M*R*N == len` check and `reshapeIR` panics (`makeslice`).
-- [ ] **R2b. Upstream OOM in go-hdf5.** A 60 s `FuzzOpen` hits
+- [x] **R2b. Upstream OOM in go-hdf5.** A 60 s `FuzzOpen` hits
       `fatal error: out of memory` (unrecoverable) in
       `internal/structures/localheap.go:94` and
       `internal/core/dataset_reader.go:86`. Bound allocations by file size
       upstream; file issues and link them here.
-- [ ] **R2c. `FuzzOpen` target** committed in the repo with a seed corpus of
+- [x] **R2c. `FuzzOpen` target** committed in the repo with a seed corpus of
       small valid files and the crashers found so far.
   - Acceptance: `go test -fuzz FuzzOpen -fuzztime 5m` runs clean.
 
 #### R3 — Test suite must pass on a fresh clone (critical)
 
-- [ ] **R3a.** `/testdata/` is in `.gitignore`, ~18 tests fail with ENOENT
+- [x] **R3a.** `/testdata/` is in `.gitignore`, ~18 tests fail with ENOENT
       and CI (`test-unit.yaml`) is therefore red. Either commit small
       reference files (with `testdata/PROVENANCE.md` listing source URL,
       licence, SHA-256) or add `just fetch-testdata` run by CI, and make
       data-dependent tests `t.Skip` locally (not fail) when data is absent.
-- [ ] **R3b. Third-party fixtures.** Include at least one file each from
+- [x] **R3b. Third-party fixtures.** Include at least one file each from
       SOFA API (Matlab/Octave), SOFAtoolbox, libmysofa test set and
       netCDF-C/pysofaconventions — today every write test is a self
       round-trip through go-hdf5's own reader.
-- [ ] **R3c.** Remove the silent `t.Skip` in
+- [x] **R3c.** Remove the silent `t.Skip` in
       `hdf5_validation_test.go:31-33` (it hides the failure it tests for).
-- [ ] **R3d.** Add a `LICENSE` file (README links a non-existent one; no
+- [x] **R3d.** Add a `LICENSE` file (README links a non-existent one; no
       licence = not reusable).
 
 #### R4 — Save durability and honesty (high)
 
-- [ ] **R4a.** Return the `fw.Close()` error from `Save` (currently
+- [x] **R4a.** Return the `fw.Close()` error from `Save` (currently
       `defer fw.Close()` swallows flush/disk-full errors → nil on a
       truncated file).
-- [ ] **R4b.** Write to a temp file in the same directory, `fsync`, then
+- [x] **R4b.** Write to a temp file in the same directory, `fsync`, then
       `os.Rename` over the target, so a failed Save leaves the original
       intact — as README and the `Save` godoc already (falsely) claim.
-- [ ] **R4c.** Deterministic output: write dimension scales in fixed order
+- [x] **R4c.** Deterministic output: write dimension scales in fixed order
       instead of iterating a map (currently 3 distinct md5s in 4 runs).
 
 #### R5 — Read-path correctness (high)
