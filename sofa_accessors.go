@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 )
 
 // ErrUnsupportedDataType reports a DataType this package cannot read or
@@ -126,6 +127,18 @@ func (f *File) DelayAt(m, r int) (float64, error) {
 		}
 	}
 	return f.Delay[i], nil
+}
+
+// DelayDimensions returns the netCDF dimension names of Delay, such as
+// ["I", "R"] or ["M"]: the ones Open read from the file, which tell [M]
+// from [R] when M == R, or, for a File built in memory or a Delay changed
+// since, the layout its length implies ([I], [M,R], [M] or [R], checked in
+// that order). It returns nil for an empty Delay.
+func (f *File) DelayDimensions() []string {
+	if len(f.Delay) == 0 {
+		return nil
+	}
+	return slices.Clone(f.delayAxes())
 }
 
 // delayAxes returns the layout of f.Delay: the one Open resolved, which

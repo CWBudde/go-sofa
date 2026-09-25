@@ -91,7 +91,8 @@ func TestConventionsAndDelay(t *testing.T) {
 		"Version: 2.1\n",
 		"SOFAConventions: SimpleFreeFieldHRIR\n",
 		"SOFAConventionsVersion: 1.0\n",
-		"Delay: 2 values [R], min 0, max 2.5: [0 2.5]\n",
+		// Save writes a per-receiver delay as [I,R].
+		"Delay: 2 values [I,R], min 0, max 2.5: [0 2.5]\n",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout lacks %q:\n%s", want, stdout)
@@ -115,6 +116,7 @@ func TestDelaySummary(t *testing.T) {
 		{"M×R", 3, 2, []float64{0, 1, 2, 3, 4, 5}, "Delay: 6 values [M,R], min 0, max 5: [0 1 2 3 4 5]"},
 		{"long", 10, 1, []float64{9, 1, 2, 3, 4, 5, 6, 7, 8, 0}, "Delay: 10 values [M,R], min 0, max 9"},
 		{"absent", 3, 2, nil, "Delay: none"},
+		{"no layout fits", 3, 2, []float64{1, 2, 3, 4}, "Delay: 4 values [?], min 1, max 4: [1 2 3 4]"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,5 +153,30 @@ func TestBatchModeWithoutFiles(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "no .sofa files") {
 		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+// TestDelayLayoutFromFile checks that the layout comes from the dimensions
+// Open read, not from the number of values: with M == R == 2 a shared
+// delay is stored as two [I,R] values, which a count-based guess would
+// call [M].
+func TestDelayLayoutFromFile(t *testing.T) {
+	f := clitest.Build(sofa.DataTypeFIR)
+	f.M = 2
+	f.ImpulseResponses = f.ImpulseResponses[:2]
+	f.SourcePositions = f.SourcePositions[:2]
+	f.Delay = []float64{1.5}
+	path := filepath.Join(t.TempDir(), "a.sofa")
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runCLI(t, path)
+	if code != 0 {
+		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
+	}
+	want := "Delay: 2 values [I,R], min 1.5, max 1.5: [1.5 1.5]\n"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("stdout lacks %q:\n%s", want, stdout)
 	}
 }

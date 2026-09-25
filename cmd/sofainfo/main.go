@@ -145,25 +145,26 @@ func printFileInformation(w io.Writer, f *sofa.File) {
 	}
 }
 
-// delaySummary describes Data.Delay: its number of values, their layout
-// (resolved like Save does: I, then M×R, then M, then R), the range, and
-// the values themselves when there are at most maxDelayValues.
+// delaySummary describes Data.Delay: its number of values, their
+// dimensions (as Open read them, see sofa.File.DelayDimensions), the
+// range, and the values themselves when there are at most maxDelayValues.
 func delaySummary(f *sofa.File) string {
 	n := len(f.Delay)
 	if n == 0 {
 		return "Delay: none"
 	}
-	var layout string
-	switch n {
-	case 1:
-		layout = "I"
-	case f.M * f.R:
-		layout = "M,R"
-	case f.M:
-		layout = "M"
-	case f.R:
-		layout = "R"
-	default:
+	dims := f.DelayDimensions()
+	size := 1
+	for _, d := range dims {
+		switch d {
+		case "M":
+			size *= f.M
+		case "R":
+			size *= f.R
+		}
+	}
+	layout := strings.Join(dims, ",")
+	if size != n {
 		layout = "?"
 	}
 	unit := "values"
