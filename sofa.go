@@ -860,7 +860,7 @@ func (f *File) validate() error {
 			len(f.EmitterPositions), f.E)
 	}
 
-	return nil
+	return f.validateConvention()
 }
 
 // validateFIR checks FIR-specific fields: ImpulseResponses [M][R][N],

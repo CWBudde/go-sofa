@@ -89,12 +89,17 @@ example file before starting.
 
 Tasks (one sub-bullet per convention; pick whichever has demand first):
 
-- [ ] **B1. Convention dispatcher.** Introduce a small registry
+- [x] **B1. Convention dispatcher.** Introduce a small registry
       `map[string]conventionRules` keyed by `SOFAConventions` attribute
       and looked up after generic validation in `validate`
-      ([sofa.go:755](sofa.go#L755)).
+      ([sofa.go:793](sofa.go#L793)).
   - Acceptance: unknown conventions still pass through unchanged
     (back-compat); `TestUnknownConventionStillReads` passes.
+  - (2026-09-25) — `conventionRegistry` + `validateConvention` in
+    [`sofa_conventions.go`](sofa_conventions.go), called at the end of
+    `validate` (so on `Save` only; `Open` never validates). Registry
+    starts empty; B2/B3 add the first entries. Covered by
+    `TestUnknownConventionStillReads` and `TestConventionRulesDispatch`.
 - [ ] **B2. BRIR rules.** Validator requires `RoomType` attribute and
       `ListenerView`/`ListenerUp` to be non-zero. Add typed accessor
       `(*File).IsBRIR() bool`.
