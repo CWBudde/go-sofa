@@ -122,21 +122,47 @@ R1–R4 are release blockers.
 
 #### R5 — Read-path correctness (high)
 
-- [ ] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
+- [x] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
       `ImpulseResponses` bounded by `f.M`/`f.R`; on TF/TF-E/SOS files the
       slice is empty → panic. Check `DataType` / slice length and return an
       error. `Duration()` must return an error/ok for non-FIR.
+  - (2026-09-25) — the panic was already gone (319ed76). `IRAt`, `IRPeakdB`
+    and `Duration` now return `(value, error)`: `ErrUnsupportedDataType` on
+    non-FIR files (Duration used to divide TF frequency bins by the rate)
+    and the new `ErrIndexOutOfRange` for bad indices or missing rows
+    ([sofa_accessors.go](sofa_accessors.go)); breaking, noted in
+    CHANGELOG. `TestIRAccessorsOnNonFIR`, `TestIRAt`,
+    `TestDurationEdgeCases` assert the sentinels with `errors.Is`.
 - [ ] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
       `flat[s:s+n]` with spare capacity, so `append` on one row overwrites
       the next. Use full slice expressions `flat[s:s+n:s+n]`.
-- [ ] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
+- [x] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
       to FIR; return a typed `ErrUnsupportedDataType`. Explicitly handle or
       reject `FIR-E` (GeneralFIR-E) and legacy `FIRE`.
-- [ ] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
+  - (2026-09-25) — `Open` fails with the exported `ErrUnsupportedDataType`
+    for an empty, unknown, `FIR-E` or `FIRE` DataType (rejected, naming
+    GeneralFIR-E); `validate` wraps the same sentinel. All 20 fixtures carry
+    a supported DataType. `TestOpenRejectsUnsupportedDataType`,
+    `TestValidateRejectsUnsupportedDataType`.
+- [x] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
       element count (any axis permutation is accepted today). Support
       `ReceiverPosition` `[R,C,M]` / `EmitterPosition` `[E,C,M]` (currently
       silently misread as R·M vectors) and `ListenerView/Up` `[M,C]`
       (currently truncated to element 0).
+  - (2026-09-25) — every audio, rate, delay, position and orientation
+    variable is resolved against its allowed layouts, by the dimension
+    names from the scales' `REFERENCE_LIST` where present and by sizes
+    otherwise; anything else fails `Open`
+    ([sofa_shapes.go](sofa_shapes.go), [sofa_spatial.go](sofa_spatial.go)).
+    New read-only fields `ReceiverPositionsM`, `EmitterPositionsM`,
+    `ListenerViews`, `ListenerUps`. This exposed that the SOFA Toolbox
+    stores TF-E `Data.Real/Imag` as `[M,R,N,E]` (FreeFieldHRTF 1.0,
+    GeneralTF-E 1.0 fixtures), which was read as `[M,R,E,N]` with every
+    value scrambled; now transposed. `TestOpenRejectsPermutedAxes`,
+    `TestOpenTFEAxisOrder`, `TestOpenToolboxTFEFixture` (vs. raw values),
+    `TestOpenPerMeasurementPositions`,
+    `TestOpenOfficeIIListenerViewPerMeasurement`; disabling the transpose
+    or the Data.IR check makes them fail.
 - [ ] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
       `DelayAt(m, r)`, `SamplingRateAt(m)` resolving I- vs M-sized
       variables; make `SamplingRateScalar` report when rates vary.
@@ -168,6 +194,14 @@ R1–R4 are release blockers.
 - [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
       extra variables and variable attributes; stop lowercasing
       `Type`/`Units` on read (normalise only for comparisons).
+- [ ] **R6f. TF-E axis order on write.** `Save` writes TF-E
+      `Data.Real/Imag` as `[M,R,E,N]`; the SOFA Toolbox (2.2.1) writes
+      `[M,R,N,E]` for FreeFieldHRTF and GeneralTF-E. Check the AES69
+      convention tables and write the conformant order (the reader accepts
+      both since R5d).
+- [ ] **R6g. Write per-measurement layouts.** `Save` ignores
+      `ReceiverPositionsM`, `EmitterPositionsM`, `ListenerViews` and
+      `ListenerUps` (read since R5d), so such files do not round-trip.
 
 #### R7 — API ergonomics (medium)
 
@@ -426,6 +460,12 @@ certain features are absent.
       `TestMetricsCollector_Performance` fail on ca6206a already.
   - Acceptance: upstream fixes merged; a compound dataset written by
     `CreateCompoundDataset` opens in h5py.
+- [ ] **E4. Public shape and REFERENCE_LIST access in go-hdf5.** go-sofa
+      parses `Dataset.Info()` text for dataspace shapes and decodes
+      `REFERENCE_LIST` bytes itself (compound reads of reference members are
+      unsupported: "unsupported datatype class 6"). Add `Dataset.Shape()`
+      and dimension-scale accessors upstream, then drop the parsers in
+      [sofa_dataspace.go](sofa_dataspace.go) / [sofa_shapes.go](sofa_shapes.go).
 
 ---
 
