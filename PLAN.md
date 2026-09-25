@@ -34,8 +34,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 is done; R6 is done except R6d (data validation) and
-R6e (lossless round-trip); R7–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 is done; R6 is done except R6e (lossless round-trip); R7–R9 remain. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -235,10 +234,21 @@ R1–R4 are release blockers.
     SOS files get it too. `TestSaveDelayLayouts` checks the written shape
     and dimension names and `DelayAt` after reopening for each input
     layout.
-- [ ] **R6d.** Validate data: reject NaN/Inf where not allowed,
+- [x] **R6d.** Validate data: reject NaN/Inf where not allowed,
       SamplingRate ≤ 0, zero View/Up vectors, non-monotonic frequencies,
       and convention-specific constraints (e.g. `SimpleFreeFieldHRIR`
       requires R=2, E=1) — overlaps Phase B.
+  - (2026-09-25) — `validate` rejects NaN/±Inf in every value `Save`
+    writes, sampling rates ≤ 0, negative or non-ascending frequencies, and
+    zero rows in `ListenerViews`/`ListenerUps` (radius 0 when spherical); the
+    error names the field and index. An unset single `ListenerView`/
+    `ListenerUp` is written as the Toolbox default (`[1 0 0]`/`[0 0 1]`,
+    spherical `(0,0,1)`/`(0,90,1)`) in the file only. Registry rules
+    (Phase B dispatcher): `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS` need DataType
+    FIR/TF/SOS, R=2, E=1 (Toolbox tables: `mRn`, single emitter);
+    `FreeFieldHRTF` TF-E; `FreeFieldDirectivityTF` TF.
+    `TestValidateRejectsNonFinite`, `TestValidateRejectsBadData`,
+    `TestSaveDefaultsListenerOrientation`, `TestConventionConstraints`.
 - [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
       extra variables and variable attributes; stop lowercasing
       `Type`/`Units` on read (normalise only for comparisons).
