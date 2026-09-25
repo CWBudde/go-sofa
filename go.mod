@@ -2,4 +2,4 @@ module github.com/cwbudde/go-sofa
 
 go 1.25.0
 
-require github.com/cwbudde/go-hdf5 v0.15.1-0.20260925152747-c39fdaea1b77
+require github.com/cwbudde/go-hdf5 v0.16.0
