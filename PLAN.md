@@ -32,10 +32,11 @@ file tracks only what's still open.
 ## Open work
 
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes in the merged
-[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and in
-[CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), consumed via
-a pseudo-version until #2 is merged and a release is tagged). R5–R9 remain. Phases B–E are optional /
-future and can be picked up on demand when a real use case appears.
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
+[CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), both merged;
+consumed as a pseudo-version of go-hdf5 `main` until a release is tagged).
+R5–R9 remain. Phases B–E are optional / future and can be picked up on
+demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
 
