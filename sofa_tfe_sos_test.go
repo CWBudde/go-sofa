@@ -222,8 +222,8 @@ func minimalTFEFile() *File {
 }
 
 func minimalSOSFile() *File {
-	const M, R, E, N = 1, 1, 1, 6
-	sos := [][][]float64{{{1, 0, 0, 1, 0, 0}}}
+	const M, R, E, N = 1, 2, 1, 6
+	sos := [][][]float64{{{1, 0, 0, 1, 0, 0}, {1, 0, 0, 1, 0, 0}}}
 	return &File{
 		Conventions:            "SOFA",
 		Version:                "2.0",

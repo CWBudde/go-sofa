@@ -8,8 +8,8 @@ import "strings"
 //
 // In these files the measurement dimension M indexes the orientation of the
 // source being characterised, not a source position around a listener as in
-// HRTF sets. No convention-specific validation runs yet, because no example
-// file is available to check rules against.
+// HRTF sets. Save only checks that FreeFieldDirectivityTF files hold TF
+// data; further rules wait for an example file to check them against.
 func (f *File) IsDirectivity() bool {
 	return strings.Contains(f.SOFAConventions, "Directivity")
 }

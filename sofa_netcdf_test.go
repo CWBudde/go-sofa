@@ -142,7 +142,7 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 		{
 			name:   "SOS",
 			file:   minimalSOSFile(),
-			scales: map[string]uint64{"M": 1, "R": 1, "E": 1, "N": 6, "C": 3, "I": 1},
+			scales: map[string]uint64{"M": 1, "R": 2, "E": 1, "N": 6, "C": 3, "I": 1},
 			variables: map[string][]string{
 				"Data.SOS":          {"M", "R", "N"},
 				"Data.SamplingRate": {"M"},
