@@ -108,7 +108,7 @@ coordinate system before interpreting them. `SimpleFreeFieldHRIR` stores source
 positions as spherical `(azimuth, elevation, radius)`, not as `(X, Y, Z)`:
 
 ```go
-switch f.SourcePositionType {
+switch strings.ToLower(f.SourcePositionType) {
 case sofa.CoordinateSpherical:
     // src.X is azimuth, src.Y elevation, src.Z radius.
     // f.SourcePositionUnits names the angular units, e.g. "degree, degree, metre".
@@ -120,8 +120,9 @@ case "":
 ```
 
 The same `…PositionType` and `…PositionUnits` pair exists for the listener,
-receiver, and emitter datasets. Values are lowercased and trimmed on read, and
-are written back out by `Save`.
+receiver, and emitter datasets. Values are trimmed on read but keep the file's
+spelling (`"Spherical"`, `"meter"`), so compare them case-insensitively; `Save`
+writes them back unchanged.
 
 ### Accessing metadata
 
@@ -247,6 +248,22 @@ if err := f.Save("output.sofa"); err != nil {
 }
 ```
 
+A round trip keeps what go-sofa does not interpret. `Open` collects global
+attributes without a field of their own in `Attributes`, variables such as
+`SourceView` or `RoomCornerA` in `Variables`, and further attributes of the
+variables `Save` writes in `VariableAttributes`; `Save` writes all three back.
+They are plain data you can inspect, edit or add to:
+
+```go
+for _, a := range f.Attributes {
+    fmt.Printf("%s = %v\n", a.Name, a.Value) // e.g. DatabaseName = CIPIC
+}
+f.Attributes = append(f.Attributes, sofa.Attribute{Name: "ListenerShortName", Value: "subject_003"})
+if len(f.Dropped) > 0 {
+    log.Printf("not preserved: %v", f.Dropped) // unsupported data or attribute types
+}
+```
+
 #### Known limitations
 
 - Dataset attributes (`CLASS`, `NAME`) are not yet emitted, so written
@@ -341,6 +358,10 @@ Represents an open SOFA file with all its data and metadata.
 - `Frequencies []float64` — Frequency vector `[N]` (TF files only)
 - `TFReal, TFImag [][][]float64` — Complex transfer functions `[M][R][N]` (TF files only)
 - `Title, DataType, RoomType, License, ...` — AES69 metadata attributes
+- `Attributes []Attribute` — Global attributes without a field of their own (sorted by name)
+- `Variables []Variable` — Variables go-sofa does not interpret: `Name`, `Dims`, `Shape`, and row-major `Values` (numeric, as float64) or `Chars` (char arrays), plus their `Attributes`
+- `VariableAttributes map[string][]Attribute` — Further attributes of the variables `Save` writes, by variable name
+- `Dropped []string` — What `Open` could not preserve
 
 **Methods:**
 

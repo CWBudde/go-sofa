@@ -128,9 +128,10 @@ func readVector3sPerMeasurement(ds *hdf5.Dataset, m int) ([][]Vector3, error) {
 	return out, nil
 }
 
-// readStringAttribute returns a dataset attribute as a lowercased, trimmed
-// string, or "" when the attribute is absent. An attribute that is present
-// but cannot be decoded is an error.
+// readStringAttribute returns a dataset attribute as a trimmed string, in
+// its original case, or "" when the attribute is absent or empty. An
+// attribute that is present but cannot be decoded is an error. Callers
+// compare the values case-insensitively.
 func readStringAttribute(ds *hdf5.Dataset, name string) (string, error) {
 	attrs, err := ds.Attributes()
 	if err != nil {
@@ -144,10 +145,7 @@ func readStringAttribute(ds *hdf5.Dataset, name string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("attribute %s: %w", name, err)
 		}
-		if val == nil {
-			return "", nil
-		}
-		return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", val))), nil
+		return strings.TrimSpace(attributeString(val)), nil
 	}
 	return "", nil
 }

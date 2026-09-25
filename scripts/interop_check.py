@@ -38,9 +38,21 @@ def _as_str(v) -> str:
     return str(v)
 
 
+def _chars(arr) -> str:
+    """Join a char array's elements row-major; an empty element is a NUL byte."""
+    return "".join(c.decode("latin-1") if c else "\0" for c in np.asarray(arr).reshape(-1))
+
+
 def _compare(errors: list[str], where: str, name: str, got, spec: dict) -> None:
-    got = np.asarray(got, dtype=np.float64)
     want_shape = tuple(spec["shape"])
+    if "chars" in spec:
+        got = np.asarray(got)
+        if got.shape != want_shape:
+            errors.append(f"{where}: {name}: shape {got.shape}, want {want_shape}")
+        elif _chars(got) != spec["chars"]:
+            errors.append(f"{where}: {name}: chars {_chars(got)!r}, want {spec['chars']!r}")
+        return
+    got = np.asarray(got, dtype=np.float64)
     want = np.asarray(spec["values"], dtype=np.float64).reshape(want_shape)
     if got.shape != want_shape:
         errors.append(f"{where}: {name}: shape {got.shape}, want {want_shape}")
@@ -51,6 +63,14 @@ def _compare(errors: list[str], where: str, name: str, got, spec: dict) -> None:
             f"{where}: {name}: value mismatch at {tuple(int(i) for i in idx)}: "
             f"got {got[tuple(idx)]!r}, want {want[tuple(idx)]!r}"
         )
+
+
+def _compare_attrs(errors: list[str], where: str, name: str, attrs, spec: dict) -> None:
+    for key, want in spec.get("attrs", {}).items():
+        if key not in attrs:
+            errors.append(f"{where}: {name}: missing attribute {key}")
+        elif _as_str(attrs[key]) != want:
+            errors.append(f"{where}: {name}: attribute {key} = {_as_str(attrs[key])!r}, want {want!r}")
 
 
 def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
@@ -66,12 +86,14 @@ def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
                 errors.append(f"{where}: missing dataset {name}")
                 continue
             _compare(errors, where, name, f[name][()], spec)
+            _compare_attrs(errors, where, name, f[name].attrs, spec)
 
 
 def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
     where = f"netCDF4 {os.path.basename(path)}"
     with netCDF4.Dataset(path, "r") as nc:
         nc.set_auto_mask(False)
+        nc.set_auto_chartostring(False)
         attrs = nc.ncattrs()
         for key, want in exp["attributes"].items():
             if key not in attrs:
@@ -91,7 +113,9 @@ def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
                 continue
             if list(nc.variables[name].dimensions) != spec["dims"]:
                 errors.append(f"{where}: {name}: dimensions {nc.variables[name].dimensions}, want {tuple(spec['dims'])}")
-            _compare(errors, where, name, nc.variables[name][:], spec)
+            var = nc.variables[name]
+            _compare(errors, where, name, var[:], spec)
+            _compare_attrs(errors, where, name, {k: var.getncattr(k) for k in var.ncattrs()}, spec)
 
 
 def write_reference(directory: str) -> None:
@@ -105,8 +129,13 @@ def write_reference(directory: str) -> None:
                 f.attrs[key] = np.bytes_(val)
             datasets = {}
             for name, spec in exp["datasets"].items():
-                data = np.asarray(spec["values"], dtype=np.float64).reshape(spec["shape"])
+                if "chars" in spec:
+                    data = np.array([c.encode("latin-1") for c in spec["chars"]], dtype="S1").reshape(spec["shape"])
+                else:
+                    data = np.asarray(spec["values"], dtype=np.float64).reshape(spec["shape"])
                 datasets[name] = f.create_dataset(name, data=data)
+                for key, val in spec.get("attrs", {}).items():
+                    datasets[name].attrs[key] = np.bytes_(val)
             # Dimension scales as netCDF-C writes them: a coordinate variable
             # when a dataset has the dimension's name, else a placeholder.
             scales = {}

@@ -34,7 +34,8 @@ func TestOpenPropagatesPositionReadError(t *testing.T) {
 }
 
 // TestSetGlobalAttributes checks that a known attribute that cannot be read
-// is an error, while unknown attributes are never read at all.
+// is an error, an unknown one is listed in Dropped, and netCDF's own
+// attributes are never read at all.
 func TestSetGlobalAttributes(t *testing.T) {
 	errBroken := errors.New("broken attribute")
 	value := func(v string) func() (interface{}, error) {
@@ -50,10 +51,16 @@ func TestSetGlobalAttributes(t *testing.T) {
 		{"RoomVolume", value("103.5")},
 	})
 	if err != nil {
-		t.Fatalf("setGlobalAttributes read an unknown attribute: %v", err)
+		t.Fatalf("setGlobalAttributes failed on an unknown attribute: %v", err)
 	}
 	if f.Conventions != "SOFA" || f.RoomVolume != 103.5 {
 		t.Errorf("Conventions=%q RoomVolume=%v, want SOFA 103.5", f.Conventions, f.RoomVolume)
+	}
+	if len(f.Dropped) != 1 || !strings.Contains(f.Dropped[0], "MyApplicationAttribute") {
+		t.Errorf("Dropped = %q, want only MyApplicationAttribute", f.Dropped)
+	}
+	if len(f.Attributes) != 0 {
+		t.Errorf("Attributes = %v, want none", f.Attributes)
 	}
 
 	err = (&File{}).setGlobalAttributes([]globalAttribute{{"Title", broken}})

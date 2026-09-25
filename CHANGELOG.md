@@ -9,6 +9,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** `Open` keeps the case of the `Type` and `Units` attributes
+  (`"Spherical"`, `"meter"`) instead of lowercasing them, so a round trip no
+  longer rewrites them; values are still trimmed. Compare them with
+  `strings.EqualFold`, as go-sofa does internally.
 - **Breaking:** `Save` validates values: it rejects NaN and ±Inf anywhere it
   writes, sampling rates ≤ 0, negative or non-ascending `Frequencies`, and
   zero rows in `ListenerViews`/`ListenerUps` (radius 0 when spherical).
@@ -72,8 +76,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ListenerView`/`ListenerUp`; `Open` reads them and `Save` writes them
   (default `cartesian`/`metre`), so spherical orientations are no longer
   relabelled cartesian.
+- Lossless round trip: `Attributes` (global attributes without a field, such
+  as `DatabaseName`), `Variables` (variables go-sofa does not interpret, such
+  as `SourceView`, `RoomCornerA` or the char array `ReceiverDescriptions`)
+  and `VariableAttributes` (further attributes of the variables `Save`
+  writes) are filled by `Open` and written back by `Save`, which validates
+  them against the names, dimensions and attributes it writes itself.
+  Numeric variables are kept as float64 and char arrays as bytes, with their
+  netCDF dimensions (including new ones such as `S`); whatever `Open` cannot
+  keep is listed in `Dropped`.
 
 ### Fixed
+
+- Global attributes the SOFA Toolbox stores as empty (null dataspace), such
+  as an empty `Title` or `Comment`, were read as `"[]"` and written back that
+  way; they now read as `""`.
 
 - TF-E files written by the SOFA Toolbox store `Data.Real`/`Data.Imag` as
   `[M,R,N,E]`; `Open` read them as `[M,R,E,N]`, scrambling every value. They

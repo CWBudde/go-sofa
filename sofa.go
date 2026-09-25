@@ -96,8 +96,9 @@ type File struct {
 	// Coordinate system of each position dataset, from its Type and Units
 	// attributes. Type is "cartesian" or "spherical"; for spherical data the
 	// components are (azimuth, elevation, radius) and Units names their units,
-	// conventionally "degree, degree, metre". Both are stored lowercased and
-	// trimmed, and are empty when the file omits the attribute — absence is
+	// conventionally "degree, degree, metre". Both are stored trimmed but in
+	// the file's case (compare them with strings.EqualFold), and are empty
+	// when the file omits the attribute — absence is
 	// distinguishable from a value, because a reader that must know the
 	// coordinate system should say so rather than guess.
 	//
@@ -166,6 +167,25 @@ type File struct {
 	References             string  // references
 	Origin                 string  // origin of the data
 
+	// Content go-sofa does not interpret, kept so that Open followed by
+	// Save loses nothing. Open fills these fields; callers may edit them,
+	// and Save writes them back.
+	//
+	// Attributes holds the global attributes that have no field above
+	// (DatabaseName, ListenerShortName, …). Variables holds the variables
+	// Save would not write otherwise (SourceView, RoomCornerA, char arrays
+	// such as ReceiverDescriptions, …). Open sorts both by name, since HDF5
+	// does not keep the order of attributes; Save writes them in slice
+	// order. VariableAttributes
+	// holds, per variable name, the attributes of variables Save does write
+	// beyond the ones it sets itself (Type/Units, Data.SamplingRate:Units).
+	// Dropped names what Open could not keep (an unsupported data or
+	// attribute type), so that a lossy round trip is never silent.
+	Attributes         []Attribute
+	Variables          []Variable
+	VariableAttributes map[string][]Attribute
+	Dropped            []string
+
 	// Internal
 	hdf5File    *hdf5.File // underlying HDF5 file handle
 	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
@@ -214,7 +234,7 @@ func Open(path string) (*File, error) {
 	}
 
 	// Read audio data.
-	labels := dimensionLabels(datasets)
+	labels := dimensionLabels(datasets, sofaDimensions)
 	if err := f.readAudioData(datasets, labels); err != nil {
 		h.Close()
 		return nil, fmt.Errorf("read audio data: %w", err)
@@ -227,6 +247,9 @@ func Open(path string) (*File, error) {
 		return nil, fmt.Errorf("read spatial data: %w", err)
 	}
 	f.readRoomScalars(datasets)
+
+	// Keep what go-sofa does not interpret, so Save can write it back.
+	f.readExtras(datasets)
 
 	return f, nil
 }
@@ -259,14 +282,37 @@ func (f *File) readGlobalAttributes(root *hdf5.Group) error {
 	return f.setGlobalAttributes(global)
 }
 
-// setGlobalAttributes stores the attributes go-sofa maps to File fields.
-// Other attributes (_NCProperties, application-specific ones) are skipped
-// unread; a known attribute that cannot be read is an error rather than a
-// silently empty field.
+// setGlobalAttributes stores the attributes go-sofa maps to File fields,
+// and keeps the others in f.Attributes. A mapped attribute that cannot be
+// read is an error rather than a silently empty field; an unmapped one is
+// listed in f.Dropped. netCDF's own attributes (_NCProperties, …) are
+// skipped unread, since Save writes its own.
 func (f *File) setGlobalAttributes(attrs []globalAttribute) error {
+	fields := f.globalFields()
+	for _, a := range attrs {
+		set, ok := fields[a.name]
+		if !ok {
+			if !netcdfAttribute(a.name) {
+				f.keepGlobalAttribute(a)
+			}
+			continue
+		}
+		val, err := a.read()
+		if err != nil {
+			return fmt.Errorf("attribute %s: %w", a.name, err)
+		}
+		set(attributeString(val))
+	}
+	slices.SortFunc(f.Attributes, func(a, b Attribute) int { return strings.Compare(a.Name, b.Name) })
+	return nil
+}
+
+// globalFields maps each global attribute go-sofa stores in a File field
+// to a setter for that field.
+func (f *File) globalFields() map[string]func(string) {
 	setString := func(dst *string) func(string) { return func(s string) { *dst = s } }
 	setRoom := func(dst *float64) func(string) { return func(s string) { *dst = parseRoomAttribute(s) } }
-	fields := map[string]func(string){
+	return map[string]func(string){
 		"Conventions":            setString(&f.Conventions),
 		"Version":                setString(&f.Version),
 		"SOFAConventions":        setString(&f.SOFAConventions),
@@ -290,18 +336,6 @@ func (f *File) setGlobalAttributes(attrs []globalAttribute) error {
 		"References":             setString(&f.References),
 		"Origin":                 setString(&f.Origin),
 	}
-	for _, a := range attrs {
-		set, ok := fields[a.name]
-		if !ok {
-			continue
-		}
-		val, err := a.read()
-		if err != nil {
-			return fmt.Errorf("attribute %s: %w", a.name, err)
-		}
-		set(fmt.Sprintf("%v", val))
-	}
-	return nil
 }
 
 // maxDataElements caps the number of elements (product of dimensions) a
@@ -820,6 +854,9 @@ func (f *File) writeHDF5(path string) (err error) {
 	for _, a := range rootAttrs {
 		opts = append(opts, hdf5.WithRootAttribute(a.name, a.value))
 	}
+	for _, a := range f.Attributes {
+		opts = append(opts, hdf5.WithRootAttribute(a.Name, a.Value))
+	}
 	opts = append(opts, hdf5.WithRootAttribute("_NCProperties", ncProperties()))
 
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, opts...)
@@ -894,6 +931,9 @@ func (f *File) writeHDF5(path string) (err error) {
 	// Write audio data
 	if err := f.writeAudioDatasets(nc); err != nil {
 		return fmt.Errorf("write audio data: %w", err)
+	}
+	if err := nc.writeExtraVariables(f.Variables); err != nil {
+		return err
 	}
 
 	if saveTestHook != nil {
@@ -1033,6 +1073,9 @@ func (f *File) validate() error {
 		return err
 	}
 	if err := f.validateValues(); err != nil {
+		return err
+	}
+	if err := f.validateExtras(); err != nil {
 		return err
 	}
 
