@@ -1,141 +1,182 @@
-// Command sofainfo prints metadata summary for SOFA files.
-// It displays AES69 global attributes, dimensions, and basic audio parameters.
+// Command sofainfo prints a metadata summary of SOFA files: AES69 global
+// attributes, dimensions and basic audio parameters.
 //
 // Usage:
 //
-//	sofainfo <file.sofa>       # process single file
-//	sofainfo                   # process all .sofa files in current directory
+//	sofainfo [file.sofa ...]
+//
+// Without file arguments it summarises every .sofa file in the current
+// directory. With several files each summary is preceded by a
+// "==> file <==" header. Errors go to stderr; the exit status is 1 if any
+// file could not be read and 2 on a usage error.
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/cwbudde/go-sofa"
 )
 
+// maxDelayValues is the most Delay values printed in full.
+const maxDelayValues = 8
+
 func main() {
-	if len(os.Args) >= 2 {
-		// Single file mode
-		if err := processSofaFile(os.Args[1]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run executes sofainfo with the given arguments and returns its exit
+// status.
+func run(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sofainfo", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: sofainfo [file.sofa ...]\n\n"+
+			"Print a metadata summary of each SOFA file. Without arguments,\n"+
+			"summarise every .sofa file in the current directory.\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
 		}
-	} else {
-		// Batch mode: process all .sofa files in current directory
+		return 2
+	}
+
+	files := fs.Args()
+	if len(files) == 0 {
 		matches, err := filepath.Glob("*.sofa")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "sofainfo: %v\n", err)
+			return 1
 		}
 		if len(matches) == 0 {
-			fmt.Fprintf(os.Stderr, "no .sofa files found in current directory\n")
-			os.Exit(1)
+			fmt.Fprintln(stderr, "sofainfo: no .sofa files found in current directory")
+			return 1
 		}
-		for _, filename := range matches {
-			fmt.Printf("Process file %s\n", filepath.Base(filename))
-			if err := processSofaFile(filename); err != nil {
-				fmt.Fprintf(os.Stderr, "error processing %s: %v\n", filename, err)
+		files = matches
+	}
+
+	status := 0
+	for i, filename := range files {
+		f, err := sofa.Open(filename)
+		if err != nil {
+			fmt.Fprintf(stderr, "sofainfo: %s: %v\n", filename, err)
+			status = 1
+			continue
+		}
+		if len(files) > 1 {
+			if i > 0 {
+				fmt.Fprintln(stdout)
 			}
+			fmt.Fprintf(stdout, "==> %s <==\n", filename)
+		}
+		printFileInformation(stdout, f)
+	}
+	return status
+}
+
+func printFileInformation(w io.Writer, f *sofa.File) {
+	// Print all AES69 global attributes (if non-empty)
+	for _, a := range []struct{ name, value string }{
+		{"Conventions", f.Conventions},
+		{"Version", f.Version},
+		{"SOFAConventions", f.SOFAConventions},
+		{"SOFAConventionsVersion", f.SOFAConventionsVersion},
+		{"Title", f.Title},
+		{"DataType", f.DataType},
+		{"RoomType", f.RoomType},
+		{"DateCreated", f.DateCreated},
+		{"DateModified", f.DateModified},
+		{"APIName", f.APIName},
+		{"APIVersion", f.APIVersion},
+		{"AuthorContact", f.AuthorContact},
+		{"Organization", f.Organization},
+		{"License", f.License},
+		{"ApplicationName", f.ApplicationName},
+		{"ApplicationVersion", f.ApplicationVersion},
+		{"Comment", f.Comment},
+		{"History", f.History},
+		{"References", f.References},
+		{"Origin", f.Origin},
+	} {
+		if a.value != "" {
+			fmt.Fprintf(w, "%s: %s\n", a.name, a.value)
 		}
 	}
-}
 
-func processSofaFile(filename string) error {
-	f, err := sofa.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	printFileInformation(f)
-	return nil
-}
-
-func printFileInformation(f *sofa.File) {
-	// Print all AES69 global attributes (if non-empty)
-	if f.Title != "" {
-		fmt.Printf("Title: %s\n", f.Title)
-	}
-	if f.DataType != "" {
-		fmt.Printf("DataType: %s\n", f.DataType)
-	}
-	if f.RoomType != "" {
-		fmt.Printf("RoomType: %s\n", f.RoomType)
-	}
-	if f.DateCreated != "" {
-		fmt.Printf("DateCreated: %s\n", f.DateCreated)
-	}
-	if f.DateModified != "" {
-		fmt.Printf("DateModified: %s\n", f.DateModified)
-	}
-	if f.APIName != "" {
-		fmt.Printf("APIName: %s\n", f.APIName)
-	}
-	if f.APIVersion != "" {
-		fmt.Printf("APIVersion: %s\n", f.APIVersion)
-	}
-	if f.AuthorContact != "" {
-		fmt.Printf("AuthorContact: %s\n", f.AuthorContact)
-	}
-	if f.Organization != "" {
-		fmt.Printf("Organization: %s\n", f.Organization)
-	}
-	if f.License != "" {
-		fmt.Printf("License: %s\n", f.License)
-	}
-	if f.ApplicationName != "" {
-		fmt.Printf("ApplicationName: %s\n", f.ApplicationName)
-	}
-	if f.ApplicationVersion != "" {
-		fmt.Printf("ApplicationVersion: %s\n", f.ApplicationVersion)
-	}
-	if f.Comment != "" {
-		fmt.Printf("Comment: %s\n", f.Comment)
-	}
-	if f.History != "" {
-		fmt.Printf("History: %s\n", f.History)
-	}
-	if f.References != "" {
-		fmt.Printf("References: %s\n", f.References)
-	}
-	if f.Origin != "" {
-		fmt.Printf("Origin: %s\n", f.Origin)
-	}
-
-	fmt.Println()
+	fmt.Fprintln(w)
 
 	// Print dimensions and audio parameters
-	fmt.Printf("Number of Measurements: %d\n", f.M)
-	fmt.Printf("Number of Receivers: %d\n", f.R)
-	fmt.Printf("Number of Emitters: %d\n", f.E)
-	fmt.Printf("Number of DataSamples: %d\n", f.N)
+	fmt.Fprintf(w, "Number of Measurements: %d\n", f.M)
+	fmt.Fprintf(w, "Number of Receivers: %d\n", f.R)
+	fmt.Fprintf(w, "Number of Emitters: %d\n", f.E)
+	fmt.Fprintf(w, "Number of DataSamples: %d\n", f.N)
 	if len(f.SamplingRate) > 0 {
-		fmt.Printf("SampleRate: %g\n", f.SamplingRate[0])
+		fmt.Fprintf(w, "SampleRate: %g\n", f.SamplingRate[0])
 	}
-	if len(f.Delay) > 0 {
-		fmt.Printf("Delay: %g\n", f.Delay[0])
-	}
+	fmt.Fprintln(w, delaySummary(f))
 	if (f.DataType == sofa.DataTypeTF || f.DataType == sofa.DataTypeTFE) && len(f.Frequencies) > 0 {
-		fmt.Printf("Frequencies: %d points, %g Hz – %g Hz\n",
+		fmt.Fprintf(w, "Frequencies: %d points, %g Hz – %g Hz\n",
 			len(f.Frequencies),
 			f.Frequencies[0],
 			f.Frequencies[len(f.Frequencies)-1])
 	}
 	if f.DataType == sofa.DataTypeSOS && f.N > 0 {
-		fmt.Printf("Biquad sections per filter: %d (N=%d)\n", f.N/6, f.N)
+		fmt.Fprintf(w, "Biquad sections per filter: %d (N=%d)\n", f.N/6, f.N)
 	}
 	if lmax, ok := f.SHOrder(); ok {
-		fmt.Printf("SH-encoded HRTF: Lmax=%d, %d coefficients\n", lmax, f.SHCoefficientCount())
+		fmt.Fprintf(w, "SH-encoded HRTF: Lmax=%d, %d coefficients\n", lmax, f.SHCoefficientCount())
 	}
 	if order, ok := f.AmbisonicsOrder(); ok {
-		fmt.Printf("SRIR Ambisonics order: %d (R=%d)\n", order, f.R)
+		fmt.Fprintf(w, "SRIR Ambisonics order: %d (R=%d)\n", order, f.R)
 	}
-	for _, w := range f.SHWarnings() {
-		fmt.Printf("Warning: %s\n", w)
+	for _, warning := range f.SHWarnings() {
+		fmt.Fprintf(w, "Warning: %s\n", warning)
 	}
-	for _, w := range f.ConventionWarnings() {
-		fmt.Printf("Warning: %s\n", w)
+	for _, warning := range f.ConventionWarnings() {
+		fmt.Fprintf(w, "Warning: %s\n", warning)
 	}
+}
+
+// delaySummary describes Data.Delay: its number of values, their layout
+// (resolved like Save does: I, then M×R, then M, then R), the range, and
+// the values themselves when there are at most maxDelayValues.
+func delaySummary(f *sofa.File) string {
+	n := len(f.Delay)
+	if n == 0 {
+		return "Delay: none"
+	}
+	var layout string
+	switch n {
+	case 1:
+		layout = "I"
+	case f.M * f.R:
+		layout = "M,R"
+	case f.M:
+		layout = "M"
+	case f.R:
+		layout = "R"
+	default:
+		layout = "?"
+	}
+	unit := "values"
+	if n == 1 {
+		unit = "value"
+	}
+	s := fmt.Sprintf("Delay: %d %s [%s], min %g, max %g", n, unit, layout, slices.Min(f.Delay), slices.Max(f.Delay))
+	if n <= maxDelayValues {
+		vals := make([]string, n)
+		for i, v := range f.Delay {
+			vals[i] = fmt.Sprintf("%g", v)
+		}
+		s += ": [" + strings.Join(vals, " ") + "]"
+	}
+	return s
 }
