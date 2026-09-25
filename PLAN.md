@@ -31,11 +31,11 @@ file tracks only what's still open.
 
 ## Open work
 
-Phase R: the release blockers R1–R4 are done (go-hdf5 fixes in
-[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and the
-stacked `feat/dimension-scales` branch, consumed via a pseudo-version until
-they are merged and tagged). R5–R9 remain. Phases B–E are optional /
-future and can be picked up on demand when a real use case appears.
+Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
+[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
+[CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
+go-hdf5 v0.16.0). R5 is done; R6–R9 remain. Phases B–E are optional / future and can be picked up on
+demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
 
@@ -65,10 +65,10 @@ R1–R4 are release blockers.
       and `C` (subsumes Phase E2).
   - Acceptance: `ncdump -h` on a written file shows `M`, `R`, `N`, `C`, `I`
     with correct lengths and named (non-phony) dims on every variable.
-  - (2026-09-25) — go-hdf5 gained `FileWriter.AttachDimensionScale` /
-    `DatasetWriter.Address` (DIMENSION_LIST + REFERENCE_LIST written on
-    Close), libhdf5-readable VLEN data and >255-byte dataset headers
-    (branch `feat/dimension-scales`, stacked on go-hdf5#1). `Save` now
+  - (2026-09-25) — go-hdf5 gained `DatasetWriter.AttachDimensionScale`
+    (DIMENSION_LIST + REFERENCE_LIST written on Close) and >255-byte
+    dataset headers (go-hdf5#1); go-hdf5#2 adds libhdf5-readable VLEN data
+    and an unsigned REFERENCE_LIST dimension. `Save` now
     writes `M R E N C I` scales of full length with the netCDF-C `NAME`
     and `_Netcdf4Dimid`, `_NCProperties`, and creates every variable from
     named dimensions (`writeDimensionScales` / `writeVariable` in
@@ -119,33 +119,81 @@ R1–R4 are release blockers.
 - [x] **R4c.** Deterministic output: write dimension scales in fixed order
       instead of iterating a map (currently 3 distinct md5s in 4 runs).
 
-#### R5 — Read-path correctness (high)
+#### R5 — Read-path correctness (high) — ✅ DONE (2026-09-25)
 
-- [ ] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
+- [x] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
       `ImpulseResponses` bounded by `f.M`/`f.R`; on TF/TF-E/SOS files the
       slice is empty → panic. Check `DataType` / slice length and return an
       error. `Duration()` must return an error/ok for non-FIR.
-- [ ] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
+  - (2026-09-25) — the panic was already gone (319ed76). `IRAt`, `IRPeakdB`
+    and `Duration` now return `(value, error)`: `ErrUnsupportedDataType` on
+    non-FIR files (Duration used to divide TF frequency bins by the rate)
+    and the new `ErrIndexOutOfRange` for bad indices or missing rows
+    ([sofa_accessors.go](sofa_accessors.go)); breaking, noted in
+    CHANGELOG. `TestIRAccessorsOnNonFIR`, `TestIRAt`,
+    `TestDurationEdgeCases` assert the sentinels with `errors.Is`.
+- [x] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
       `flat[s:s+n]` with spare capacity, so `append` on one row overwrites
       the next. Use full slice expressions `flat[s:s+n:s+n]`.
-- [ ] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
+  - (2026-09-25) — done in 319ed76: both reshapes use full slice
+    expressions; `TestReshapeNoAliasing` appends to one row and checks the
+    next is untouched.
+- [x] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
       to FIR; return a typed `ErrUnsupportedDataType`. Explicitly handle or
       reject `FIR-E` (GeneralFIR-E) and legacy `FIRE`.
-- [ ] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
+  - (2026-09-25) — `Open` fails with the exported `ErrUnsupportedDataType`
+    for an empty, unknown, `FIR-E` or `FIRE` DataType (rejected, naming
+    GeneralFIR-E); `validate` wraps the same sentinel. All 20 fixtures carry
+    a supported DataType. `TestOpenRejectsUnsupportedDataType`,
+    `TestValidateRejectsUnsupportedDataType`.
+- [x] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
       element count (any axis permutation is accepted today). Support
       `ReceiverPosition` `[R,C,M]` / `EmitterPosition` `[E,C,M]` (currently
       silently misread as R·M vectors) and `ListenerView/Up` `[M,C]`
       (currently truncated to element 0).
-- [ ] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
+  - (2026-09-25) — every audio, rate, delay, position and orientation
+    variable is resolved against its allowed layouts, by the dimension
+    names from the scales' `REFERENCE_LIST` where present and by sizes
+    otherwise; anything else fails `Open`
+    ([sofa_shapes.go](sofa_shapes.go), [sofa_spatial.go](sofa_spatial.go)).
+    New read-only fields `ReceiverPositionsM`, `EmitterPositionsM`,
+    `ListenerViews`, `ListenerUps`. This exposed that the SOFA Toolbox
+    stores TF-E `Data.Real/Imag` as `[M,R,N,E]` (FreeFieldHRTF 1.0,
+    GeneralTF-E 1.0 fixtures), which was read as `[M,R,E,N]` with every
+    value scrambled; now transposed. `TestOpenRejectsPermutedAxes`,
+    `TestOpenTFEAxisOrder`, `TestOpenToolboxTFEFixture` (vs. raw values),
+    `TestOpenPerMeasurementPositions`,
+    `TestOpenOfficeIIListenerViewPerMeasurement`; disabling the transpose
+    or the Data.IR check makes them fail.
+- [x] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
       `DelayAt(m, r)`, `SamplingRateAt(m)` resolving I- vs M-sized
       variables; make `SamplingRateScalar` report when rates vary.
-- [ ] **R5f. Stop swallowing errors.** Attribute read errors
+  - (2026-09-25) — the three helpers return `(value, error)`
+    ([sofa_accessors.go](sofa_accessors.go)). `DelayAt` handles `[I]`,
+    `[I,R]`, `[R]`, `[M]`, `[M,R]` and the legacy flat M·R, using the
+    layout `Open` resolved (so a labelled `[R]` is not read as `[M]` when
+    M == R), and returns 0 without a Delay. Breaking: `SamplingRateScalar`
+    returns `(float64, error)` with the new `ErrNoSamplingRate` /
+    `ErrVaryingSamplingRate`. `TestSamplingRateScalarVarying`,
+    `TestSamplingRateAt`, `TestSourcePositionAt`, `TestDelayAtInMemory`,
+    `TestDelayAtFileLayouts`, `TestBroadcastFixtures`.
+- [x] **R5f. Stop swallowing errors.** Attribute read errors
       (`readGlobalAttributes` `continue`) and position read errors
       (`readSpatialData`) must propagate or be collected as warnings.
-- [ ] **R5g. SH detection per spec.** Use
+  - (2026-09-25) — they propagate: `Open` fails when a global attribute
+    go-sofa maps to a field, a position/orientation dataset, or its
+    `Type`/`Units` attribute is present but unreadable. Unknown global
+    attributes are no longer decoded at all. `TestOpenPropagatesPositionReadError`
+    (int16 `ReceiverPosition`), `TestSetGlobalAttributes`.
+- [x] **R5g. SH detection per spec.** Use
       `EmitterPosition:Type == "spherical harmonics"` as the primary signal;
       demote "SH"-substring / History heuristics; allow `E=1` (order 0);
       require `DataType == TF-E` in `SHOrder`.
+  - (2026-09-25) — a set `EmitterPositionType` decides; the name/History
+    heuristics apply only when it is empty, and `SHWarnings` reports one
+    that contradicts a set Type. `SHOrder` requires TF-E and accepts E=1.
+    New `CoordinateSphericalHarmonics`. Both SH fixtures carry the Type.
+    `TestSHDetectionByEmitterType`, `TestSHFixturesByEmitterType`.
 
 #### R6 — AES69 conformance of written files (medium)
 
@@ -167,6 +215,14 @@ R1–R4 are release blockers.
 - [ ] **R6e. Lossless round-trip.** Preserve unknown global attributes,
       extra variables and variable attributes; stop lowercasing
       `Type`/`Units` on read (normalise only for comparisons).
+- [ ] **R6f. TF-E axis order on write.** `Save` writes TF-E
+      `Data.Real/Imag` as `[M,R,E,N]`; the SOFA Toolbox (2.2.1) writes
+      `[M,R,N,E]` for FreeFieldHRTF and GeneralTF-E. Check the AES69
+      convention tables and write the conformant order (the reader accepts
+      both since R5d).
+- [ ] **R6g. Write per-measurement layouts.** `Save` ignores
+      `ReceiverPositionsM`, `EmitterPositionsM`, `ListenerViews` and
+      `ListenerUps` (read since R5d), so such files do not round-trip.
 
 #### R7 — API ergonomics (medium)
 
@@ -415,7 +471,7 @@ certain features are absent.
     `nc-config --has-nc4` netCDF-4 dimension scale validation
     (or `ncdump -h` shows attached dimension names) for `Data.IR`.
   - (2026-09-25) — covered by R1c: `ncdump -h` shows
-    `Data.IR(M, R, N)`. Left unticked until the go-hdf5 PR is merged.
+    `Data.IR(M, R, N)`; the DIMENSION_LIST support is in the merged go-hdf5#1.
 - [ ] **E3. go-hdf5 encoder/test defects found during R1c.** Not needed by
       go-sofa, but wrong for other users: `EncodeCompoundDatatypeV3` /
       `parseCompoundV3` put the member count in the properties (spec: class
@@ -425,6 +481,12 @@ certain features are absent.
       `TestMetricsCollector_Performance` fail on ca6206a already.
   - Acceptance: upstream fixes merged; a compound dataset written by
     `CreateCompoundDataset` opens in h5py.
+- [ ] **E4. Public shape and REFERENCE_LIST access in go-hdf5.** go-sofa
+      parses `Dataset.Info()` text for dataspace shapes and decodes
+      `REFERENCE_LIST` bytes itself (compound reads of reference members are
+      unsupported: "unsupported datatype class 6"). Add `Dataset.Shape()`
+      and dimension-scale accessors upstream, then drop the parsers in
+      [sofa_dataspace.go](sofa_dataspace.go) / [sofa_shapes.go](sofa_shapes.go).
 
 ---
 

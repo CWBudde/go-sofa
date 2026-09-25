@@ -36,7 +36,7 @@ func TestParseDataspaceElements(t *testing.T) {
 func TestDatasetElementCountMatchesRead(t *testing.T) {
 	path := writeCraftedFIR(t, map[string]craftedDim{
 		"M": named("2"), "R": named("2"), "E": named("1"), "N": {value: 4},
-	}, 16)
+	}, []uint64{2, 2, 4})
 	h, err := hdf5.Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

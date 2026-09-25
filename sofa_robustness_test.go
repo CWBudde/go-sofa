@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"errors"
 	"math"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,8 @@ func dimNAME(size string) string {
 }
 
 // writeCraftedFIR builds a FIR SOFA file with arbitrary dimension scales
-// and a flat Data.IR of irLen elements, bypassing Save's validation.
-func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irLen int) string {
+// and a zero-filled Data.IR of shape irShape, bypassing Save's validation.
+func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irShape []uint64) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "crafted.sofa")
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate,
@@ -52,8 +53,12 @@ func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irLen int) string
 			t.Fatalf("write /%s: %v", n, err)
 		}
 	}
+	irLen := uint64(1)
+	for _, d := range irShape {
+		irLen *= d
+	}
 	ir := make([]float64, irLen)
-	ds, err := fw.CreateDataset("/Data.IR", hdf5.Float64, []uint64{uint64(irLen)}) //nolint:gosec // test sizes are small
+	ds, err := fw.CreateDataset("/Data.IR", hdf5.Float64, irShape)
 	if err != nil {
 		t.Fatalf("create Data.IR: %v", err)
 	}
@@ -165,7 +170,7 @@ func TestOpenRejectsInvalidDimensions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := writeCraftedFIR(t, tt.dims, max(tt.irLen, 1))
+			path := writeCraftedFIR(t, tt.dims, []uint64{uint64(max(tt.irLen, 1))}) //nolint:gosec // small test sizes
 			f, err := Open(path)
 			if err == nil {
 				_ = f.Close()
@@ -184,7 +189,7 @@ func TestOpenRejectsInvalidDimensions(t *testing.T) {
 func TestOpenCraftedValidDimensions(t *testing.T) {
 	path := writeCraftedFIR(t, map[string]craftedDim{
 		"M": named("2"), "R": named("2"), "E": named("1"), "N": {value: 4},
-	}, 16)
+	}, []uint64{2, 2, 4})
 	f, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -193,8 +198,8 @@ func TestOpenCraftedValidDimensions(t *testing.T) {
 	if f.M != 2 || f.R != 2 || f.E != 1 || f.N != 4 {
 		t.Fatalf("dims = M=%d R=%d E=%d N=%d, want 2 2 1 4", f.M, f.R, f.E, f.N)
 	}
-	if got := len(f.IRAt(1, 1)); got != 4 {
-		t.Fatalf("len(IRAt(1,1)) = %d, want 4", got)
+	if ir, err := f.IRAt(1, 1); err != nil || len(ir) != 4 {
+		t.Fatalf("IRAt(1,1) = %v, %v; want 4 samples", ir, err)
 	}
 }
 
@@ -233,7 +238,7 @@ func TestIRAccessorsOnNonFIR(t *testing.T) {
 	for _, f := range []*File{robustTFFile(), robustTFEFile(), robustSOSFile()} {
 		t.Run(f.DataType, func(t *testing.T) {
 			// In-memory value.
-			checkNoIR(t, f)
+			checkNoIR(t, f, ErrUnsupportedDataType)
 			// After a Save/Open round trip.
 			path := filepath.Join(t.TempDir(), "x.sofa")
 			if err := f.Save(path); err != nil {
@@ -244,22 +249,29 @@ func TestIRAccessorsOnNonFIR(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 			defer g.Close()
-			checkNoIR(t, g)
+			checkNoIR(t, g, ErrUnsupportedDataType)
 		})
 	}
 	// Non-FIR file that nonetheless carries ImpulseResponses.
-	checkNoIR(t, &File{DataType: "TF", M: 1, R: 1, N: 1, ImpulseResponses: [][][]float64{{{1}}}})
+	checkNoIR(t, &File{DataType: "TF", M: 1, R: 1, N: 1, ImpulseResponses: [][][]float64{{{1}}}}, ErrUnsupportedDataType)
 	// Inconsistent in-memory FIR value (dims larger than data).
-	checkNoIR(t, &File{DataType: "FIR", M: 3, R: 2, N: 4, ImpulseResponses: [][][]float64{{}}})
+	checkNoIR(t, &File{DataType: "FIR", M: 3, R: 2, N: 4, ImpulseResponses: [][][]float64{{}}}, ErrIndexOutOfRange)
 }
 
-func checkNoIR(t *testing.T, f *File) {
+// checkNoIR asserts that the IR accessors fail with want instead of
+// panicking or returning data.
+func checkNoIR(t *testing.T, f *File, want error) {
 	t.Helper()
-	if ir := f.IRAt(0, 0); ir != nil {
-		t.Errorf("IRAt(0,0) = %v, want nil", ir)
+	if ir, err := f.IRAt(0, 0); !errors.Is(err, want) {
+		t.Errorf("IRAt(0,0) = %v, %v; want %v", ir, err, want)
 	}
-	if db := f.IRPeakdB(0, 0); !math.IsInf(db, -1) {
-		t.Errorf("IRPeakdB(0,0) = %v, want -Inf", db)
+	if db, err := f.IRPeakdB(0, 0); !errors.Is(err, want) {
+		t.Errorf("IRPeakdB(0,0) = %v, %v; want %v", db, err, want)
+	}
+	if f.DataType != dataTypeFIR {
+		if d, err := f.Duration(); !errors.Is(err, want) {
+			t.Errorf("Duration() = %v, %v; want %v", d, err, want)
+		}
 	}
 }
 
