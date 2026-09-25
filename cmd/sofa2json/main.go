@@ -1,26 +1,40 @@
-// Command sofa2json exports SOFA files to JSON format.
-// By default, exports metadata and dimensions only. Bulk audio data is
-// gated by per-DataType flags:
+// Command sofa2json exports SOFA files to JSON.
+//
+// By default it exports metadata, dimensions, positions, SamplingRate and
+// Delay only. Bulk audio data is gated by per-DataType flags:
 //
 //	--include-ir   FIR  files: include ImpulseResponses
-//	--include-tf   TF / TF-E files: include TFReal/TFImag (TF-E adds emitter dim)
+//	--include-tf   TF / TF-E files: include TFReal/TFImag (TF-E: TFRealE/TFImagE)
 //	--include-sos  SOS  files: include SOSCoefficients
 //
-// Frequencies are included automatically (small) for TF / TF-E.
+// Frequencies are included automatically (small) for TF / TF-E. JSON keys
+// are the field names of sofa.File; positions and vectors are [x, y, z]
+// triples in their coordinate Type and Units, which are exported alongside.
+// NaN and ±Inf are written as null.
 //
 // Usage:
 //
-//	sofa2json [flags] <file.sofa>       # process single file
-//	sofa2json [flags]                   # process all .sofa files in current directory
+//	sofa2json [flags] [file.sofa ...]
 //
-// Output is written to <filename>.json (replacing .sofa extension).
+// Each file is written to <file>.json (replacing the .sofa extension);
+// an existing output file is an error unless -f is given. Without file
+// arguments every .sofa file in the current directory is converted.
+// Progress and errors go to stderr; the exit status is 1 if any file
+// failed and 2 on a usage error.
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
+	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cwbudde/go-sofa"
@@ -32,167 +46,331 @@ type includeFlags struct {
 }
 
 func main() {
-	args := os.Args[1:]
-	var inc includeFlags
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	var files []string
-	for _, arg := range args {
-		switch arg {
-		case "--include-ir":
-			inc.IR = true
-		case "--include-tf":
-			inc.TF = true
-		case "--include-sos":
-			inc.SOS = true
-		default:
-			files = append(files, arg)
+// run executes sofa2json with the given arguments and returns its exit
+// status. It writes nothing to stdout.
+func run(args []string, _, stderr io.Writer) int {
+	var inc includeFlags
+	var force bool
+	flags := flag.NewFlagSet("sofa2json", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.BoolVar(&inc.IR, "include-ir", false, "FIR files: include ImpulseResponses")
+	flags.BoolVar(&inc.TF, "include-tf", false, "TF / TF-E files: include TFReal/TFImag (TFRealE/TFImagE)")
+	flags.BoolVar(&inc.SOS, "include-sos", false, "SOS files: include SOSCoefficients")
+	flags.BoolVar(&force, "f", false, "overwrite existing .json files")
+	flags.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: sofa2json [flags] [file.sofa ...]\n\n"+
+			"Export each SOFA file to <file>.json. Without file arguments,\n"+
+			"convert every .sofa file in the current directory.\n\nFlags:\n")
+		flags.PrintDefaults()
+	}
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
 		}
+		return 2
 	}
 
-	if len(files) >= 1 {
-		// Single file mode
-		if err := processSofaFile(files[0], inc); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		// Batch mode: process all .sofa files in current directory
+	files := flags.Args()
+	if len(files) == 0 {
 		matches, err := filepath.Glob("*.sofa")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "sofa2json: %v\n", err)
+			return 1
 		}
 		if len(matches) == 0 {
-			fmt.Fprintf(os.Stderr, "no .sofa files found in current directory\n")
-			os.Exit(1)
+			fmt.Fprintln(stderr, "sofa2json: no .sofa files found in current directory")
+			return 1
 		}
-		for _, filename := range matches {
-			fmt.Printf("Process file %s\n", filepath.Base(filename))
-			if err := processSofaFile(filename, inc); err != nil {
-				fmt.Fprintf(os.Stderr, "error processing %s: %v\n", filename, err)
-			}
-		}
+		files = matches
 	}
+
+	status := 0
+	for _, filename := range files {
+		out, err := convert(filename, inc, force)
+		if err != nil {
+			fmt.Fprintf(stderr, "sofa2json: %s: %v\n", filename, err)
+			status = 1
+			continue
+		}
+		fmt.Fprintf(stderr, "%s -> %s\n", filename, out)
+	}
+	return status
 }
 
-func processSofaFile(filename string, inc includeFlags) error {
+// convert exports one SOFA file and returns the path of the JSON file. On
+// error no (partial) output file is left behind.
+func convert(filename string, inc includeFlags, force bool) (out string, err error) {
 	f, err := sofa.Open(filename)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer f.Close()
 
-	// Build JSON object
-	jsonObj := buildJSONObject(f, inc)
-
-	// Marshal to pretty JSON
-	data, err := json.MarshalIndent(jsonObj, "", "  ")
+	out = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".json"
+	if out == filename {
+		return "", fmt.Errorf("output %s would overwrite the input", out)
+	}
+	mode := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if force {
+		mode = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	w, err := os.OpenFile(out, mode, 0o600) //nolint:gosec // output path derived from the user-supplied input path
+	if errors.Is(err, fs.ErrExist) {
+		return "", fmt.Errorf("%s already exists (use -f to overwrite)", out)
+	}
 	if err != nil {
-		return fmt.Errorf("marshal JSON: %w", err)
+		return "", err
 	}
-
-	// Write to output file (filename is provided by the user on the CLI).
-	outFile := strings.TrimSuffix(filename, filepath.Ext(filename)) + ".json"
-	if err := os.WriteFile(outFile, data, 0o600); err != nil { //nolint:gosec // user-supplied output path
-		return fmt.Errorf("write output: %w", err)
+	if err = encode(w, f, inc); err == nil {
+		err = w.Close()
+	} else {
+		_ = w.Close()
 	}
-
-	return nil
+	if err != nil {
+		_ = os.Remove(out)
+		return "", fmt.Errorf("write %s: %w", out, err)
+	}
+	return out, nil
 }
 
-func buildJSONObject(f *sofa.File, inc includeFlags) map[string]interface{} {
-	result := make(map[string]interface{})
+// encode streams f as an indented JSON object to w. Bulk data is written
+// value by value, so memory use does not grow with the output size.
+func encode(w io.Writer, f *sofa.File, inc includeFlags) error {
+	e := &encoder{w: bufio.NewWriter(w)}
+	e.metadata(f)
+	e.positions(f)
+	e.data(f, inc)
+	e.raw("\n}\n")
+	return e.w.Flush()
+}
 
-	// Add all AES69 global attributes (if non-empty)
-	if f.Title != "" {
-		result["Title"] = f.Title
+func (e *encoder) metadata(f *sofa.File) {
+	for _, a := range []struct{ name, value string }{
+		{"Conventions", f.Conventions},
+		{"Version", f.Version},
+		{"SOFAConventions", f.SOFAConventions},
+		{"SOFAConventionsVersion", f.SOFAConventionsVersion},
+		{"DataType", f.DataType},
+		{"RoomType", f.RoomType},
+		{"Title", f.Title},
+		{"DateCreated", f.DateCreated},
+		{"DateModified", f.DateModified},
+		{"APIName", f.APIName},
+		{"APIVersion", f.APIVersion},
+		{"AuthorContact", f.AuthorContact},
+		{"Organization", f.Organization},
+		{"License", f.License},
+		{"ApplicationName", f.ApplicationName},
+		{"ApplicationVersion", f.ApplicationVersion},
+		{"Comment", f.Comment},
+		{"History", f.History},
+		{"References", f.References},
+		{"Origin", f.Origin},
+	} {
+		e.stringField(a.name, a.value)
 	}
-	if f.DataType != "" {
-		result["DataType"] = f.DataType
+	if f.RoomVolume != 0 {
+		e.key("RoomVolume")
+		e.float(f.RoomVolume)
 	}
-	if f.RoomType != "" {
-		result["RoomType"] = f.RoomType
-	}
-	if f.DateCreated != "" {
-		result["DateCreated"] = f.DateCreated
-	}
-	if f.DateModified != "" {
-		result["DateModified"] = f.DateModified
-	}
-	if f.APIName != "" {
-		result["APIName"] = f.APIName
-	}
-	if f.APIVersion != "" {
-		result["APIVersion"] = f.APIVersion
-	}
-	if f.AuthorContact != "" {
-		result["AuthorContact"] = f.AuthorContact
-	}
-	if f.Organization != "" {
-		result["Organization"] = f.Organization
-	}
-	if f.License != "" {
-		result["License"] = f.License
-	}
-	if f.ApplicationName != "" {
-		result["ApplicationName"] = f.ApplicationName
-	}
-	if f.ApplicationVersion != "" {
-		result["ApplicationVersion"] = f.ApplicationVersion
-	}
-	if f.Comment != "" {
-		result["Comment"] = f.Comment
-	}
-	if f.History != "" {
-		result["History"] = f.History
-	}
-	if f.References != "" {
-		result["References"] = f.References
-	}
-	if f.Origin != "" {
-		result["Origin"] = f.Origin
+	if f.RoomTemperature != 0 {
+		e.key("RoomTemperature")
+		e.float(f.RoomTemperature)
 	}
 
-	// Add dimensions
-	result["Measurements"] = f.M
-	result["Receivers"] = f.R
-	result["Emitters"] = f.E
-	result["DataSamples"] = f.N
-
-	// Add sampling rate array
-	result["SampleRate"] = f.SamplingRate
-
-	// Add delay array
-	result["Delay"] = f.Delay
-
-	// FIR audio data
-	if inc.IR && len(f.ImpulseResponses) > 0 {
-		result["IR"] = f.ImpulseResponses
+	// M is always written, so the object is never empty and key's "{"
+	// always precedes encode's closing "}".
+	for _, d := range []struct {
+		name  string
+		value int
+	}{{"M", f.M}, {"R", f.R}, {"E", f.E}, {"N", f.N}} {
+		e.key(d.name)
+		e.raw(strconv.Itoa(d.value))
 	}
 
-	// TF / TF-E audio data
-	switch f.DataType {
-	case sofa.DataTypeTF:
-		if len(f.Frequencies) > 0 {
-			result["Frequencies"] = f.Frequencies
+	e.key("SamplingRate")
+	e.floats(f.SamplingRate)
+	e.key("Delay")
+	e.floats(f.Delay)
+}
+
+func (e *encoder) positions(f *sofa.File) {
+	for _, p := range []struct {
+		name, typ, units string
+		values           []sofa.Vector3
+	}{
+		{"ListenerPositions", f.ListenerPositionType, f.ListenerPositionUnits, f.ListenerPositions},
+		{"ReceiverPositions", f.ReceiverPositionType, f.ReceiverPositionUnits, f.ReceiverPositions},
+		{"SourcePositions", f.SourcePositionType, f.SourcePositionUnits, f.SourcePositions},
+		{"EmitterPositions", f.EmitterPositionType, f.EmitterPositionUnits, f.EmitterPositions},
+	} {
+		base := strings.TrimSuffix(p.name, "s")
+		e.stringField(base+"Type", p.typ)
+		e.stringField(base+"Units", p.units)
+		e.key(p.name)
+		e.vectors(1, p.values)
+	}
+	for _, p := range []struct {
+		name   string
+		values [][]sofa.Vector3
+	}{
+		{"ReceiverPositionsM", f.ReceiverPositionsM},
+		{"EmitterPositionsM", f.EmitterPositionsM},
+	} {
+		if len(p.values) > 0 {
+			e.key(p.name)
+			e.array(1, len(p.values), func(i int) { e.vectors(2, p.values[i]) })
 		}
+	}
+
+	e.stringField("ListenerViewType", f.ListenerViewType)
+	e.stringField("ListenerViewUnits", f.ListenerViewUnits)
+	e.key("ListenerView")
+	e.vector(f.ListenerView)
+	e.key("ListenerUp")
+	e.vector(f.ListenerUp)
+	if len(f.ListenerViews) > 0 {
+		e.key("ListenerViews")
+		e.vectors(1, f.ListenerViews)
+	}
+	if len(f.ListenerUps) > 0 {
+		e.key("ListenerUps")
+		e.vectors(1, f.ListenerUps)
+	}
+}
+
+func (e *encoder) data(f *sofa.File, inc includeFlags) {
+	switch f.DataType {
+	case sofa.DataTypeFIR:
+		if inc.IR {
+			e.key("ImpulseResponses")
+			e.floats3(f.ImpulseResponses)
+		}
+	case sofa.DataTypeTF:
+		e.frequencies(f)
 		if inc.TF {
-			result["TFReal"] = f.TFReal
-			result["TFImag"] = f.TFImag
+			e.key("TFReal")
+			e.floats3(f.TFReal)
+			e.key("TFImag")
+			e.floats3(f.TFImag)
 		}
 	case sofa.DataTypeTFE:
-		if len(f.Frequencies) > 0 {
-			result["Frequencies"] = f.Frequencies
-		}
+		e.frequencies(f)
 		if inc.TF {
-			result["TFReal"] = f.TFRealE
-			result["TFImag"] = f.TFImagE
+			e.key("TFRealE")
+			e.floats4(f.TFRealE)
+			e.key("TFImagE")
+			e.floats4(f.TFImagE)
 		}
 	case sofa.DataTypeSOS:
 		if inc.SOS {
-			result["SOSCoefficients"] = f.SOSCoefficients
+			e.key("SOSCoefficients")
+			e.floats3(f.SOSCoefficients)
 		}
 	}
+}
 
-	return result
+func (e *encoder) frequencies(f *sofa.File) {
+	if len(f.Frequencies) > 0 {
+		e.key("Frequencies")
+		e.floats(f.Frequencies)
+	}
+}
+
+// encoder writes one indented JSON object field by field. Write errors are
+// sticky in the bufio.Writer and reported by Flush.
+type encoder struct {
+	w      *bufio.Writer
+	fields int
+	num    []byte
+}
+
+func (e *encoder) raw(s string) { _, _ = e.w.WriteString(s) }
+
+// key starts the next top-level field.
+func (e *encoder) key(name string) {
+	if e.fields == 0 {
+		e.raw("{\n  ")
+	} else {
+		e.raw(",\n  ")
+	}
+	e.fields++
+	e.str(name)
+	e.raw(": ")
+}
+
+// stringField writes a string field unless the value is empty.
+func (e *encoder) stringField(name, value string) {
+	if value == "" {
+		return
+	}
+	e.key(name)
+	e.str(value)
+}
+
+func (e *encoder) str(s string) {
+	b, _ := json.Marshal(s) // cannot fail for a string
+	_, _ = e.w.Write(b)
+}
+
+// float writes v, or null for NaN and ±Inf, which JSON cannot represent.
+func (e *encoder) float(v float64) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		e.raw("null")
+		return
+	}
+	e.num = strconv.AppendFloat(e.num[:0], v, 'g', -1, 64)
+	_, _ = e.w.Write(e.num)
+}
+
+// floats writes a flat array on one line.
+func (e *encoder) floats(vs []float64) {
+	e.raw("[")
+	for i, v := range vs {
+		if i > 0 {
+			e.raw(", ")
+		}
+		e.float(v)
+	}
+	e.raw("]")
+}
+
+func (e *encoder) vector(v sofa.Vector3) { e.floats([]float64{v.X, v.Y, v.Z}) }
+
+// array writes n elements, one per line, indented for nesting depth.
+func (e *encoder) array(depth, n int, elem func(i int)) {
+	if n == 0 {
+		e.raw("[]")
+		return
+	}
+	indent := strings.Repeat("  ", depth+1)
+	e.raw("[\n")
+	for i := range n {
+		if i > 0 {
+			e.raw(",\n")
+		}
+		e.raw(indent)
+		elem(i)
+	}
+	e.raw("\n" + strings.Repeat("  ", depth) + "]")
+}
+
+func (e *encoder) vectors(depth int, vs []sofa.Vector3) {
+	e.array(depth, len(vs), func(i int) { e.vector(vs[i]) })
+}
+
+func (e *encoder) floats3(d [][][]float64) {
+	e.array(1, len(d), func(i int) {
+		e.array(2, len(d[i]), func(j int) { e.floats(d[i][j]) })
+	})
+}
+
+func (e *encoder) floats4(d [][][][]float64) {
+	e.array(1, len(d), func(i int) {
+		e.array(2, len(d[i]), func(j int) {
+			e.array(3, len(d[i][j]), func(k int) { e.floats(d[i][j][k]) })
+		})
+	})
 }
