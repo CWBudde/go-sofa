@@ -78,10 +78,19 @@ def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
                 errors.append(f"{where}: missing global attribute {key}")
             elif _as_str(nc.getncattr(key)) != want:
                 errors.append(f"{where}: attribute {key} = {_as_str(nc.getncattr(key))!r}, want {want!r}")
+        got_dims = {k: len(v) for k, v in nc.dimensions.items()}
+        if got_dims != exp["dimensions"]:
+            errors.append(f"{where}: dimensions {got_dims}, want {exp['dimensions']}")
+        for name, var in nc.variables.items():
+            phony = [d for d in var.dimensions if d.startswith("phony_dim")]
+            if phony:
+                errors.append(f"{where}: {name}: unnamed dimensions {var.dimensions}")
         for name, spec in exp["datasets"].items():
             if name not in nc.variables:
                 errors.append(f"{where}: missing variable {name}")
                 continue
+            if list(nc.variables[name].dimensions) != spec["dims"]:
+                errors.append(f"{where}: {name}: dimensions {nc.variables[name].dimensions}, want {tuple(spec['dims'])}")
             _compare(errors, where, name, nc.variables[name][:], spec)
 
 
@@ -94,9 +103,25 @@ def write_reference(directory: str) -> None:
         with h5py.File(path, "w", track_order=True) as f:
             for key, val in exp["attributes"].items():
                 f.attrs[key] = np.bytes_(val)
+            datasets = {}
             for name, spec in exp["datasets"].items():
                 data = np.asarray(spec["values"], dtype=np.float64).reshape(spec["shape"])
-                f.create_dataset(name, data=data)
+                datasets[name] = f.create_dataset(name, data=data)
+            # Dimension scales as netCDF-C writes them: a coordinate variable
+            # when a dataset has the dimension's name, else a placeholder.
+            scales = {}
+            for dim, size in exp["dimensions"].items():
+                if dim in datasets:
+                    datasets[dim].make_scale(dim)
+                    scales[dim] = datasets[dim]
+                else:
+                    scales[dim] = f.create_dataset(dim, (size,), dtype="f4")
+                    scales[dim].make_scale(f"This is a netCDF dimension but not a netCDF variable.{size:10d}")
+            for name, spec in exp["datasets"].items():
+                if name in scales:
+                    continue
+                for i, dim in enumerate(spec["dims"]):
+                    datasets[name].dims[i].attach_scale(scales[dim])
         print(f"wrote reference {path}")
 
 
