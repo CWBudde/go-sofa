@@ -438,12 +438,12 @@ conventions get extra behaviour: `Save` enforces their required
 metadata, and `(*File).ConventionWarnings() []string` reports
 advisory findings that never block `Save` (`sofainfo` prints them).
 
-| Convention                                   | Accessors                                   | Checks                                                                                   |
-| -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`            |
-| SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²` |
-| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`         | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                               |
-| `FreeFieldHRTF`                              | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                          |
+| Convention                                   | Accessors                                   | Checks                                                                                    |
+| -------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`             |
+| SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`  |
+| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`         | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                                |
+| `FreeFieldHRTF`                              | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                           |
 | Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
