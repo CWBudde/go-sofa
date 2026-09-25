@@ -50,6 +50,28 @@ const (
 	UnitsCartesianMetres = "metre, metre, metre"
 )
 
+// ErrUnsupportedDataType reports a DataType this package cannot read or
+// write: an empty or unknown value, GeneralFIR-E's "FIR-E" and the legacy
+// "FIRE". Test for it with errors.Is.
+var ErrUnsupportedDataType = errors.New("unsupported DataType")
+
+// checkDataType returns an ErrUnsupportedDataType-wrapping error unless dt
+// is one of the DataTypes this package reads and writes.
+func checkDataType(dt string) error {
+	switch dt {
+	case dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS:
+		return nil
+	case "":
+		return fmt.Errorf("%w: DataType attribute is missing or empty", ErrUnsupportedDataType)
+	case "FIR-E", "FIRE":
+		return fmt.Errorf("%w %q: per-emitter impulse responses (GeneralFIR-E) are not supported",
+			ErrUnsupportedDataType, dt)
+	default:
+		return fmt.Errorf("%w %q (want %q, %q, %q, or %q)",
+			ErrUnsupportedDataType, dt, dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS)
+	}
+}
+
 // Vector3 represents a 3D coordinate (X, Y, Z) in meters.
 // Used for positions and orientations in SOFA files.
 type Vector3 struct {
@@ -164,6 +186,10 @@ func Open(path string) (*File, error) {
 	if f.Conventions != conventionSOFA {
 		h.Close()
 		return nil, fmt.Errorf("not a SOFA file: Conventions=%q", f.Conventions)
+	}
+	if err := checkDataType(f.DataType); err != nil {
+		h.Close()
+		return nil, err
 	}
 
 	// Build dataset index for quick lookup.
@@ -420,10 +446,12 @@ func parseDimensionSize(s string) (int, error) {
 }
 
 // readAudioData dispatches based on DataType. For TF, reads /Data.Real,
-// /Data.Imag, and the frequency vector from /N. For FIR (default), reads
+// /Data.Imag, and the frequency vector from /N. For FIR, reads
 // /Data.IR, /Data.SamplingRate, and /Data.Delay.
 func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
 	switch f.DataType {
+	case dataTypeFIR:
+		return f.readFIRAudioData(datasets)
 	case dataTypeTF:
 		return f.readTFAudioData(datasets)
 	case dataTypeTFE:
@@ -431,7 +459,7 @@ func (f *File) readAudioData(datasets map[string]*hdf5.Dataset) error {
 	case dataTypeSOS:
 		return f.readSOSAudioData(datasets)
 	default:
-		return f.readFIRAudioData(datasets)
+		return checkDataType(f.DataType)
 	}
 }
 
@@ -1007,8 +1035,7 @@ func (f *File) validate() error {
 			return err
 		}
 	default:
-		return fmt.Errorf("unsupported DataType %q (want %q, %q, %q, or %q)",
-			f.DataType, dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS)
+		return checkDataType(f.DataType)
 	}
 
 	// Check position array dimensions
