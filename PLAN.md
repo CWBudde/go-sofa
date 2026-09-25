@@ -79,7 +79,7 @@ plan's separate-DataType design was wrong, hence the reframe.
 References: AES69-2022, sofaconventions.org SH page,
 `testdata/demo_FreeFieldHRTF_4_SH.sofa` History attribute.
 
-### Phase B — Specialised SOFA convention behaviour
+### Phase B — Specialised SOFA convention behaviour ✅ done 2026-09-25
 
 Today only the convention name is stored as a string; behaviour is
 generic across all conventions. Specialise where it would catch real
@@ -100,27 +100,51 @@ Tasks (one sub-bullet per convention; pick whichever has demand first):
     `validate` (so on `Save` only; `Open` never validates). Registry
     starts empty; B2/B3 add the first entries. Covered by
     `TestUnknownConventionStillReads` and `TestConventionRulesDispatch`.
-- [ ] **B2. BRIR rules.** Validator requires `RoomType` attribute and
+- [x] **B2. BRIR rules.** Validator requires `RoomType` attribute and
       `ListenerView`/`ListenerUp` to be non-zero. Add typed accessor
       `(*File).IsBRIR() bool`.
   - Acceptance: `TestBRIRMissingRoomType` errors with a message
     containing `"RoomType"`; round-trip via `MIT_KEMAR_normal_pinna.sofa`
     or equivalent BRIR file remains green.
-- [ ] **B3. SRIR rules.** Validator checks for `RoomVolume` /
+  - (2026-09-25) — [`sofa_brir.go`](sofa_brir.go): `IsBRIR()` and a
+    validator registered for `SingleRoomDRIR` and `MultiSpeakerBRIR`.
+    MIT KEMAR is HRIR, so the round-trip uses `testdata/OfficeII.sofa`
+    (Kayser 2009 BRIR, `SingleRoomDRIR`, M=8, R=8) instead
+    (`TestBRIRRoundTripOfficeII`). Also `TestBRIRMissingRoomType`,
+    `TestBRIRZeroListenerOrientation`.
+- [x] **B3. SRIR rules.** Validator checks for `RoomVolume` /
       `RoomTemperature` (warn, not error) and that `R` matches an
       Ambisonics order convention `(N+1)^2`.
   - Acceptance: `TestSRIRReadKnownFile` opens
     `testdata/SingleRoomSRIR_1.1.sofa`, no error, exposes detected
     Ambisonics order via a new `(*File).AmbisonicsOrder() (int, bool)`
     accessor.
-- [ ] **B4. Directivity rules.** Document that `M` indexes source
+  - (2026-09-25) — [`sofa_srir.go`](sofa_srir.go): `IsSRIR()`,
+    `AmbisonicsOrder()`, and warnings-only rules for `SingleRoomSRIR` /
+    `SingleRoomMIMOSRIR`, surfaced via the new
+    `(*File).ConventionWarnings()` (printed by `sofainfo`). A non-square
+    `R` warns rather than errors, since raw-capsule arrays are valid
+    SRIR. New `File.RoomVolume` / `RoomTemperature` fields are read
+    (variable, falling back to a root attribute) and written. The
+    testdata file is a demo with R=1, so it reports order 0.
+  - Follow-up: `SimpleFreeFieldSOS_1.0.sofa` (RoomVolume as attribute)
+    cannot be opened — go-hdf5 fails with "only depth-0 B-trees
+    supported" — so the attribute fallback is unit-tested only.
+- [x] **B4. Directivity rules.** Document that `M` indexes source
       orientation; add `(*File).IsDirectivity() bool`. Skip validator
       until we have a test file.
   - Acceptance: README "Conventions" section lists Directivity with
     a "needs example file" note; godoc on the accessor explains the
     semantic difference.
-- [ ] **B5. Coverage.** New per-convention code ≥ 80 % covered; total
+  - (2026-09-25) — [`sofa_directivity.go`](sofa_directivity.go) with
+    godoc; README "### Conventions" table covers BRIR, SRIR, and
+    Directivity ("needs example file").
+- [x] **B5. Coverage.** New per-convention code ≥ 80 % covered; total
       project coverage does not regress.
+  - (2026-09-25) — `sofa_brir.go`, `sofa_conventions.go`,
+    `sofa_directivity.go` 100 %, `sofa_srir.go` 94.4 % (only
+    `writeRoomScalars` HDF5 error branches uncovered); total 83.1 % →
+    83.7 %.
 
 ### Phase C — Streaming / partial reads
 
