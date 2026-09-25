@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	hdf5 "github.com/cwbudde/go-hdf5"
 	sofa "github.com/cwbudde/go-sofa"
 	"github.com/cwbudde/go-sofa/internal/clitest"
 )
@@ -77,6 +78,14 @@ func TestDataPreview(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 			}
+			// Undecodable REFERENCE_LIST / DIMENSION_LIST values are shown
+			// inline, not reported as failures.
+			if stderr != "" {
+				t.Errorf("stderr = %q, want empty", stderr)
+			}
+			if !strings.Contains(stdout, "REFERENCE_LIST = (unreadable: ") {
+				t.Errorf("stdout lacks the inline unreadable attribute:\n%s", stdout)
+			}
 			for _, want := range append(tc.want, "=== SOFA Probe: "+path+" ===", "[Dataset] ") {
 				if !strings.Contains(stdout, want) {
 					t.Errorf("stdout lacks %q:\n%s", want, stdout)
@@ -100,6 +109,43 @@ func TestFailingFileSetsExitCode(t *testing.T) {
 	}
 	if !strings.Contains(stderr, missing) {
 		t.Errorf("stderr does not name the failing file:\n%s", stderr)
+	}
+}
+
+// TestUnreadableDataSetsExitCode probes a file whose Data.IR holds strings,
+// so no numeric preview can be read: the failure goes to stderr and sets exit 1,
+// and the next file is still probed.
+func TestUnreadableDataSetsExitCode(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.sofa")
+	fw, err := hdf5.CreateForWrite(bad, hdf5.CreateTruncate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := fw.CreateDataset("/Data.IR", hdf5.String, []uint64{2}, hdf5.WithStringSize(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ds.Write([]string{"ab", "cd"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	good := clitest.Write(t, dir, "good.sofa", sofa.DataTypeFIR)
+
+	code, stdout, stderr := runCLI(t, bad, good)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; stderr:\n%s", code, stderr)
+	}
+	if want := "sofaprobe: " + bad + ": Data.IR: "; !strings.Contains(stderr, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, stderr)
+	}
+	if strings.Contains(stderr, good) {
+		t.Errorf("the good file was reported as failing:\n%s", stderr)
+	}
+	if !strings.Contains(stdout, "=== SOFA Probe: "+good+" ===") {
+		t.Errorf("the good file was not probed:\n%s", stdout)
 	}
 }
 

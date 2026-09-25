@@ -69,18 +69,38 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if printed {
 			fmt.Fprintln(stdout)
 		}
-		probe(stdout, filename, f)
+		p := &prober{w: stdout, stderr: stderr, filename: filename}
+		p.probe(f)
 		printed = true
 		if err := f.Close(); err != nil {
-			fmt.Fprintf(stderr, "sofaprobe: %s: %v\n", filename, err)
+			p.fail("close: %v", err)
+		}
+		if p.failed {
 			status = 1
 		}
 	}
 	return status
 }
 
-func probe(w io.Writer, filename string, f *hdf5.File) {
-	fmt.Fprintf(w, "=== SOFA Probe: %s ===\n\n", filename)
+// prober dumps one file to w. Failures to read the file's structure or
+// data go to stderr and mark the file as failed. Attribute values go-hdf5
+// cannot decode (such as the REFERENCE_LIST and DIMENSION_LIST of every
+// netCDF-4 file) are findings of the probe, not failures: they are shown
+// inline on w.
+type prober struct {
+	w, stderr io.Writer
+	filename  string
+	failed    bool
+}
+
+func (p *prober) fail(format string, args ...any) {
+	fmt.Fprintf(p.stderr, "sofaprobe: %s: %s\n", p.filename, fmt.Sprintf(format, args...))
+	p.failed = true
+}
+
+func (p *prober) probe(f *hdf5.File) {
+	w := p.w
+	fmt.Fprintf(w, "=== SOFA Probe: %s ===\n\n", p.filename)
 	fmt.Fprintf(w, "Superblock version: %d\n", f.SuperblockVersion())
 
 	root := f.Root()
@@ -88,7 +108,7 @@ func probe(w io.Writer, filename string, f *hdf5.File) {
 
 	// 1. Root group attributes (AES69 global attributes)
 	fmt.Fprintln(w, "--- Root Attributes ---")
-	printGroupAttributes(w, root)
+	p.printGroupAttributes(root)
 
 	// 2. Walk entire file tree
 	fmt.Fprintln(w, "\n--- File Structure ---")
@@ -98,7 +118,7 @@ func probe(w io.Writer, filename string, f *hdf5.File) {
 			fmt.Fprintf(w, "[Group]   %s\n", path)
 		case *hdf5.Dataset:
 			fmt.Fprintf(w, "[Dataset] %s\n", path)
-			printDatasetInfo(w, v)
+			p.printDatasetInfo(path, v)
 		}
 	})
 
@@ -107,7 +127,7 @@ func probe(w io.Writer, filename string, f *hdf5.File) {
 	found := false
 	for _, name := range dataVariables {
 		if ds := findDataset(root, name); ds != nil {
-			previewDataset(w, "Data."+name, ds)
+			p.previewDataset("Data."+name, ds)
 			found = true
 		}
 	}
@@ -116,48 +136,49 @@ func probe(w io.Writer, filename string, f *hdf5.File) {
 	}
 }
 
-func printGroupAttributes(w io.Writer, g *hdf5.Group) {
+func (p *prober) printGroupAttributes(g *hdf5.Group) {
 	attrs, err := g.Attributes()
 	if err != nil {
-		fmt.Fprintf(w, "  (error reading attributes: %v)\n", err)
+		p.fail("root attributes: %v", err)
 		return
 	}
 	if len(attrs) == 0 {
-		fmt.Fprintln(w, "  (none — may use dense attribute storage)")
+		fmt.Fprintln(p.w, "  (none — may use dense attribute storage)")
 		return
 	}
 	for _, a := range attrs {
 		val, err := a.ReadValue()
 		if err != nil {
-			fmt.Fprintf(w, "  %s = (error: %v)\n", a.Name, err)
+			fmt.Fprintf(p.w, "  %s = (unreadable: %v)\n", a.Name, err)
 			continue
 		}
-		fmt.Fprintf(w, "  %s = %v\n", a.Name, val)
+		fmt.Fprintf(p.w, "  %s = %v\n", a.Name, val)
 	}
 }
 
-func printDatasetInfo(w io.Writer, ds *hdf5.Dataset) {
+func (p *prober) printDatasetInfo(path string, ds *hdf5.Dataset) {
 	info, err := ds.Info()
 	if err != nil {
-		fmt.Fprintf(w, "  (info error: %v)\n", err)
+		p.fail("%s: info: %v", path, err)
 	} else {
-		fmt.Fprintf(w, "  %s\n", info)
+		fmt.Fprintf(p.w, "  %s\n", info)
 	}
 
 	// List attributes (dimension scales etc.)
 	attrNames, err := ds.ListAttributes()
 	if err != nil {
+		p.fail("%s: attributes: %v", path, err)
 		return
 	}
 	if len(attrNames) > 0 {
-		fmt.Fprintf(w, "  attributes: %s\n", strings.Join(attrNames, ", "))
+		fmt.Fprintf(p.w, "  attributes: %s\n", strings.Join(attrNames, ", "))
 		for _, name := range attrNames {
 			val, err := ds.ReadAttribute(name)
 			if err != nil {
-				fmt.Fprintf(w, "    %s = (error: %v)\n", name, err)
+				fmt.Fprintf(p.w, "    %s = (unreadable: %v)\n", name, err)
 				continue
 			}
-			fmt.Fprintf(w, "    %s = %v\n", name, val)
+			fmt.Fprintf(p.w, "    %s = %v\n", name, val)
 		}
 	}
 }
@@ -185,22 +206,22 @@ func findDataset(root *hdf5.Group, name string) *hdf5.Dataset {
 // It reads only those two rows, never the whole dataset. Whole rows are
 // read because go-hdf5 v0.16.1 returns zeros for a contiguous hyperslab of
 // three or more dimensions that starts inside a row.
-func previewDataset(w io.Writer, label string, ds *hdf5.Dataset) {
+func (p *prober) previewDataset(label string, ds *hdf5.Dataset) {
 	info, err := ds.Info()
 	if err != nil {
-		fmt.Fprintf(w, "  %s: info error: %v\n", label, err)
+		p.fail("%s: info: %v", label, err)
 		return
 	}
 	shape := parseShape(info)
 	if len(shape) == 0 {
-		fmt.Fprintf(w, "  %s: no array shape in %q\n", label, info)
+		p.fail("%s: not an array: %q", label, info)
 		return
 	}
 	total := uint64(1)
 	for _, d := range shape {
 		total *= d
 	}
-	fmt.Fprintf(w, "  %s: shape %v, %d values\n", label, shape, total)
+	fmt.Fprintf(p.w, "  %s: shape %v, %d values\n", label, shape, total)
 	if total == 0 {
 		return
 	}
@@ -230,12 +251,16 @@ func previewDataset(w io.Writer, label string, ds *hdf5.Dataset) {
 	} {
 		row, err := ds.ReadSlice(s.start, count)
 		if err != nil {
-			fmt.Fprintf(w, "    %s read error: %v\n", s.name, err)
+			p.fail("%s: read row at %v: %v", label, s.start, err)
 			continue
 		}
 		vals, ok := row.([]float64)
-		if !ok || uint64(len(vals)) != rowLen {
-			fmt.Fprintf(w, "    %s %v\n", s.name, row)
+		if !ok {
+			p.fail("%s: read row at %v: got %T, want []float64", label, s.start, row)
+			continue
+		}
+		if uint64(len(vals)) != rowLen {
+			p.fail("%s: read row at %v: got %d values, want %d", label, s.start, len(vals), rowLen)
 			continue
 		}
 		if s.tail {
@@ -243,7 +268,7 @@ func previewDataset(w io.Writer, label string, ds *hdf5.Dataset) {
 		} else {
 			vals = vals[:n]
 		}
-		fmt.Fprintf(w, "    %s %v\n", s.name, vals)
+		fmt.Fprintf(p.w, "    %s %v\n", s.name, vals)
 	}
 }
 
