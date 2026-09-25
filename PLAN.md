@@ -11,12 +11,10 @@ Oriented Format for Acoustics), built on top of
 ## Status
 
 Read, write, CLI tools, CI, lint, and the `FIR`, `TF`, `TF-E`, and `SOS`
-`DataType`s are implemented. The 2026-09-24 review (Phase R below) found
-release-blocking defects (R1–R4), all fixed: `Save` output now opens in
-h5py/netCDF4 with named netCDF-4 dimensions (checked in CI), tests fetch
-their reference data, and crafted input no longer panics or OOMs.
-Phase R takes precedence over the remaining Phases C–E. See `git log` for history; this
-file tracks only what's still open.
+`DataType`s are implemented; written files open in h5py/netCDF4 with named
+netCDF-4 dimensions (checked in CI). This file tracks only what's still open;
+history is in `git log` / CHANGELOG.md, design decisions in
+[docs/design-notes.md](docs/design-notes.md).
 
 ## Prior Art & Key Resources
 
@@ -34,7 +32,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 remains. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -43,249 +41,23 @@ Multi-area review (read path 4/10, write path 2/10, API/CLI 4/10,
 tests/tooling 3/10; overall ≈3/10). Items are ordered by priority;
 R1–R4 are release blockers.
 
-#### R1 — Interoperability of written files (critical)
+#### R1–R6 — ✅ done (2026-09-24 … 2026-09-25)
 
-- [x] **R1a. Fix go-hdf5 output so reference HDF5 can open it.** Every file
-      written by `Save` — and even an empty go-hdf5 `CreateForWrite`+`Close`
-      file — fails in h5py/HDF5 1.12/1.14/2.0 and netCDF-C 4.9 with
-      `actual len exceeds EOA` / `NetCDF: HDF error`. Suspected cause: root
-      OHDR v2 chunk/checksum extends past the superblock EOA. Fix upstream
-      in go-hdf5, bump [go.mod](go.mod).
-  - Acceptance: `h5py.File(out)` and `netCDF4.Dataset(out)` open FIR, TF,
-    TF-E and SOS files written by `Save`; `h5dump -H` exits 0.
-- [x] **R1b. Interop CI job.** Add a CI step (Python + h5py + netCDF4) that
-      writes one file per DataType via a small Go program and opens/reads it
-      back with h5py and netCDF4, comparing values.
-  - Acceptance: job fails on current `main`, passes after R1a.
-- [x] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
-      `/R`, `/E`, `/N`, plus missing `/I`, `/C`) must have length equal to the
-      dimension (currently shape `[1]` holding the size,
-      `writeDimensionScale`); add `_Netcdf4Dimid`, `DIMENSION_LIST` /
-      `REFERENCE_LIST`, `_NCProperties`; attach position variables to `M|I`
-      and `C` (subsumes Phase E2).
-  - Acceptance: `ncdump -h` on a written file shows `M`, `R`, `N`, `C`, `I`
-    with correct lengths and named (non-phony) dims on every variable.
-  - (2026-09-25) — go-hdf5 gained `DatasetWriter.AttachDimensionScale`
-    (DIMENSION_LIST + REFERENCE_LIST written on Close) and >255-byte
-    dataset headers (go-hdf5#1); go-hdf5#2 adds libhdf5-readable VLEN data
-    and an unsigned REFERENCE_LIST dimension. `Save` now
-    writes `M R E N C I` scales of full length with the netCDF-C `NAME`
-    and `_Netcdf4Dimid`, `_NCProperties`, and creates every variable from
-    named dimensions (`writeDimensionScales` / `writeVariable` in
-    [sofa.go](sofa.go)); an M×R `Data.Delay` is written `[M,R]`.
-    `ncdump -h` (netCDF-C 4.9.3) on FIR/TF/TF-E/SOS output lists
-    `M R E N C I` and only named dims; `TestSaveWritesNetcdf4Dimensions`
-    and the interop job (`just interop`, now rejecting `phony_dim`) cover it.
-
-#### R2 — Crash safety on untrusted input (critical)
-
-- [x] **R2a. Validate dimensions.** `parseDimensionSize` / `readDimensions`
-      must reject values ≤ 0, NaN/Inf and products that overflow `int` or
-      exceed a sane cap, _before_ any `Read`. Today `M=-1,R=-2` passes the
-      `M*R*N == len` check and `reshapeIR` panics (`makeslice`).
-- [x] **R2b. Upstream OOM in go-hdf5.** A 60 s `FuzzOpen` hits
-      `fatal error: out of memory` (unrecoverable) in
-      `internal/structures/localheap.go:94` and
-      `internal/core/dataset_reader.go:86`. Bound allocations by file size
-      upstream; file issues and link them here.
-- [x] **R2c. `FuzzOpen` target** committed in the repo with a seed corpus of
-      small valid files and the crashers found so far.
-  - Acceptance: `go test -fuzz FuzzOpen -fuzztime 5m` runs clean.
-
-#### R3 — Test suite must pass on a fresh clone (critical)
-
-- [x] **R3a.** `/testdata/` is in `.gitignore`, ~18 tests fail with ENOENT
-      and CI (`test-unit.yaml`) is therefore red. Either commit small
-      reference files (with `testdata/PROVENANCE.md` listing source URL,
-      licence, SHA-256) or add `just fetch-testdata` run by CI, and make
-      data-dependent tests `t.Skip` locally (not fail) when data is absent.
-- [x] **R3b. Third-party fixtures.** Include at least one file each from
-      SOFA API (Matlab/Octave), SOFAtoolbox, libmysofa test set and
-      netCDF-C/pysofaconventions — today every write test is a self
-      round-trip through go-hdf5's own reader.
-- [x] **R3c.** Remove the silent `t.Skip` in
-      `hdf5_validation_test.go:31-33` (it hides the failure it tests for).
-- [x] **R3d.** Add a `LICENSE` file (README links a non-existent one; no
-      licence = not reusable).
-
-#### R4 — Save durability and honesty (high)
-
-- [x] **R4a.** Return the `fw.Close()` error from `Save` (currently
-      `defer fw.Close()` swallows flush/disk-full errors → nil on a
-      truncated file).
-- [x] **R4b.** Write to a temp file in the same directory, `fsync`, then
-      `os.Rename` over the target, so a failed Save leaves the original
-      intact — as README and the `Save` godoc already (falsely) claim.
-- [x] **R4c.** Deterministic output: write dimension scales in fixed order
-      instead of iterating a map (currently 3 distinct md5s in 4 runs).
-
-#### R5 — Read-path correctness (high) — ✅ DONE (2026-09-25)
-
-- [x] **R5a. Accessor panics.** `IRAt`/`IRPeakdB` index
-      `ImpulseResponses` bounded by `f.M`/`f.R`; on TF/TF-E/SOS files the
-      slice is empty → panic. Check `DataType` / slice length and return an
-      error. `Duration()` must return an error/ok for non-FIR.
-  - (2026-09-25) — the panic was already gone (319ed76). `IRAt`, `IRPeakdB`
-    and `Duration` now return `(value, error)`: `ErrUnsupportedDataType` on
-    non-FIR files (Duration used to divide TF frequency bins by the rate)
-    and the new `ErrIndexOutOfRange` for bad indices or missing rows
-    ([sofa_accessors.go](sofa_accessors.go)); breaking, noted in
-    CHANGELOG. `TestIRAccessorsOnNonFIR`, `TestIRAt`,
-    `TestDurationEdgeCases` assert the sentinels with `errors.Is`.
-- [x] **R5b. Slice aliasing.** `reshapeIR`/`reshape4D` hand out
-      `flat[s:s+n]` with spare capacity, so `append` on one row overwrites
-      the next. Use full slice expressions `flat[s:s+n:s+n]`.
-  - (2026-09-25) — done in 319ed76: both reshapes use full slice
-    expressions; `TestReshapeNoAliasing` appends to one row and checks the
-    next is untouched.
-- [x] **R5c. Unknown DataType.** Stop defaulting unknown/empty `DataType`
-      to FIR; return a typed `ErrUnsupportedDataType`. Explicitly handle or
-      reject `FIR-E` (GeneralFIR-E) and legacy `FIRE`.
-  - (2026-09-25) — `Open` fails with the exported `ErrUnsupportedDataType`
-    for an empty, unknown, `FIR-E` or `FIRE` DataType (rejected, naming
-    GeneralFIR-E); `validate` wraps the same sentinel. All 20 fixtures carry
-    a supported DataType. `TestOpenRejectsUnsupportedDataType`,
-    `TestValidateRejectsUnsupportedDataType`.
-- [x] **R5d. Shape-aware reads.** Check dataset _shapes_, not only total
-      element count (any axis permutation is accepted today). Support
-      `ReceiverPosition` `[R,C,M]` / `EmitterPosition` `[E,C,M]` (currently
-      silently misread as R·M vectors) and `ListenerView/Up` `[M,C]`
-      (currently truncated to element 0).
-  - (2026-09-25) — every audio, rate, delay, position and orientation
-    variable is resolved against its allowed layouts, by the dimension
-    names from the scales' `REFERENCE_LIST` where present and by sizes
-    otherwise; anything else fails `Open`
-    ([sofa_shapes.go](sofa_shapes.go), [sofa_spatial.go](sofa_spatial.go)).
-    New read-only fields `ReceiverPositionsM`, `EmitterPositionsM`,
-    `ListenerViews`, `ListenerUps`. This exposed that the SOFA Toolbox
-    stores TF-E `Data.Real/Imag` as `[M,R,N,E]` (FreeFieldHRTF 1.0,
-    GeneralTF-E 1.0 fixtures), which was read as `[M,R,E,N]` with every
-    value scrambled; now transposed. `TestOpenRejectsPermutedAxes`,
-    `TestOpenTFEAxisOrder`, `TestOpenToolboxTFEFixture` (vs. raw values),
-    `TestOpenPerMeasurementPositions`,
-    `TestOpenOfficeIIListenerViewPerMeasurement`; disabling the transpose
-    or the Data.IR check makes them fail.
-- [x] **R5e. Broadcasting helpers.** `SourcePositionAt(m)`,
-      `DelayAt(m, r)`, `SamplingRateAt(m)` resolving I- vs M-sized
-      variables; make `SamplingRateScalar` report when rates vary.
-  - (2026-09-25) — the three helpers return `(value, error)`
-    ([sofa_accessors.go](sofa_accessors.go)). `DelayAt` handles `[I]`,
-    `[I,R]`, `[R]`, `[M]`, `[M,R]` and the legacy flat M·R, using the
-    layout `Open` resolved (so a labelled `[R]` is not read as `[M]` when
-    M == R), and returns 0 without a Delay. Breaking: `SamplingRateScalar`
-    returns `(float64, error)` with the new `ErrNoSamplingRate` /
-    `ErrVaryingSamplingRate`. `TestSamplingRateScalarVarying`,
-    `TestSamplingRateAt`, `TestSourcePositionAt`, `TestDelayAtInMemory`,
-    `TestDelayAtFileLayouts`, `TestBroadcastFixtures`.
-- [x] **R5f. Stop swallowing errors.** Attribute read errors
-      (`readGlobalAttributes` `continue`) and position read errors
-      (`readSpatialData`) must propagate or be collected as warnings.
-  - (2026-09-25) — they propagate: `Open` fails when a global attribute
-    go-sofa maps to a field, a position/orientation dataset, or its
-    `Type`/`Units` attribute is present but unreadable. Unknown global
-    attributes are no longer decoded at all. `TestOpenPropagatesPositionReadError`
-    (int16 `ReceiverPosition`), `TestSetGlobalAttributes`.
-- [x] **R5g. SH detection per spec.** Use
-      `EmitterPosition:Type == "spherical harmonics"` as the primary signal;
-      demote "SH"-substring / History heuristics; allow `E=1` (order 0);
-      require `DataType == TF-E` in `SHOrder`.
-  - (2026-09-25) — a set `EmitterPositionType` decides; the name/History
-    heuristics apply only when it is empty, and `SHWarnings` reports one
-    that contradicts a set Type. `SHOrder` requires TF-E and accepts E=1.
-    New `CoordinateSphericalHarmonics`. Both SH fixtures carry the Type.
-    `TestSHDetectionByEmitterType`, `TestSHFixturesByEmitterType`.
-
-#### R6 — AES69 conformance of written files (medium) — ✅ DONE (2026-09-25)
-
-- [x] **R6a.** Emit mandatory global attributes (`DateCreated`,
-      `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
-      `Organization`, `License`, `Title`, `RoomType`), defaulting
-      `APIName`/`APIVersion`/dates when empty; require
-      `SOFAConventionsVersion`.
-  - (2026-09-25) — `Save` always writes `Title`, `DateCreated`,
-    `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
-    `Organization`, `License` and `RoomType`; empty ones get defaults in the
-    file only (`go-sofa`, the module version, now in UTC as
-    `YYYY-MM-DD HH:MM:SS`, and the SOFA Toolbox's License/RoomType
-    defaults), `f` is not changed. `validate` requires
-    `SOFAConventionsVersion`. Needed go-hdf5 v0.16.1
-    ([CWBudde/go-hdf5#4](https://github.com/CWBudde/go-hdf5/pull/4)): dense
-    attributes with 12-byte names (`DateModified`, `Organization`) were
-    unreadable by libhdf5. `TestSaveMandatoryGlobalAttributes`,
-    `TestValidateRequiresConventionsVersion`; `just interop` passes with
-    netCDF4.
-- [x] **R6b.** Add required variable attributes: `Data.SamplingRate:Units`,
-      `N:Units`/`LongName` for TF, Type/Units for `ListenerView/Up`;
-      validate position `Type` ∈ {cartesian, spherical, spherical
-      harmonics} and require it.
-  - (2026-09-25) — `Data.SamplingRate:Units = hertz`; TF/TF-E `N` carries
-    `LongName = frequency`, `Units = hertz`; `ListenerView` and
-    `ListenerUp` both carry Type/Units from the new
-    `ListenerViewType`/`ListenerViewUnits` fields (read by `Open`, default
-    cartesian/metre). `validate` requires a Type
-    in {cartesian, spherical, spherical harmonics} on every written
-    position (breaking). `TestSaveVariableAttributes`,
-    `TestValidateRejectsPositionType`.
-- [x] **R6c.** Write `Data.Delay` as `[I,R]` or `[M,R]` (2-D), make it
-      mandatory for FIR/SOS, remove the M==R ambiguity.
-  - (2026-09-25) — `Data.Delay` is always written 2-D: empty → zeros
-    `[I,R]` (convention default), `[I]`/`[R]` → `[I,R]`, `[M]` → `[M,R]`,
-    resolved with `DelayAt` so M == R follows the layout `Open` found.
-    SOS files get it too. `TestSaveDelayLayouts` checks the written shape
-    and dimension names and `DelayAt` after reopening for each input
-    layout.
-- [x] **R6d.** Validate data: reject NaN/Inf where not allowed,
-      SamplingRate ≤ 0, zero View/Up vectors, non-monotonic frequencies,
-      and convention-specific constraints (e.g. `SimpleFreeFieldHRIR`
-      requires R=2, E=1) — overlaps Phase B.
-  - (2026-09-25) — `validate` rejects NaN/±Inf in every value `Save`
-    writes, sampling rates ≤ 0, negative or non-ascending frequencies, and
-    zero rows in `ListenerViews`/`ListenerUps` (radius 0 when spherical); the
-    error names the field and index. An unset single `ListenerView`/
-    `ListenerUp` is written as the Toolbox default (`[1 0 0]`/`[0 0 1]`,
-    spherical `(0,0,1)`/`(0,90,1)`) in the file only. Registry rules
-    (Phase B dispatcher): `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS` need DataType
-    FIR/TF/SOS, R=2, E=1 (Toolbox tables: `mRn`, single emitter);
-    `FreeFieldHRTF` TF-E; `FreeFieldDirectivityTF` TF.
-    `TestValidateRejectsNonFinite`, `TestValidateRejectsBadData`,
-    `TestSaveDefaultsListenerOrientation`, `TestConventionConstraints`.
-- [x] **R6e. Lossless round-trip.** Preserve unknown global attributes,
-      extra variables and variable attributes; stop lowercasing
-      `Type`/`Units` on read (normalise only for comparisons).
-  - (2026-09-25) — new exported `File.Attributes` (unmapped globals),
-    `Variables` (uninterpreted variables: numeric as float64, char arrays as
-    bytes, with their netCDF dimension names, extra dimensions such as `S`
-    written as new scales) and `VariableAttributes` (further attributes of
-    written variables); `Open` fills them sorted by name, `Save` writes them
-    back and `validate` rejects clashes with what `Save` writes itself, bad
-    shapes, dimension size mismatches and unwritable values. `File.Dropped`
-    lists what cannot be kept (scalars, wide strings, compound types).
-    `Type`/`Units` keep their case; comparisons already use `EqualFold`.
-    Fixed in passing: null-dataspace globals (the Toolbox's empty `Title`)
-    read as `"[]"`. `TestRoundTripPreservesExtras` (Mesh2HRTF, CIPIC,
-    OfficeII, SingleRoomSRIR), `TestRoundTripSyntheticExtras`,
-    `TestTypeUnitsKeepCase`, `TestValidateRejectsBadExtras`,
-    `TestOpenEmptyGlobalAttributes`; `just interop` checks a written
-    `extras.sofa` with h5py and netCDF4.
-- [x] **R6f. TF-E axis order on write.** `Save` writes TF-E
-      `Data.Real/Imag` as `[M,R,E,N]`; the SOFA Toolbox (2.2.1) writes
-      `[M,R,N,E]` for FreeFieldHRTF and GeneralTF-E. Check the AES69
-      convention tables and write the conformant order (the reader accepts
-      both since R5d).
-  - (2026-09-25) — the SOFA Toolbox convention tables give `mrne` for
-    GeneralTF-E and FreeFieldHRTF; `Save` now writes `[M,R,N,E]` with
-    matching dimension names. `TestSaveTFEAxisOrder` checks the raw shape,
-    the dimension labels and the values after reopening; `just interop`
-    expects `M,R,N,E`.
-- [x] **R6g. Write per-measurement layouts.** `Save` ignores
-      `ReceiverPositionsM`, `EmitterPositionsM`, `ListenerViews` and
-      `ListenerUps` (read since R5d), so such files do not round-trip.
-  - (2026-09-25) — `Save` writes `ReceiverPositionsM`/`EmitterPositionsM`
-    as `[R,C,M]`/`[E,C,M]` and `ListenerViews`/`ListenerUps` as `[M,C]`;
-    `validate` checks their lengths. `TestSavePerMeasurementLayouts`
-    round-trips each; `TestValidatePerMeasurementLayouts` rejects wrong
-    sizes; `TestSaveOfficeIIRoundTrip` round-trips a Toolbox file with
-    `[R,C,M]` receivers (skipped when the fixture is not fetched).
+- **R1 Interop:** go-hdf5 output readable by libhdf5/netCDF-C; full netCDF-4
+  dimension scales; `just interop` CI job (h5py + netCDF4).
+- **R2 Crash safety:** dimensions validated before reads; upstream OOMs
+  fixed; `FuzzOpen` with seed corpus.
+- **R3 Tests on fresh clone:** `just fetch-testdata` + `PROVENANCE.md`,
+  third-party fixtures, `LICENSE`.
+- **R4 Save durability:** close error returned, atomic temp+fsync+rename,
+  deterministic output.
+- **R5 Read path:** accessors return errors, no slice aliasing, unsupported
+  DataTypes rejected, shape-aware reads (incl. Toolbox TF-E `[M,R,N,E]`),
+  broadcasting helpers (`SourcePositionAt`, `DelayAt`, `SamplingRateAt`),
+  errors propagated, SH detection by `EmitterPosition:Type`.
+- **R6 Write conformance:** mandatory attributes, variable attributes, 2-D
+  `Data.Delay`, data validation, lossless round-trip of unknown
+  attributes/variables, TF-E written `[M,R,N,E]`, per-measurement layouts.
 
 #### R7 — API ergonomics (medium)
 
@@ -326,21 +98,13 @@ R1–R4 are release blockers.
       `TFRealE`, …) with a `Data` interface / tagged union before v1 to
       avoid API churn.
 
-#### R8 — CLIs (medium)
+#### R8 — CLIs — ✅ done (2026-09-26)
 
-- [ ] **R8a.** Use the `flag` package: `-h/--help`, usage text, reject
-      unknown flags; process _all_ file arguments (sofa2json/sofainfo
-      silently ignore all but the first).
-- [ ] **R8b.** Non-zero exit if any file fails; progress to stderr.
-- [ ] **R8c.** sofa2json: handle NaN/Inf (e.g. `null` or string), include
-      `Conventions`, `SOFAConventions`, versions, positions and coordinate
-      Type/Units; consistent keys matching library field names; don't
-      silently overwrite (`-f` to force); stream output instead of
-      `MarshalIndent` of the whole document.
-- [ ] **R8d.** sofainfo: show `SOFAConventions`, `Version`, full delay
-      summary; sofaprobe: support Real/Imag/SOS, don't read all of
-      `Data.IR` to print 6 values.
-- [ ] **R8e.** Smoke tests for each CLI (currently 0 % coverage).
+`flag`-based CLIs processing all file arguments with proper exit codes;
+streaming sofa2json (library field names, NaN → `null`, `-f` to overwrite);
+sofainfo shows conventions and a delay summary; sofaprobe previews
+Real/Imag/SOS via `ReadSlice` (whole rows, see E5); smoke tests via
+`internal/clitest` (84–90 % coverage).
 
 #### R9 — Docs, tooling, CI hygiene (low)
 
@@ -360,120 +124,17 @@ R1–R4 are release blockers.
       attributes never read in tests), `Save` error branches,
       `write*AudioDatasets` 66–71 %.
 
-### Phase A — SH HRTF support ✅ done 2026-05-10
+### Phase A — SH HRTF support ✅ done (2026-05-10)
 
-Convention-aware spherical-harmonic accessors layered on the existing
-TF-E I/O. No new DataType, no new wire format, no new write path. See
-[`sofa_sh.go`](sofa_sh.go), [`sofa_sh_test.go`](sofa_sh_test.go),
-README §"Spherical-harmonic (SH) HRTFs".
+SH accessors (`IsSHEncoded`, `SHOrder`, `SHCoefficientCount`, `SHWarnings`)
+on top of TF-E I/O; no separate SH DataType (see design notes).
 
-**Key finding.** Real-world SH SOFA files use `DataType=TF-E` with
-the `E` (emitter) dimension as SH coefficient index
-(`E = (Lmax+1)²`); SH semantics are declared via convention name
-(`*HRSH*`) or `History` ("Converted to Spherical Harmonics"). AES69's
-public test corpus does **not** expose `DataType="SH"` — the original
-plan's separate-DataType design was wrong, hence the reframe.
+### Phase B — Convention-specific behaviour ✅ done (2026-09-25)
 
-**API surface** (`*File`): `IsSHEncoded()`, `SHOrder() (lmax, ok)`,
-`SHCoefficientCount()`, `SHWarnings() []string`. Wired into
-`cmd/sofainfo`. Coverage: package 80.1 %, all six SH helpers 100 %.
-
-#### Reference files
-
-- `testdata/sofa20_sh_test.sofa` — **misnamed**; actually
-  `SimpleFreeFieldHRTF` / `DataType=TF`, no SH content.
-- `testdata/demo_FreeFieldHRTF_4_SH.sofa` (4.2 MB, CC 3.0 BY-SA,
-  from `sofaconventions.org/data/sofatoolbox_test/`, downloaded
-  2026-05-09) — `DataType=TF-E`, `E=1156=34²` (Lmax=33), `N=129`,
-  `M=1`, `R=2`; SH semantic in `History`, not in convention name.
-  Re-survey any candidate via `go run ./cmd/sofaprobe <file>` or
-  `h5dump -A -H <file>`.
-
-#### Tasks
-
-- [x] A1 — survey misnamed `sofa20_sh_test.sofa`
-- [x] A1b — source real SH testdata (drove the reframe)
-- [x] A2 — `DataType=SH` constant _(reverted; SH is convention-level)_
-- [x] A3 — `IsSHEncoded` / `SHOrder` / `SHCoefficientCount`
-- [x] A4 — read test against demo file (`TestReadSHEncodedTFE`)
-- [x] A5 — `SHWarnings` + `cmd/sofainfo` integration; History-based
-      detection
-- [x] A6 — write round-trip via existing TF-E writer
-      (`TestWriteSHEncodedRoundTrip`, Δ < 1e-12)
-- [x] A7 — README "Spherical-harmonic (SH) HRTFs" subsection + godoc
-      on `File.E` / `File.SOFAConventions`
-- [x] A8 — coverage ≥ 80 % overall (80.1 %, 434/542 stmts) with SH
-      helpers ≥ 90 % (all 100 %)
-
-References: AES69-2022, sofaconventions.org SH page,
-`testdata/demo_FreeFieldHRTF_4_SH.sofa` History attribute.
-
-### Phase B — Specialised SOFA convention behaviour ✅ done 2026-09-25
-
-Today only the convention name is stored as a string; behaviour is
-generic across all conventions. Specialise where it would catch real
-errors or add useful structure. We have testdata for SRIR
-(`SingleRoomSRIR_1.1.sofa`) and BRIR-like files; Directivity needs an
-example file before starting.
-
-Tasks (one sub-bullet per convention; pick whichever has demand first):
-
-- [x] **B1. Convention dispatcher.** Introduce a small registry
-      `map[string]conventionRules` keyed by `SOFAConventions` attribute
-      and looked up after generic validation in `validate`
-      (`validate` in [sofa.go](sofa.go)).
-  - Acceptance: unknown conventions still pass through unchanged
-    (back-compat); `TestUnknownConventionStillReads` passes.
-  - (2026-09-25) — `conventionRegistry` + `validateConvention` in
-    [`sofa_conventions.go`](sofa_conventions.go), called at the end of
-    `validate` (so on `Save` only; `Open` never validates). Registry
-    starts empty; B2/B3 add the first entries. Covered by
-    `TestUnknownConventionStillReads` and `TestConventionRulesDispatch`.
-- [x] **B2. BRIR rules.** Validator requires `RoomType` attribute and
-      `ListenerView`/`ListenerUp` to be non-zero. Add typed accessor
-      `(*File).IsBRIR() bool`.
-  - Acceptance: `TestBRIRMissingRoomType` errors with a message
-    containing `"RoomType"`; round-trip via `MIT_KEMAR_normal_pinna.sofa`
-    or equivalent BRIR file remains green.
-  - (2026-09-25) — [`sofa_brir.go`](sofa_brir.go): `IsBRIR()` and a
-    validator registered for `SingleRoomDRIR` and `MultiSpeakerBRIR`.
-    MIT KEMAR is HRIR, so the round-trip uses `testdata/OfficeII.sofa`
-    (Kayser 2009 BRIR, `SingleRoomDRIR`, M=8, R=8) instead
-    (`TestBRIRRoundTripOfficeII`). Also `TestBRIRMissingRoomType`,
-    `TestBRIRZeroListenerOrientation`.
-- [x] **B3. SRIR rules.** Validator checks for `RoomVolume` /
-      `RoomTemperature` (warn, not error) and that `R` matches an
-      Ambisonics order convention `(N+1)^2`.
-  - Acceptance: `TestSRIRReadKnownFile` opens
-    `testdata/SingleRoomSRIR_1.1.sofa`, no error, exposes detected
-    Ambisonics order via a new `(*File).AmbisonicsOrder() (int, bool)`
-    accessor.
-  - (2026-09-25) — [`sofa_srir.go`](sofa_srir.go): `IsSRIR()`,
-    `AmbisonicsOrder()`, and warnings-only rules for `SingleRoomSRIR` /
-    `SingleRoomMIMOSRIR`, surfaced via the new
-    `(*File).ConventionWarnings()` (printed by `sofainfo`). A non-square
-    `R` warns rather than errors, since raw-capsule arrays are valid
-    SRIR. New `File.RoomVolume` / `RoomTemperature` fields are read
-    (variable, falling back to a root attribute) and written. The
-    testdata file is a demo with R=1, so it reports order 0.
-  - Follow-up: `SimpleFreeFieldSOS_1.0.sofa` (RoomVolume as attribute)
-    cannot be opened — go-hdf5 fails with "only depth-0 B-trees
-    supported" — so the attribute fallback is unit-tested only.
-- [x] **B4. Directivity rules.** Document that `M` indexes source
-      orientation; add `(*File).IsDirectivity() bool`. Skip validator
-      until we have a test file.
-  - Acceptance: README "Conventions" section lists Directivity with
-    a "needs example file" note; godoc on the accessor explains the
-    semantic difference.
-  - (2026-09-25) — [`sofa_directivity.go`](sofa_directivity.go) with
-    godoc; README "### Conventions" table covers BRIR, SRIR, and
-    Directivity ("needs example file").
-- [x] **B5. Coverage.** New per-convention code ≥ 80 % covered; total
-      project coverage does not regress.
-  - (2026-09-25) — `sofa_brir.go`, `sofa_conventions.go`,
-    `sofa_directivity.go` 100 %, `sofa_srir.go` 94.4 % (only
-    `writeRoomScalars` HDF5 error branches uncovered); total 83.1 % →
-    83.7 %.
+Convention registry (`sofa_conventions.go`) with BRIR, SRIR, SimpleFreeField*,
+FreeFieldHRTF and Directivity rules, `ConventionWarnings()`, `IsBRIR`,
+`IsSRIR`/`AmbisonicsOrder`, `IsDirectivity`, `RoomVolume`/`RoomTemperature`
+(see README "Conventions"). A Directivity validator needs an example file.
 
 ### Phase C — Streaming / partial reads
 
@@ -573,6 +234,15 @@ certain features are absent.
       unsupported: "unsupported datatype class 6"). Add `Dataset.Shape()`
       and dimension-scale accessors upstream, then drop the parsers in
       [sofa_dataspace.go](sofa_dataspace.go) / [sofa_shapes.go](sofa_shapes.go).
+- [ ] **E5. `Dataset.ReadSlice` returns zeros for 3-D+ contiguous
+      hyperslabs that start inside a row.** Found in R8d (go-hdf5 v0.16.1):
+      on a contiguous `[3,2,8]` dataset, `ReadSlice([0,0,5], [1,1,3])` or
+      any non-zero start with a partial last axis returns `[0 0 0]` and no
+      error; `readContiguousRowByRow` reads a dense bounding box from the
+      start offset but extracts with absolute coordinates. Full-row
+      selections (linear path) are correct, which sofaprobe relies on.
+  - Acceptance: upstream fix and regression test merged; sofaprobe can
+    read just the first/last 3 values.
 
 ---
 

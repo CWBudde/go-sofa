@@ -2,6 +2,7 @@ package sofa
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -143,6 +144,9 @@ func TestDelayAtFileLayouts(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 			defer f.Close()
+			if got := f.DelayDimensions(); !slices.Equal(got, tc.dims) {
+				t.Errorf("DelayDimensions() = %v, want %v", got, tc.dims)
+			}
 			for m := range M {
 				for r := range R {
 					got, err := f.DelayAt(m, r)
@@ -185,5 +189,29 @@ func TestBroadcastFixtures(t *testing.T) {
 	}
 	if got, err := f.SamplingRateAt(last); err != nil || got != f.SamplingRate[0] {
 		t.Errorf("SamplingRateAt(%d) = (%v, %v), want %v", last, got, err, f.SamplingRate[0])
+	}
+}
+
+// TestDelayDimensionsInMemory checks the layout of a Delay that Open did
+// not read: implied by its length, M×R before M before R.
+func TestDelayDimensionsInMemory(t *testing.T) {
+	cases := []struct {
+		m, r  int
+		delay []float64
+		want  []string
+	}{
+		{3, 2, nil, nil},
+		{3, 2, []float64{1}, []string{dimI}},
+		{3, 2, []float64{1, 2, 3}, []string{dimM}},
+		{3, 2, []float64{1, 2}, []string{dimR}},
+		{3, 2, make([]float64, 6), []string{dimM, dimR}},
+		{2, 2, []float64{1, 2}, []string{dimM}},
+		{1, 2, []float64{1, 2}, []string{dimM, dimR}},
+	}
+	for _, tc := range cases {
+		f := &File{M: tc.m, R: tc.r, Delay: tc.delay}
+		if got := f.DelayDimensions(); !slices.Equal(got, tc.want) {
+			t.Errorf("M=%d R=%d Delay=%v: DelayDimensions() = %v, want %v", tc.m, tc.r, tc.delay, got, tc.want)
+		}
 	}
 }
