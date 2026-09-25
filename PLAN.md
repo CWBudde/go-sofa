@@ -159,9 +159,10 @@ Tasks:
       issue (link it back here) before continuing.
   - Acceptance: this PLAN cites either the supporting go-hdf5 API or
     the tracking issue URL.
-- [ ] **C2. Lazy `File` mode.** Add `OpenLazy(path string) (*File,
-  error)` that parses metadata but leaves audio datasets unloaded.
-      Existing `Open` keeps eager semantics.
+- [ ] **C2. Lazy `File` mode.** Add
+      `OpenLazy(path string) (*File, error)` that parses metadata but
+      leaves audio datasets unloaded. Existing `Open` keeps eager
+      semantics.
   - Acceptance: `TestOpenLazyDoesNotAllocateAudio` opens a >10 MB
     file and asserts `len(f.ImpulseResponses)==0` plus `runtime.MemStats`
     delta below an eager-open baseline by ≥ 50 %.
@@ -171,8 +172,9 @@ Tasks:
   - Acceptance: `TestReadMeasurementMatchesEager` loads the same file
     eagerly and via `ReadMeasurement` for every `m`, asserts deep
     equality.
-- [ ] **C4. Range callback.** Add `(*File).RangeMeasurements(func(m
-  int, ir [][]float64) error) error` for ergonomic iteration.
+- [ ] **C4. Range callback.** Add
+      `(*File).RangeMeasurements(func(m int, ir [][]float64) error) error`
+      for ergonomic iteration.
   - Acceptance: callback returning a non-nil error short-circuits and
     propagates; covered by `TestRangeMeasurementsAbort`.
 - [ ] **C5. Benchmark.** `go test -bench BenchmarkStreamVs Eager` over

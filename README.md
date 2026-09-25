@@ -414,11 +414,11 @@ conventions get extra behaviour: `Save` enforces their required
 metadata, and `(*File).ConventionWarnings() []string` reports
 advisory findings that never block `Save` (`sofainfo` prints them).
 
-| Convention | Accessors | Checks |
-| --- | --- | --- |
-| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR` | `IsBRIR()` | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp` |
+| Convention                                   | Accessors                                   | Checks                                                                                   |
+| -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`            |
 | SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²` |
-| Directivity: e.g. `FreeFieldDirectivityTF` | `IsDirectivity()` | None yet — needs example file. `M` indexes source orientation, not source position |
+| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | None yet — needs example file. `M` indexes source orientation, not source position       |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
 read from their variables, or from root attributes of the same
