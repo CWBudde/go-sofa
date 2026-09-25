@@ -127,6 +127,24 @@ func TestRoundTripSyntheticExtras(t *testing.T) {
 	}
 }
 
+// TestRoundTripDimensionAttributes checks that further attributes of the
+// dimension scales Save writes, the TF frequency axis N included, survive a
+// round trip next to the LongName and Units Save sets on N itself.
+func TestRoundTripDimensionAttributes(t *testing.T) {
+	f := minimalTFFile()
+	f.VariableAttributes = map[string][]Attribute{
+		"N": {{"Comment", "linear grid"}},
+		"M": {{"Description", "measurements"}},
+	}
+	back := roundTrip(t, f)
+	if !reflect.DeepEqual(back.VariableAttributes, f.VariableAttributes) {
+		t.Errorf("VariableAttributes = %v, want %v", back.VariableAttributes, f.VariableAttributes)
+	}
+	if len(back.Dropped) > 0 {
+		t.Errorf("Dropped = %q", back.Dropped)
+	}
+}
+
 // TestTypeUnitsKeepCase checks that Open keeps the case of Type and Units
 // and that coordinate-system detection still ignores it.
 func TestTypeUnitsKeepCase(t *testing.T) {
@@ -191,6 +209,13 @@ func TestValidateRejectsBadExtras(t *testing.T) {
 				{Name: "Y", Dims: []string{"S"}, Shape: []int{3}, Chars: []byte("abc")},
 			}
 		}, "S"},
+		{"new dimension named like a written variable", func(f *File) {
+			f.Variables = []Variable{{Name: "X", Dims: []string{"Data.IR"}, Shape: []int{2}, Values: []float64{1, 2}}}
+		}, "Data.IR"},
+		{"attribute Save owns on the frequency axis", func(f *File) {
+			*f = *minimalTFFile()
+			f.VariableAttributes = map[string][]Attribute{"N": {{"Units", "Hz"}}}
+		}, "Units"},
 		{"attributes of an unwritten variable", func(f *File) {
 			f.VariableAttributes = map[string][]Attribute{"Data.Real": {{"A", "x"}}}
 		}, "Data.Real"},

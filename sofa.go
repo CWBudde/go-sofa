@@ -176,10 +176,10 @@ type File struct {
 	// Save would not write otherwise (SourceView, RoomCornerA, char arrays
 	// such as ReceiverDescriptions, …). Open sorts both by name, since HDF5
 	// does not keep the order of attributes; Save writes them in slice
-	// order. VariableAttributes
-	// holds, per variable name, the attributes of variables Save does write
-	// beyond the ones it sets itself (Type/Units, Data.SamplingRate:Units).
-	// Dropped names what Open could not keep (an unsupported data or
+	// order. VariableAttributes holds, per variable name, the attributes of
+	// the variables and dimensions Save does write beyond the ones it sets
+	// itself (Type/Units, Data.SamplingRate:Units, N:LongName/Units for TF).
+	// Dropped lists what Open could not keep (an unsupported data or
 	// attribute type), so that a lossy round trip is never silent.
 	Attributes         []Attribute
 	Variables          []Variable

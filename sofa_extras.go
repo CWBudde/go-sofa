@@ -37,6 +37,9 @@ type Variable struct {
 	Attributes []Attribute
 }
 
+// attrUnits is the attribute naming a variable's units.
+const attrUnits = "Units"
+
 // plumbingAttribute reports whether a variable attribute belongs to the
 // HDF5 dimension-scale or netCDF-4 machinery, which Save writes itself.
 func plumbingAttribute(name string) bool {
@@ -129,14 +132,18 @@ func (f *File) keepGlobalAttribute(a globalAttribute) {
 	f.Attributes = append(f.Attributes, Attribute{Name: a.name, Value: v})
 }
 
-// writtenVariables returns the variables Save writes for f (dimension
-// scales aside), each with the attributes Save sets on it itself.
+// writtenVariables returns the variables Save writes for f, dimension
+// scales included, each with the attributes Save sets on it itself (the
+// dimension-scale plumbing aside).
 func (f *File) writtenVariables() map[string][]string {
-	units := []string{"Units"}
-	typeUnits := []string{"Type", "Units"}
+	units := []string{attrUnits}
+	typeUnits := []string{"Type", attrUnits}
 	written := map[string][]string{
 		datasetListenerView: typeUnits,
 		datasetListenerUp:   typeUnits,
+	}
+	for _, d := range sofaDimensions {
+		written[d] = nil
 	}
 	for _, p := range []struct {
 		name    string
@@ -169,13 +176,15 @@ func (f *File) writtenVariables() map[string][]string {
 	case dataTypeTF, dataTypeTFE:
 		written["Data.Real"] = nil
 		written["Data.Imag"] = nil
+		written[dimN] = []string{"LongName", attrUnits} // the frequency coordinate variable
 	}
 	return written
 }
 
 // readExtras keeps what Open did not interpret: the attributes of the
-// variables Save writes beyond the ones it sets, and every other variable
-// that is not a dimension scale. Whatever cannot be kept is listed in
+// variables and dimension scales Save writes beyond the ones it sets, and
+// every other variable that is not a dimension scale. Whatever cannot be
+// kept, including attributes of further dimension scales, is listed in
 // f.Dropped; nothing here fails Open.
 func (f *File) readExtras(datasets map[string]*hdf5.Dataset) {
 	var scales []string
@@ -204,6 +213,9 @@ func (f *File) readExtras(datasets map[string]*hdf5.Dataset) {
 			continue
 		}
 		if slices.Contains(scales, name) {
+			if attrs := f.readVariableAttributes(name, ds, nil); len(attrs) > 0 {
+				f.Dropped = append(f.Dropped, fmt.Sprintf("attributes of dimension %s: not preserved", name))
+			}
 			continue
 		}
 		v, err := readVariable(name, ds, labels[name])
@@ -405,6 +417,9 @@ func (f *File) validateExtras() error {
 	for d := range sizes {
 		if seen[d] {
 			return fmt.Errorf("variable %s: name taken by dimension %s", d, d)
+		}
+		if _, ok := written[d]; ok && !slices.Contains(sofaDimensions, d) {
+			return fmt.Errorf("dimension %s: Save already writes a variable of that name", d)
 		}
 	}
 	return nil
