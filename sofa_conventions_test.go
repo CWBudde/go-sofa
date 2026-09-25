@@ -91,3 +91,31 @@ func registerConventionForTest(t *testing.T, name string, rules conventionRules)
 		}
 	})
 }
+
+// TestConventionWarnings checks that ConventionWarnings returns the advisory
+// messages of the rules registered for the file's SOFAConventions, and nothing
+// for conventions without a warnings function.
+func TestConventionWarnings(t *testing.T) {
+	registerConventionForTest(t, "TestConventionWarns", conventionRules{
+		warnings: func(*File) []string { return []string{"first", "second"} },
+	})
+	registerConventionForTest(t, "TestConventionSilent", conventionRules{})
+
+	tests := []struct {
+		convention string
+		want       []string
+	}{
+		{"TestConventionWarns", []string{"first", "second"}},
+		{"TestConventionSilent", nil},
+		{"TestConventionUnregistered", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.convention, func(t *testing.T) {
+			f := &File{SOFAConventions: tt.convention}
+			if got := f.ConventionWarnings(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ConventionWarnings() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

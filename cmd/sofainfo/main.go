@@ -129,7 +129,13 @@ func printFileInformation(f *sofa.File) {
 	if lmax, ok := f.SHOrder(); ok {
 		fmt.Printf("SH-encoded HRTF: Lmax=%d, %d coefficients\n", lmax, f.SHCoefficientCount())
 	}
+	if order, ok := f.AmbisonicsOrder(); ok {
+		fmt.Printf("SRIR Ambisonics order: %d (R=%d)\n", order, f.R)
+	}
 	for _, w := range f.SHWarnings() {
+		fmt.Printf("Warning: %s\n", w)
+	}
+	for _, w := range f.ConventionWarnings() {
 		fmt.Printf("Warning: %s\n", w)
 	}
 }
