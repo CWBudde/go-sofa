@@ -12,9 +12,9 @@ Oriented Format for Acoustics), built on top of
 
 Read, write, CLI tools, CI, lint, and the `FIR`, `TF`, `TF-E`, and `SOS`
 `DataType`s are implemented. The 2026-09-24 review (Phase R below) found
-release-blocking defects; all except R1c (netCDF-4 dimension scales) are
-fixed: `Save` output now opens in h5py/netCDF4 (checked in CI), tests fetch
-their reference data, and crafted input no longer panics or OOMs.
+release-blocking defects; all are fixed: `Save` output opens in h5py/netCDF4
+with named netCDF-4 dimensions (checked in CI), tests fetch their reference
+data, and crafted input no longer panics or OOMs.
 Phase R takes precedence over the remaining Phases C–E. See `git log` for history; this
 file tracks only what's still open.
 
@@ -31,11 +31,11 @@ file tracks only what's still open.
 
 ## Open work
 
-Phase R: R1a/R1b and R2–R4 are done (go-hdf5 fixes in
+Phase R is done (go-hdf5 fixes in
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1), consumed
-via a pseudo-version until it is merged and tagged). R1c is the last open
-blocker for a v0.1.0 release. Phases B–E are optional /
-future and can be picked up on demand when a real use case appears.
+via a pseudo-version until it is merged and tagged). Phases B–E are
+optional / future and can be picked up on demand when a real use case
+appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
 
@@ -57,7 +57,7 @@ R1–R4 are release blockers.
       writes one file per DataType via a small Go program and opens/reads it
       back with h5py and netCDF4, comparing values.
   - Acceptance: job fails on current `main`, passes after R1a.
-- [ ] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
+- [x] **R1c. Real netCDF-4 dimensions.** Dimension-scale datasets (`/M`,
       `/R`, `/E`, `/N`, plus missing `/I`, `/C`) must have length equal to the
       dimension (currently shape `[1]` holding the size,
       `writeDimensionScale`); add `_Netcdf4Dimid`, `DIMENSION_LIST` /
@@ -395,7 +395,7 @@ certain features are absent.
   - Acceptance: upstream PR merged, version bumped in
     [go.mod](go.mod), and a regression test in this repo writes a
     dataset with 9+ attributes successfully.
-- [ ] **E2. `DIMENSION_LIST` attribute on data datasets.** For full
+- [x] **E2. `DIMENSION_LIST` attribute on data datasets.** (Done with R1c.) For full
       netCDF-4 parity, `Data.IR` / `Data.Real` etc. should carry a
       `DIMENSION_LIST` attribute (variable-length array of object
       references to dimension-scale datasets). Requires VLA + object

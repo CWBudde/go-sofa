@@ -242,12 +242,22 @@ if err := f.Save("output.sofa"); err != nil {
 }
 ```
 
+#### netCDF-4 structure
+
+Written files use netCDF-4 dimensions: `M`, `R`, `E`, `N`, `C` (= 3) and
+`I` (= 1) are HDF5 dimension scales (with `CLASS`, `NAME` and
+`_Netcdf4Dimid` as netCDF-C writes them), and every variable has its
+dimensions attached, so `ncdump -h` shows e.g. `Data.IR(M, R, N)`,
+`SourcePosition(M, C)` and `Data.SamplingRate(I)` instead of `phony_dim_*`.
+For `TF`/`TF-E` data `N` is a coordinate variable holding the frequencies.
+Files written by earlier go-sofa versions (one-element `/M`, `/R`, ...)
+are still read.
+
 #### Known limitations
 
-- Dataset attributes (`CLASS`, `NAME`) are not yet emitted, so written
-  files are valid HDF5/SOFA for go-sofa but not fully netCDF-4
-  compliant. Some third-party tools (e.g. the MATLAB SOFA Toolbox)
-  may flag the missing dimension-scale metadata.
+- The `_NCProperties` root attribute is not written (netCDF-C opens the
+  files regardless), and positions are stored as `[n, C]`
+  (e.g. `ReceiverPosition(R, C)`), not SOFA 1.x's `[R, C, I]`.
 
 ## Command-line Tools
 

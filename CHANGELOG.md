@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `Save` writes real netCDF-4 dimensions: `/M`, `/R`, `/E`, `/N` and the new
+  `/C` and `/I` are dimension scales whose length is the dimension size
+  (previously a one-element dataset holding the size), with `NAME` and
+  `_Netcdf4Dimid` as netCDF-C writes them. Every variable has its dimensions
+  attached (`DIMENSION_LIST`/`REFERENCE_LIST`, `_Netcdf4Coordinates`), so
+  netCDF tools show named dimensions instead of `phony_dim_*`.
+  `Data.Delay` of length R or M×R is now stored as `[I, R]` / `[M, R]`
+  (same values in the same order). Files written by earlier versions are
+  still read.
+
 ## [v0.1.0]
 
 First tagged release. Everything below was already on `main`; this entry records

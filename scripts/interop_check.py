@@ -4,7 +4,11 @@
 Reads every file listed in DIR/expected.json (written by
 `go run ./internal/interop/gen DIR`) with both h5py and netCDF4 (netCDF-C),
 and compares global attributes, dataset shapes and values against the
-expected values. Exits non-zero on any mismatch or open/read error.
+expected values. It also checks the netCDF-4 dimension model: netCDF must
+report exactly the expected dimensions (M, R, E, N, C, I) with their
+lengths, every variable must use named dimensions (no phony_dim_*), and
+h5py must resolve each dataset's attached dimension scales. Exits non-zero
+on any mismatch or open/read error.
 
     python3 scripts/interop_check.py DIR
 
@@ -66,6 +70,15 @@ def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
                 errors.append(f"{where}: missing dataset {name}")
                 continue
             _compare(errors, where, name, f[name][()], spec)
+            dims = spec.get("dims")
+            if not dims or dims == [name]:
+                continue  # coordinate variables are scales, not attached
+            got = []
+            for axis in f[name].dims:
+                scales = list(axis.values())
+                got.append(scales[0].name.lstrip("/") if scales else None)
+            if got != dims:
+                errors.append(f"{where}: {name}: attached dimension scales {got}, want {dims}")
 
 
 def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
@@ -83,6 +96,16 @@ def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
                 errors.append(f"{where}: missing variable {name}")
                 continue
             _compare(errors, where, name, nc.variables[name][:], spec)
+            if "dims" in spec and list(nc.variables[name].dimensions) != spec["dims"]:
+                errors.append(f"{where}: {name}: dimensions {list(nc.variables[name].dimensions)}, want {spec['dims']}")
+        want_dims = exp.get("dimensions", {})
+        got_dims = {k: len(v) for k, v in nc.dimensions.items()}
+        if want_dims and got_dims != want_dims:
+            errors.append(f"{where}: dimensions {got_dims}, want {want_dims}")
+        for name, var in nc.variables.items():
+            phony = [d for d in var.dimensions if d.startswith("phony_dim")]
+            if phony:
+                errors.append(f"{where}: {name}: unnamed dimensions {list(var.dimensions)}")
 
 
 def write_reference(directory: str) -> None:
@@ -94,9 +117,23 @@ def write_reference(directory: str) -> None:
         with h5py.File(path, "w", track_order=True) as f:
             for key, val in exp["attributes"].items():
                 f.attrs[key] = np.bytes_(val)
+            scales = {}
+            for dim, size in exp.get("dimensions", {}).items():
+                spec = exp["datasets"].get(dim)
+                if spec is not None:  # coordinate variable
+                    ds = f.create_dataset(dim, data=np.asarray(spec["values"], dtype=np.float64))
+                    ds.make_scale(dim)
+                else:
+                    ds = f.create_dataset(dim, data=np.zeros(size, dtype=np.float32))
+                    ds.make_scale(f"This is a netCDF dimension but not a netCDF variable.{size:10d}")
+                scales[dim] = ds
             for name, spec in exp["datasets"].items():
+                if name in scales:
+                    continue
                 data = np.asarray(spec["values"], dtype=np.float64).reshape(spec["shape"])
-                f.create_dataset(name, data=data)
+                ds = f.create_dataset(name, data=data)
+                for i, dim in enumerate(spec.get("dims", [])):
+                    ds.dims[i].attach_scale(scales[dim])
         print(f"wrote reference {path}")
 
 
@@ -134,7 +171,8 @@ def main() -> int:
                     print(f"     {e}")
             else:
                 n = len(expected[fname]["datasets"])
-                print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
+                dims = " ".join(f"{k}={v}" for k, v in expected[fname].get("dimensions", {}).items())
+                print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes; dims {dims})")
 
     if failed:
         print("interop check FAILED", file=sys.stderr)
