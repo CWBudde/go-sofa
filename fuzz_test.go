@@ -38,7 +38,13 @@ func FuzzOpen(f *testing.F) {
 		}
 		defer sf.Close()
 
-		_ = sf.SamplingRateScalar()
+		_, _ = sf.SamplingRateScalar()
+		for _, m := range []int{0, sf.M - 1, sf.M, -1} {
+			_, _ = sf.SamplingRateAt(m)
+			_, _ = sf.SourcePositionAt(m)
+			_, _ = sf.DelayAt(m, 0)
+			_, _ = sf.DelayAt(m, sf.R-1)
+		}
 		_, _ = sf.Duration()
 		for _, idx := range [][2]int{{0, 0}, {sf.M - 1, sf.R - 1}, {sf.M, 0}, {-1, 0}} {
 			_, _ = sf.IRAt(idx[0], idx[1])

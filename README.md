@@ -54,7 +54,9 @@ func main() {
     fmt.Printf("Measurements: %d\n", f.M)
     fmt.Printf("Receivers: %d\n", f.R)
     fmt.Printf("Samples: %d\n", f.N)
-    fmt.Printf("Sample Rate: %.0f Hz\n", f.SamplingRateScalar())
+    if sr, err := f.SamplingRateScalar(); err == nil { // not for TF, or varying rates
+        fmt.Printf("Sample Rate: %.0f Hz\n", sr)
+    }
     if d, err := f.Duration(); err == nil { // FIR only
         fmt.Printf("Duration: %.3f seconds\n", d)
     }
@@ -345,13 +347,23 @@ Represents an open SOFA file with all its data and metadata.
 - `Open(path string) (*File, error)` — Opens a SOFA file for reading
 - `Close() error` — Closes the file and releases resources
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
-- `SamplingRateScalar() float64` — Returns sampling rate as scalar (first value)
+- `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
+  `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
+  per-measurement rates differ
+- `SamplingRateAt(m int) (float64, error)` — Sampling rate of measurement m
+  (`[I]` broadcast or `[M]`)
+- `SourcePositionAt(m int) (Vector3, error)` — Source position of measurement m
+  (`[I,C]` broadcast or `[M,C]`)
+- `DelayAt(m, r int) (float64, error)` — Delay in samples of measurement m,
+  receiver r, for `Data.Delay` stored as `[I]`, `[I,R]`, `[R]`, `[M]` or
+  `[M,R]`; 0 when the file has no delay
 - `Duration() (float64, error)` — Returns IR duration in seconds (FIR only)
 - `IRAt(m, r int) ([]float64, error)` — Returns impulse response for measurement m, receiver r
 - `IRPeakdB(m, r int) (float64, error)` — Returns peak level in dB for measurement m, receiver r
 
-Accessors fail with `ErrUnsupportedDataType` on non-FIR files and with
-`ErrIndexOutOfRange` for indices outside the file's dimensions; `Open` fails
+The IR accessors fail with `ErrUnsupportedDataType` on non-FIR files, and all
+accessors fail with `ErrIndexOutOfRange` for indices outside the file's
+dimensions; `Open` fails
 with `ErrUnsupportedDataType` for an empty, unknown, `FIR-E` or `FIRE`
 `DataType`. Test for both with `errors.Is`.
 

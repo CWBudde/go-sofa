@@ -152,7 +152,8 @@ type File struct {
 	Origin                 string  // origin of the data
 
 	// Internal
-	hdf5File *hdf5.File // underlying HDF5 file handle
+	hdf5File    *hdf5.File // underlying HDF5 file handle
+	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
 }
 
 // Open opens a SOFA file for reading.
@@ -506,14 +507,17 @@ func (f *File) readRateAndDelay(datasets map[string]*hdf5.Dataset, labels map[st
 		}
 	}
 	if ds, ok := datasets["Data.Delay"]; ok {
-		if _, err := f.resolveLayout("Data.Delay", ds, labels["Data.Delay"],
-			[]string{dimI, dimR}, []string{dimM, dimR}, []string{dimI}, []string{dimM}, []string{dimR}); err != nil {
+		layout, err := f.resolveLayout("Data.Delay", ds, labels["Data.Delay"],
+			[]string{dimI, dimR}, []string{dimM, dimR}, []string{dimI}, []string{dimM}, []string{dimR})
+		if err != nil {
 			shape, _ := datasetShape(ds)
 			legacy := labels["Data.Delay"] == nil && len(shape) == 1 && shape[0] == uint64(f.M*f.R) //nolint:gosec // bounded by dimProduct
 			if !legacy {
 				return err
 			}
+			layout = []string{dimM, dimR}
 		}
+		f.delayLayout = layout
 		f.Delay, err = ds.Read()
 		if err != nil {
 			return fmt.Errorf("read Data.Delay: %w", err)
