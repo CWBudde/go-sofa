@@ -19,12 +19,14 @@ import (
 // dataset is the expected content of one HDF5 dataset / netCDF variable.
 type dataset struct {
 	Shape  []int     `json:"shape"`
+	Dims   []string  `json:"dims"`   // netCDF dimension names, one per axis
 	Values []float64 `json:"values"` // row-major (C order)
 }
 
 // expectation is what a reference reader must find in one written file.
 type expectation struct {
 	Attributes map[string]string  `json:"attributes"`
+	Dimensions map[string]int     `json:"dimensions"` // netCDF dimension lengths
 	Datasets   map[string]dataset `json:"datasets"`
 }
 
@@ -73,7 +75,8 @@ func run(dir string) error {
 				"DataType":        f.DataType,
 				"Title":           f.Title,
 			},
-			Datasets: data,
+			Dimensions: map[string]int{"M": f.M, "R": f.R, "E": f.E, "N": f.N, "C": 3, "I": 1},
+			Datasets:   data,
 		}
 		fmt.Println("wrote", filepath.Join(dir, name))
 	}
@@ -188,8 +191,9 @@ func buildFIR() (*sofa.File, map[string]dataset) {
 	f.SamplingRate = []float64{48000}
 	f.Delay = []float64{0, 0}
 	return f, map[string]dataset{
-		"Data.IR":           {Shape: []int{numM, numR, n}, Values: flat},
-		"Data.SamplingRate": {Shape: []int{1}, Values: f.SamplingRate},
+		"Data.IR":           {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: flat},
+		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},
+		"Data.Delay":        {Shape: []int{numR}, Dims: []string{"R"}, Values: f.Delay},
 	}
 }
 
@@ -201,9 +205,9 @@ func buildTF() (*sofa.File, map[string]dataset) {
 	f.TFReal, f.TFImag = re, im
 	f.Frequencies = frequencies(n)
 	return f, map[string]dataset{
-		"Data.Real": {Shape: []int{numM, numR, n}, Values: reFlat},
-		"Data.Imag": {Shape: []int{numM, numR, n}, Values: imFlat},
-		"N":         {Shape: []int{n}, Values: f.Frequencies},
+		"Data.Real": {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: reFlat},
+		"Data.Imag": {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: imFlat},
+		"N":         {Shape: []int{n}, Dims: []string{"N"}, Values: f.Frequencies},
 	}
 }
 
@@ -215,9 +219,9 @@ func buildTFE() (*sofa.File, map[string]dataset) {
 	f.TFRealE, f.TFImagE = re, im
 	f.Frequencies = frequencies(n)
 	return f, map[string]dataset{
-		"Data.Real": {Shape: []int{numM, numR, e, n}, Values: reFlat},
-		"Data.Imag": {Shape: []int{numM, numR, e, n}, Values: imFlat},
-		"N":         {Shape: []int{n}, Values: f.Frequencies},
+		"Data.Real": {Shape: []int{numM, numR, e, n}, Dims: []string{"M", "R", "E", "N"}, Values: reFlat},
+		"Data.Imag": {Shape: []int{numM, numR, e, n}, Dims: []string{"M", "R", "E", "N"}, Values: imFlat},
+		"N":         {Shape: []int{n}, Dims: []string{"N"}, Values: f.Frequencies},
 	}
 }
 
@@ -228,25 +232,26 @@ func buildSOS() (*sofa.File, map[string]dataset) {
 	f.SOSCoefficients = sos
 	f.SamplingRate = []float64{44100}
 	return f, map[string]dataset{
-		"Data.SOS":          {Shape: []int{numM, numR, n}, Values: flat},
-		"Data.SamplingRate": {Shape: []int{1}, Values: f.SamplingRate},
+		"Data.SOS":          {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: flat},
+		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},
 	}
 }
 
 func positionDatasets(f *sofa.File) map[string]dataset {
-	flat := func(vs []sofa.Vector3) dataset {
-		d := dataset{Shape: []int{len(vs), 3}}
+	flat := func(rows string, vs []sofa.Vector3) dataset {
+		d := dataset{Shape: []int{len(vs), 3}, Dims: []string{rows, "C"}}
 		for _, v := range vs {
 			d.Values = append(d.Values, v.X, v.Y, v.Z)
 		}
 		return d
 	}
+	// base writes one listener, R receivers, M sources and E emitters.
 	return map[string]dataset{
-		"ListenerPosition": flat(f.ListenerPositions),
-		"ReceiverPosition": flat(f.ReceiverPositions),
-		"SourcePosition":   flat(f.SourcePositions),
-		"EmitterPosition":  flat(f.EmitterPositions),
-		"ListenerUp":       flat([]sofa.Vector3{f.ListenerUp}),
-		"ListenerView":     flat([]sofa.Vector3{f.ListenerView}),
+		"ListenerPosition": flat("I", f.ListenerPositions),
+		"ReceiverPosition": flat("R", f.ReceiverPositions),
+		"SourcePosition":   flat("M", f.SourcePositions),
+		"EmitterPosition":  flat("E", f.EmitterPositions),
+		"ListenerUp":       flat("I", []sofa.Vector3{f.ListenerUp}),
+		"ListenerView":     flat("I", []sofa.Vector3{f.ListenerView}),
 	}
 }
