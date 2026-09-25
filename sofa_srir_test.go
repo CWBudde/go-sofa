@@ -119,6 +119,7 @@ func TestSRIRWarningsDoNotBlockSave(t *testing.T) {
 // TestSRIRReadKnownFile opens the SOFA Toolbox SRIR demo file. It has a
 // single omnidirectional receiver (order 0) and no room volume or temperature.
 func TestSRIRReadKnownFile(t *testing.T) {
+	requireTestdata(t, "testdata/SingleRoomSRIR_1.1.sofa")
 	f, err := Open("testdata/SingleRoomSRIR_1.1.sofa")
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)

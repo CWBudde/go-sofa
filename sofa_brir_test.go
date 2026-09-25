@@ -89,6 +89,7 @@ func TestBRIRValidFileSaves(t *testing.T) {
 // TestBRIRRoundTripOfficeII round-trips a real BRIR database file: the Kayser
 // 2009 Office II set (SingleRoomDRIR, 8 in-ear and behind-the-ear receivers).
 func TestBRIRRoundTripOfficeII(t *testing.T) {
+	requireTestdata(t, "testdata/OfficeII.sofa")
 	src, err := Open("testdata/OfficeII.sofa")
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)

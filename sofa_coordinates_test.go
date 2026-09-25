@@ -121,6 +121,7 @@ func TestPositionCoordinateAttributesNormalized(t *testing.T) {
 // TestReadRealFileCoordinateType checks the attributes against a real measured
 // dataset: CIPIC stores source positions in spherical coordinates.
 func TestReadRealFileCoordinateType(t *testing.T) {
+	requireTestdata(t, "testdata/CIPIC_subject_003_hrir_final.sofa")
 	f, err := Open("testdata/CIPIC_subject_003_hrir_final.sofa")
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
