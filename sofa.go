@@ -527,7 +527,7 @@ func (f *File) readRateAndDelay(datasets map[string]*hdf5.Dataset, labels map[st
 }
 
 func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
-	if err := f.readFrequencyVector(datasets); err != nil {
+	if err := f.readFrequencyVector(datasets, labels); err != nil {
 		return err
 	}
 
@@ -575,7 +575,7 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 // DataType == "TF-E". Files store the arrays either [M,R,E,N] (go-sofa) or
 // [M,R,N,E] (SOFA Toolbox); the latter is transposed on read.
 func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
-	if err := f.readFrequencyVector(datasets); err != nil {
+	if err := f.readFrequencyVector(datasets, labels); err != nil {
 		return err
 	}
 
@@ -655,10 +655,13 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 
 // readFrequencyVector reads /N for TF / TF-E DataTypes. Shared between
 // readTFAudioData and readTFEAudioData.
-func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset) error {
+func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	ds, ok := datasets["N"]
 	if !ok {
 		return nil
+	}
+	if _, err := f.resolveLayout("N", ds, labels["N"], []string{dimN}); err != nil {
+		return err
 	}
 	freqs, err := ds.Read()
 	if err != nil {

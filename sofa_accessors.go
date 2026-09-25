@@ -185,8 +185,8 @@ func (f *File) Duration() (float64, error) {
 
 // IRAt returns the impulse response for measurement m, receiver r. It
 // fails with ErrUnsupportedDataType for non-FIR files and with
-// ErrIndexOutOfRange when m or r is outside [0,M)×[0,R) or no response is
-// stored there.
+// ErrIndexOutOfRange when m or r is outside [0,M)×[0,R) or no complete
+// response (N samples) is stored there.
 func (f *File) IRAt(m, r int) ([]float64, error) {
 	if err := f.requireFIR("IRAt"); err != nil {
 		return nil, err
@@ -197,7 +197,11 @@ func (f *File) IRAt(m, r int) ([]float64, error) {
 	if m >= len(f.ImpulseResponses) || r >= len(f.ImpulseResponses[m]) {
 		return nil, fmt.Errorf("IRAt(%d, %d): no impulse response stored: %w", m, r, ErrIndexOutOfRange)
 	}
-	return f.ImpulseResponses[m][r], nil
+	ir := f.ImpulseResponses[m][r]
+	if len(ir) != f.N {
+		return nil, fmt.Errorf("IRAt(%d, %d): %d samples stored, want N=%d: %w", m, r, len(ir), f.N, ErrIndexOutOfRange)
+	}
+	return ir, nil
 }
 
 // IRPeakdB returns the peak level in dB (relative to 1.0) for measurement
