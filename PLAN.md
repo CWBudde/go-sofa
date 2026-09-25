@@ -34,7 +34,7 @@ file tracks only what's still open.
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7–R9 remain. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8–R9 remain. Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -289,16 +289,39 @@ R1–R4 are release blockers.
 
 #### R7 — API ergonomics (medium)
 
-- [ ] **R7a.** Sentinel/typed errors (`ErrNotSOFA`,
+- [x] **R7a.** Sentinel/typed errors (`ErrNotSOFA`,
       `ErrUnsupportedDataType`, `*ValidationError{Field}`) usable with
       `errors.Is/As`; capitalise field names in messages.
-- [ ] **R7b.** Export DataType constants (`DataTypeFIR`, …).
+  - (2026-09-26) — `Open` wraps `ErrNotSOFA` for a non-SOFA `Conventions`;
+    every error of `validate` (dimensions, shapes, coordinate Types,
+    values, extras, convention rules) is a `*ValidationError{Field, Err}`
+    whose `Field` is the `File` field at fault and whose message starts
+    with it (`M: must be > 0`, `ImpulseResponses[0] length …`); an unknown
+    DataType also unwraps to `ErrUnsupportedDataType`.
+    `TestValidationErrorField`, `TestValidationErrorUnwraps` and
+    `TestOpenNonSOFAHDF5` cover it, and the reject tables assert
+    `errors.As`.
+- [x] **R7b.** Export DataType constants (`DataTypeFIR`, …).
+  - (2026-09-26) — `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE`,
+    `DataTypeSOS` replace the unexported constants; the CLIs and the
+    interop generator use them instead of string literals.
 - [ ] **R7c.** `io.ReaderAt`/`io.Writer` entry points (`Read(r)`,
       `(*File).WriteTo(w)`), if go-hdf5 allows.
-- [ ] **R7d.** Release the HDF5 handle after eager `Open` (or make `Close`
+  - (2026-09-26) — partial: blocked upstream. go-hdf5 v0.16.1 only has
+    `Open(filename)` and `CreateForWrite(filename)`; add a reader-based
+    open and a writer-based create in go-hdf5, release them, then add the
+    entry points here.
+- [x] **R7d.** Release the HDF5 handle after eager `Open` (or make `Close`
       meaningful via Phase C lazy mode).
-- [ ] **R7e.** Fix godoc: `Vector3` "in meters" (wrong for spherical),
+  - (2026-09-26) — `Open` closes the HDF5 file before returning (all reads
+    were already eager); `Close` is a documented no-op returning nil.
+    `TestOpenReleasesHandle` checks the process holds no extra
+    descriptor after `Open`.
+- [x] **R7e.** Fix godoc: `Vector3` "in meters" (wrong for spherical),
       `File` "an open SOFA file", `Delay` shape.
+  - (2026-09-26) — `Vector3` names the units per coordinate Type, `File`
+    describes eagerly loaded contents, and `Delay` lists its 1/M/R/M×R
+    layouts.
 - [ ] **R7f.** Consider replacing parallel per-DataType fields (`TFReal` vs
       `TFRealE`, …) with a `Data` interface / tagged union before v1 to
       avoid API churn.

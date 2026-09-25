@@ -152,7 +152,7 @@ if err != nil {
 }
 defer f.Close()
 
-if f.DataType == "TF" {
+if f.DataType == sofa.DataTypeTF {
     fmt.Printf("Frequencies: %d points (%.1f Hz – %.1f Hz)\n",
         len(f.Frequencies),
         f.Frequencies[0],
@@ -191,7 +191,7 @@ func main() {
         Version:                "1.0",
         SOFAConventions:        "SimpleFreeFieldHRIR",
         SOFAConventionsVersion: "1.0",
-        DataType:               "FIR",
+        DataType:               sofa.DataTypeFIR,
         Title:                  "Synthetic HRIR",
         M:                      M, R: R, E: E, N: N,
         SamplingRate: []float64{48000},
@@ -341,7 +341,9 @@ small); `TFReal`/`TFImag` are emitted only with `--include-tf`.
 
 #### `File`
 
-Represents an open SOFA file with all its data and metadata.
+Holds the contents of a SOFA file — attributes, positions and audio data —
+fully loaded by `Open` (which closes the file before returning) or built in
+memory for `Save`. It holds no open file handle.
 
 **Fields:**
 
@@ -365,8 +367,8 @@ Represents an open SOFA file with all its data and metadata.
 
 **Methods:**
 
-- `Open(path string) (*File, error)` — Opens a SOFA file for reading
-- `Close() error` — Closes the file and releases resources
+- `Open(path string) (*File, error)` — Reads a SOFA file completely and closes it again
+- `Close() error` — Does nothing and returns nil (`Open` holds no open file); kept so existing `defer f.Close()` code compiles
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
   `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
@@ -386,21 +388,40 @@ The IR accessors fail with `ErrUnsupportedDataType` on non-FIR files, and all
 accessors fail with `ErrIndexOutOfRange` for indices outside the file's
 dimensions; `Open` fails
 with `ErrUnsupportedDataType` for an empty, unknown, `FIR-E` or `FIRE`
-`DataType`. Test for both with `errors.Is`.
+`DataType`, and with `ErrNotSOFA` when the `Conventions` attribute is not
+`SOFA`. Test for these with `errors.Is`.
+
+`Save` returns every validation failure as a `*ValidationError`. Its `Field`
+names the `File` field at fault (`"M"`, `"ImpulseResponses"`,
+`"SourcePositionType"`, `"Variables"`, …), and its message starts with that
+field:
+
+```go
+var ve *sofa.ValidationError
+if errors.As(err, &ve) {
+    fmt.Printf("fix %s: %v\n", ve.Field, ve.Err)
+}
+```
+
+`DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` are the
+`DataType` values the package reads and writes.
 
 #### `Vector3`
 
-Represents a 3D coordinate in meters.
+One coordinate triplet of a position or orientation. Its units are those the
+variable's `Type` and `Units` attributes name: metres for `cartesian`;
+azimuth, elevation (degrees or radians) and radius in metres for `spherical`
+and `spherical harmonics`.
 
 **Fields:**
 
-- `X, Y, Z float64` — Cartesian coordinates
+- `X, Y, Z float64` — the three coordinates
 
 ### Functions
 
 #### `Open(path string) (*File, error)`
 
-Opens a SOFA file for reading. Validates that the file is a valid SOFA file (checks `Conventions == "SOFA"`) and reads all data and metadata.
+Reads a SOFA file. Checks that it is a SOFA file (`Conventions == "SOFA"`, else `ErrNotSOFA`), reads all data and metadata into the returned `File` and closes the file before returning.
 
 **Returns:**
 
@@ -427,11 +448,11 @@ new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
 the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
 `(0, 90, 1)`, elevation π/2 when `ListenerViewUnits` is in radians). The destination is created from scratch on
 each call; an existing file is overwritten only after validation
-succeeds. Works for both `DataType == "FIR"` and `DataType == "TF"`.
+succeeds. Works for every supported `DataType` (FIR, TF, TF-E, SOS).
 
 **Returns:**
 
-- `error` — Validation error or I/O error from the underlying HDF5 writer.
+- `error` — a `*ValidationError` when the `File` is invalid, else an I/O error from the underlying HDF5 writer.
 
 **Example:**
 

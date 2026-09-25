@@ -173,7 +173,7 @@ func TestValidateTFEAndSOS(t *testing.T) {
 		f := minimalTFEFile()
 		f.Frequencies = nil
 		err := f.validate()
-		if err == nil || !strings.Contains(err.Error(), "frequencies") {
+		if err == nil || !strings.Contains(err.Error(), "Frequencies") {
 			t.Fatalf("validate() = %v, want substring \"frequencies\"", err)
 		}
 	})

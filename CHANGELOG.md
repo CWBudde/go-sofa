@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `Open` reads everything and closes the file before it returns, so a `File`
+  holds no open handle; `Close` does nothing and returns nil.
+- Validation errors from `Save` name the `File` field first, capitalised as
+  the field is (`M: must be > 0, got 0`, `SamplingRate: length 3 must be M=2
+or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 - **Breaking:** `Open` keeps the case of the `Type` and `Units` attributes
   (`"Spherical"`, `"meter"`) instead of lowercasing them, so a round trip no
   longer rewrites them; values are still trimmed. Compare them with
@@ -65,6 +70,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
+- `ErrNotSOFA`, wrapped by `Open` when `Conventions` is not `SOFA`, and
+  `*ValidationError{Field, Err}`, which `Save` returns for every validation
+  failure; use `errors.Is` / `errors.As`. An unknown `DataType` is both a
+  `ValidationError` and `ErrUnsupportedDataType`.
 - `SamplingRateAt(m)`, `SourcePositionAt(m)` and `DelayAt(m, r)` resolve
   `[I]`- versus `[M]`-sized variables (and every `Data.Delay` layout, using
   the dimension names `Open` found, so `[M]` and `[R]` are told apart when
@@ -124,4 +134,5 @@ what that amounts to for a consumer.
   spherical `(azimuth, elevation, radius)` rather than `(X, Y, Z)`. Reading
   those as cartesian silently places every measurement in the wrong direction,
   and before this release the file gave no way to tell the two apart.
+
 - `sofainfo`, `sofa2json`, and `sofaprobe` command-line tools.

@@ -239,6 +239,7 @@ func TestValidateRejectsBadExtras(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.match) {
 				t.Errorf("error %q does not mention %q", err, tc.match)
 			}
+			requireValidationError(t, err)
 		})
 	}
 }

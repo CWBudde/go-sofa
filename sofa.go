@@ -23,17 +23,20 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
+// DataType values defined by the AES69 specification: the values of
+// File.DataType this package reads and writes.
+const (
+	DataTypeFIR = "FIR"  // time-domain impulse responses
+	DataTypeTF  = "TF"   // complex frequency-domain transfer functions
+	DataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
+	DataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
+)
+
 // SOFA file format constants.
 const (
 	// conventionSOFA is the required value of the Conventions attribute
 	// for any AES69 SOFA file.
 	conventionSOFA = "SOFA"
-
-	// DataType values defined by the AES69 specification.
-	dataTypeFIR = "FIR"  // time-domain impulse responses
-	dataTypeTF  = "TF"   // complex frequency-domain transfer functions
-	dataTypeTFE = "TF-E" // TF with active emitter dimension ([M][R][E][N]); also carries SH-encoded HRTFs with E as SH coefficient index
-	dataTypeSOS = "SOS"  // second-order section (biquad) filter coefficients
 
 	// SOFA dataset names of the position and orientation variables.
 	datasetListenerPosition = "ListenerPosition"
@@ -59,15 +62,19 @@ const (
 	UnitsCartesianMetres = "metre, metre, metre"
 )
 
-// Vector3 represents a 3D coordinate (X, Y, Z) in meters.
-// Used for positions and orientations in SOFA files.
+// Vector3 is one coordinate triplet of a position or orientation
+// variable. Its units are those the variable's Type and Units attributes
+// name: X, Y, Z in metres for "cartesian"; azimuth, elevation (degrees, or
+// radians where Units say so) and radius in metres for "spherical" and
+// "spherical harmonics" (where each EmitterPosition row is one SH
+// coefficient's emitter).
 type Vector3 struct {
 	X, Y, Z float64
 }
 
-// File represents an open SOFA file with all its data and metadata.
-// It provides access to spatial audio data including impulse responses,
-// positions, and AES69 standardized attributes.
+// File holds the contents of a SOFA file: its AES69 attributes, positions
+// and audio data. Open fills it completely (nothing is read lazily), and
+// Save writes one built or modified in memory.
 type File struct {
 	// Dimensions (M=measurements, R=receivers, E=emitters, N=samples)
 	M int // number of measurements
@@ -122,7 +129,7 @@ type File struct {
 	// Audio data — FIR (used when DataType == "FIR")
 	ImpulseResponses [][][]float64 // [M][R][N] the actual IR data
 	SamplingRate     []float64     // [M] sampling rate in Hz (may be scalar)
-	Delay            []float64     // [M] delay in samples
+	Delay            []float64     // delay in samples: 1 (shared), M, R or M×R (row-major [M][R]) values; see DelayAt
 
 	// Audio data — TF (used when DataType == "TF")
 	// Frequencies has length N. TFReal and TFImag have shape [M][R][N] and
@@ -187,35 +194,37 @@ type File struct {
 	Dropped            []string
 
 	// Internal
-	hdf5File    *hdf5.File // underlying HDF5 file handle
-	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
+	delayLayout []string // Data.Delay dimensions as resolved by Open; see delayAxes
 }
 
-// Open opens a SOFA file for reading.
-// It validates that the file is a valid SOFA file and reads all data and metadata.
-// The caller must call Close() when done with the file.
-func Open(path string) (*File, error) {
+// Open reads a SOFA file. It checks that the file is a SOFA file, reads all
+// data and metadata into the returned File and closes the file again before
+// it returns, so the File holds no open handle. A failure to close the file
+// is returned too, joined with any read error, and yields no File.
+func Open(path string) (f *File, err error) {
 	h, err := hdf5.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
+	defer func() {
+		if cerr := h.Close(); cerr != nil {
+			f, err = nil, errors.Join(err, fmt.Errorf("close HDF5: %w", cerr))
+		}
+	}()
 
-	f := &File{hdf5File: h}
+	f = &File{}
 	root := h.Root()
 
 	// Read global attributes from root group.
 	if err := f.readGlobalAttributes(root); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read attributes: %w", err)
 	}
 
 	// Validate SOFA convention.
 	if f.Conventions != conventionSOFA {
-		h.Close()
-		return nil, fmt.Errorf("not a SOFA file: Conventions=%q", f.Conventions)
+		return nil, fmt.Errorf("%w: Conventions=%q", ErrNotSOFA, f.Conventions)
 	}
 	if err := checkDataType(f.DataType); err != nil {
-		h.Close()
 		return nil, err
 	}
 
@@ -229,21 +238,18 @@ func Open(path string) (*File, error) {
 
 	// Read dimensions from dimension-scale datasets.
 	if err := f.readDimensions(datasets); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read dimensions: %w", err)
 	}
 
 	// Read audio data.
 	labels := dimensionLabels(datasets, sofaDimensions)
 	if err := f.readAudioData(datasets, labels); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
 	// Read spatial data. Missing datasets are skipped; unreadable ones and
 	// shapes that match no allowed layout fail.
 	if err := f.readSpatialData(datasets, labels); err != nil {
-		h.Close()
 		return nil, fmt.Errorf("read spatial data: %w", err)
 	}
 	f.readRoomScalars(datasets)
@@ -254,11 +260,9 @@ func Open(path string) (*File, error) {
 	return f, nil
 }
 
-// Close closes the SOFA file and releases associated resources.
+// Close does nothing and returns nil: Open already closes the file it
+// reads. It is kept so that existing `defer f.Close()` code still compiles.
 func (f *File) Close() error {
-	if f.hdf5File != nil {
-		return f.hdf5File.Close()
-	}
 	return nil
 }
 
@@ -497,16 +501,16 @@ func parseDimensionSize(s string) (int, error) {
 // /Data.IR, /Data.SamplingRate, and /Data.Delay.
 func (f *File) readAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		return f.readFIRAudioData(datasets, labels)
-	case dataTypeTF:
+	case DataTypeTF:
 		return f.readTFAudioData(datasets, labels)
-	case dataTypeTFE:
+	case DataTypeTFE:
 		return f.readTFEAudioData(datasets, labels)
-	case dataTypeSOS:
+	case DataTypeSOS:
 		return f.readSOSAudioData(datasets, labels)
 	default:
-		return checkDataType(f.DataType)
+		return invalid("DataType", "%w", checkDataType(f.DataType))
 	}
 }
 
@@ -1015,55 +1019,55 @@ func (f *File) validate() error {
 
 	// Check dimensions are non-zero
 	if f.M <= 0 {
-		return fmt.Errorf("m must be > 0, got %d", f.M)
+		return invalid("M", "must be > 0, got %d", f.M)
 	}
 	if f.R <= 0 {
-		return fmt.Errorf("r must be > 0, got %d", f.R)
+		return invalid("R", "must be > 0, got %d", f.R)
 	}
 	if f.E <= 0 {
-		return fmt.Errorf("e must be > 0, got %d", f.E)
+		return invalid("E", "must be > 0, got %d", f.E)
 	}
 	if f.N <= 0 {
-		return fmt.Errorf("n must be > 0, got %d", f.N)
+		return invalid("N", "must be > 0, got %d", f.N)
 	}
 
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		if err := f.validateFIR(); err != nil {
 			return err
 		}
-	case dataTypeTF:
+	case DataTypeTF:
 		if err := f.validateTF(); err != nil {
 			return err
 		}
-	case dataTypeTFE:
+	case DataTypeTFE:
 		if err := f.validateTFE(); err != nil {
 			return err
 		}
-	case dataTypeSOS:
+	case DataTypeSOS:
 		if err := f.validateSOS(); err != nil {
 			return err
 		}
 	default:
-		return checkDataType(f.DataType)
+		return invalid("DataType", "%w", checkDataType(f.DataType))
 	}
 
 	// Check position array dimensions
 	// SOFA spec allows positions to be [M×C] or [1×C] (scalar), same for other dimensions
 	if len(f.ListenerPositions) != f.M && len(f.ListenerPositions) != 1 && len(f.ListenerPositions) != 0 {
-		return fmt.Errorf("ListenerPositions length %d must be M=%d, 1 (scalar), or 0",
+		return invalid("ListenerPositions", "length %d must be M=%d, 1 (scalar), or 0",
 			len(f.ListenerPositions), f.M)
 	}
 	if len(f.ReceiverPositions) != f.R && len(f.ReceiverPositions) != 1 && len(f.ReceiverPositions) != 0 {
-		return fmt.Errorf("ReceiverPositions length %d must be R=%d, 1 (scalar), or 0",
+		return invalid("ReceiverPositions", "length %d must be R=%d, 1 (scalar), or 0",
 			len(f.ReceiverPositions), f.R)
 	}
 	if len(f.SourcePositions) != f.M && len(f.SourcePositions) != 1 && len(f.SourcePositions) != 0 {
-		return fmt.Errorf("SourcePositions length %d must be M=%d, 1 (scalar), or 0",
+		return invalid("SourcePositions", "length %d must be M=%d, 1 (scalar), or 0",
 			len(f.SourcePositions), f.M)
 	}
 	if len(f.EmitterPositions) != f.E && len(f.EmitterPositions) != 1 && len(f.EmitterPositions) != 0 {
-		return fmt.Errorf("EmitterPositions length %d must be E=%d, 1 (scalar), or 0",
+		return invalid("EmitterPositions", "length %d must be E=%d, 1 (scalar), or 0",
 			len(f.EmitterPositions), f.E)
 	}
 	if err := f.validatePerMeasurement(); err != nil {
@@ -1101,12 +1105,12 @@ func (f *File) validateCoordinateTypes() error {
 			continue
 		}
 		if p.typ == "" {
-			return fmt.Errorf("%sType is required", p.name)
+			return invalid(p.name+"Type", "is required")
 		}
 		switch strings.ToLower(strings.TrimSpace(p.typ)) {
 		case CoordinateCartesian, CoordinateSpherical, CoordinateSphericalHarmonics:
 		default:
-			return fmt.Errorf("%sType %q must be %q, %q or %q", p.name, p.typ,
+			return invalid(p.name+"Type", "%q must be %q, %q or %q", p.typ,
 				CoordinateCartesian, CoordinateSpherical, CoordinateSphericalHarmonics)
 		}
 	}
@@ -1118,19 +1122,19 @@ func (f *File) validateCoordinateTypes() error {
 // and DataType.
 func (f *File) validateRequiredAttributes() error {
 	if f.Conventions != conventionSOFA {
-		return fmt.Errorf("conventions must be %q, got %q", conventionSOFA, f.Conventions)
+		return invalid("Conventions", "must be %q, got %q", conventionSOFA, f.Conventions)
 	}
 	if f.Version == "" {
-		return fmt.Errorf("version is required")
+		return invalid("Version", "is required")
 	}
 	if f.SOFAConventions == "" {
-		return fmt.Errorf("sofaConventions is required")
+		return invalid("SOFAConventions", "is required")
 	}
 	if f.SOFAConventionsVersion == "" {
-		return fmt.Errorf("sofaConventionsVersion is required")
+		return invalid("SOFAConventionsVersion", "is required")
 	}
 	if f.DataType == "" {
-		return fmt.Errorf("dataType is required")
+		return invalid("DataType", "is required")
 	}
 	return nil
 }
@@ -1151,23 +1155,23 @@ func (f *File) validatePerMeasurement() error {
 			continue
 		}
 		if len(p.perM) != f.M {
-			return fmt.Errorf("%s has %d rows, want M=%d", p.name, len(p.perM), f.M)
+			return invalid(p.name, "has %d rows, want M=%d", len(p.perM), f.M)
 		}
 		width := len(p.perM[0])
 		if width != p.size && width != 1 {
-			return fmt.Errorf("%s[0] length %d must be %s=%d or 1", p.name, width, p.dim, p.size)
+			return invalid(p.name, "[0] has length %d, want %s=%d or 1", width, p.dim, p.size)
 		}
 		for i, row := range p.perM {
 			if len(row) != width {
-				return fmt.Errorf("%s[%d] length %d differs from %s[0] length %d", p.name, i, len(row), p.name, width)
+				return invalid(p.name, "[%d] has length %d, but [0] has %d", i, len(row), width)
 			}
 		}
 	}
 	if n := len(f.ListenerViews); n != 0 && n != f.M {
-		return fmt.Errorf("ListenerViews length %d must be M=%d or 0", n, f.M)
+		return invalid("ListenerViews", "length %d must be M=%d or 0", n, f.M)
 	}
 	if n := len(f.ListenerUps); n != 0 && n != f.M {
-		return fmt.Errorf("ListenerUps length %d must be M=%d or 0", n, f.M)
+		return invalid("ListenerUps", "length %d must be M=%d or 0", n, f.M)
 	}
 	return nil
 }
@@ -1176,30 +1180,30 @@ func (f *File) validatePerMeasurement() error {
 // SamplingRate (M or 1), Delay (0/1/M/R/M*R).
 func (f *File) validateFIR() error {
 	if len(f.ImpulseResponses) != f.M {
-		return fmt.Errorf("ImpulseResponses length %d does not match M=%d",
+		return invalid("ImpulseResponses", "length %d does not match M=%d",
 			len(f.ImpulseResponses), f.M)
 	}
 	for i, mr := range f.ImpulseResponses {
 		if len(mr) != f.R {
-			return fmt.Errorf("ImpulseResponses[%d] length %d does not match R=%d",
+			return invalid("ImpulseResponses", "[%d] length %d does not match R=%d",
 				i, len(mr), f.R)
 		}
 		for j, n := range mr {
 			if len(n) != f.N {
-				return fmt.Errorf("ImpulseResponses[%d][%d] length %d does not match N=%d",
+				return invalid("ImpulseResponses", "[%d][%d] length %d does not match N=%d",
 					i, j, len(n), f.N)
 			}
 		}
 	}
 
 	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
-		return fmt.Errorf("samplingRate length %d must be M=%d or 1",
+		return invalid("SamplingRate", "length %d must be M=%d or 1",
 			len(f.SamplingRate), f.M)
 	}
 
 	delayLen := len(f.Delay)
 	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
-		return fmt.Errorf("delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
+		return invalid("Delay", "length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
 			delayLen, f.M, f.R, f.M*f.R)
 	}
 	return nil
@@ -1209,7 +1213,7 @@ func (f *File) validateFIR() error {
 // shape [M][R][N].
 func (f *File) validateTF() error {
 	if len(f.Frequencies) != f.N {
-		return fmt.Errorf("frequencies length %d does not match N=%d",
+		return invalid("Frequencies", "length %d does not match N=%d",
 			len(f.Frequencies), f.N)
 	}
 	if err := check3D("TFReal", f.TFReal, f.M, f.R, f.N); err != nil {
@@ -1225,7 +1229,7 @@ func (f *File) validateTF() error {
 // TFRealE/TFImagE shape [M][R][E][N].
 func (f *File) validateTFE() error {
 	if len(f.Frequencies) != f.N {
-		return fmt.Errorf("frequencies length %d does not match N=%d",
+		return invalid("Frequencies", "length %d does not match N=%d",
 			len(f.Frequencies), f.N)
 	}
 	if err := check4D("TFRealE", f.TFRealE, f.M, f.R, f.E, f.N); err != nil {
@@ -1242,18 +1246,18 @@ func (f *File) validateTFE() error {
 // (0/1/M/R/M*R) — same conventions as FIR.
 func (f *File) validateSOS() error {
 	if f.N%6 != 0 {
-		return fmt.Errorf("DataType=SOS requires N divisible by 6, got %d", f.N)
+		return invalid("N", "must be divisible by 6 for DataType SOS, got %d", f.N)
 	}
 	if err := check3D("SOSCoefficients", f.SOSCoefficients, f.M, f.R, f.N); err != nil {
 		return err
 	}
 	if len(f.SamplingRate) != f.M && len(f.SamplingRate) != 1 {
-		return fmt.Errorf("samplingRate length %d must be M=%d or 1",
+		return invalid("SamplingRate", "length %d must be M=%d or 1",
 			len(f.SamplingRate), f.M)
 	}
 	delayLen := len(f.Delay)
 	if delayLen != 0 && delayLen != 1 && delayLen != f.M && delayLen != f.R && delayLen != f.M*f.R {
-		return fmt.Errorf("delay length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
+		return invalid("Delay", "length %d must be 0 (optional), 1 (scalar), M=%d, R=%d, or M×R=%d",
 			delayLen, f.M, f.R, f.M*f.R)
 	}
 	return nil
@@ -1261,21 +1265,21 @@ func (f *File) validateSOS() error {
 
 func check4D(name string, data [][][][]float64, m, r, e, n int) error {
 	if len(data) != m {
-		return fmt.Errorf("%s length %d does not match M=%d", name, len(data), m)
+		return invalid(name, "length %d does not match M=%d", len(data), m)
 	}
 	for i, mr := range data {
 		if len(mr) != r {
-			return fmt.Errorf("%s[%d] length %d does not match R=%d", name, i, len(mr), r)
+			return invalid(name, "[%d] length %d does not match R=%d", i, len(mr), r)
 		}
 		for j, re := range mr {
 			if len(re) != e {
-				return fmt.Errorf("%s[%d][%d] length %d does not match E=%d",
-					name, i, j, len(re), e)
+				return invalid(name, "[%d][%d] length %d does not match E=%d",
+					i, j, len(re), e)
 			}
 			for k, nn := range re {
 				if len(nn) != n {
-					return fmt.Errorf("%s[%d][%d][%d] length %d does not match N=%d",
-						name, i, j, k, len(nn), n)
+					return invalid(name, "[%d][%d][%d] length %d does not match N=%d",
+						i, j, k, len(nn), n)
 				}
 			}
 		}
@@ -1285,16 +1289,16 @@ func check4D(name string, data [][][][]float64, m, r, e, n int) error {
 
 func check3D(name string, data [][][]float64, m, r, n int) error {
 	if len(data) != m {
-		return fmt.Errorf("%s length %d does not match M=%d", name, len(data), m)
+		return invalid(name, "length %d does not match M=%d", len(data), m)
 	}
 	for i, mr := range data {
 		if len(mr) != r {
-			return fmt.Errorf("%s[%d] length %d does not match R=%d", name, i, len(mr), r)
+			return invalid(name, "[%d] length %d does not match R=%d", i, len(mr), r)
 		}
 		for j, nn := range mr {
 			if len(nn) != n {
-				return fmt.Errorf("%s[%d][%d] length %d does not match N=%d",
-					name, i, j, len(nn), n)
+				return invalid(name, "[%d][%d] length %d does not match N=%d",
+					i, j, len(nn), n)
 			}
 		}
 	}
@@ -1304,13 +1308,13 @@ func check3D(name string, data [][][]float64, m, r, n int) error {
 // writeAudioDatasets dispatches to the per-DataType writer.
 func (f *File) writeAudioDatasets(nc *netcdfDimensions) error {
 	switch f.DataType {
-	case dataTypeFIR:
+	case DataTypeFIR:
 		return f.writeFIRAudioDatasets(nc)
-	case dataTypeTF:
+	case DataTypeTF:
 		return f.writeTFAudioDatasets(nc)
-	case dataTypeTFE:
+	case DataTypeTFE:
 		return f.writeTFEAudioDatasets(nc)
-	case dataTypeSOS:
+	case DataTypeSOS:
 		return f.writeSOSAudioDatasets(nc)
 	default:
 		return fmt.Errorf("unsupported DataType %q", f.DataType)

@@ -127,6 +127,8 @@ func TestValidateRejectsBadData(t *testing.T) {
 				t.Errorf("validate accepted %s", tc.name)
 			case tc.want != "" && !strings.Contains(err.Error(), tc.want):
 				t.Errorf("error %q does not name %s", err, tc.want)
+			case tc.want != "":
+				requireValidationError(t, err)
 			}
 		})
 	}
@@ -180,19 +182,19 @@ func TestConventionConstraints(t *testing.T) {
 		f    File
 		want string // substring of the error; empty means valid
 	}{
-		{"SimpleFreeFieldHRIR", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: dataTypeFIR, R: 2, E: 1}, ""},
-		{"SimpleFreeFieldHRIR one receiver", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: dataTypeFIR, R: 1, E: 1}, "R=2"},
-		{"SimpleFreeFieldHRIR two emitters", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: dataTypeFIR, R: 2, E: 2}, "E=1"},
-		{"SimpleFreeFieldHRIR as TF", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: dataTypeTF, R: 2, E: 1}, "DataType"},
-		{"SimpleFreeFieldHRTF", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: dataTypeTF, R: 2, E: 1}, ""},
-		{"SimpleFreeFieldHRTF three receivers", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: dataTypeTF, R: 3, E: 1}, "R=2"},
-		{"SimpleFreeFieldHRSOS", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: dataTypeSOS, R: 2, E: 1}, ""},
-		{"SimpleFreeFieldHRSOS as FIR", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: dataTypeFIR, R: 2, E: 1}, "DataType"},
-		{"FreeFieldHRTF SH", File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTFE, R: 2, E: 16}, ""},
-		{"FreeFieldHRTF as TF", File{SOFAConventions: "FreeFieldHRTF", DataType: dataTypeTF, R: 2, E: 1}, "DataType"},
-		{"FreeFieldDirectivityTF", File{SOFAConventions: "FreeFieldDirectivityTF", DataType: dataTypeTF, R: 7, E: 1}, ""},
-		{"FreeFieldDirectivityTF as FIR", File{SOFAConventions: "FreeFieldDirectivityTF", DataType: dataTypeFIR, R: 7, E: 1}, "DataType"},
-		{"unknown convention", File{SOFAConventions: "MyConvention", DataType: dataTypeFIR, R: 5, E: 3}, ""},
+		{"SimpleFreeFieldHRIR", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 2, E: 1}, ""},
+		{"SimpleFreeFieldHRIR one receiver", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 1, E: 1}, "R=2"},
+		{"SimpleFreeFieldHRIR two emitters", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 2, E: 2}, "E=1"},
+		{"SimpleFreeFieldHRIR as TF", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeTF, R: 2, E: 1}, "DataType"},
+		{"SimpleFreeFieldHRTF", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: DataTypeTF, R: 2, E: 1}, ""},
+		{"SimpleFreeFieldHRTF three receivers", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: DataTypeTF, R: 3, E: 1}, "R=2"},
+		{"SimpleFreeFieldHRSOS", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: DataTypeSOS, R: 2, E: 1}, ""},
+		{"SimpleFreeFieldHRSOS as FIR", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: DataTypeFIR, R: 2, E: 1}, "DataType"},
+		{"FreeFieldHRTF SH", File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, R: 2, E: 16}, ""},
+		{"FreeFieldHRTF as TF", File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTF, R: 2, E: 1}, "DataType"},
+		{"FreeFieldDirectivityTF", File{SOFAConventions: "FreeFieldDirectivityTF", DataType: DataTypeTF, R: 7, E: 1}, ""},
+		{"FreeFieldDirectivityTF as FIR", File{SOFAConventions: "FreeFieldDirectivityTF", DataType: DataTypeFIR, R: 7, E: 1}, "DataType"},
+		{"unknown convention", File{SOFAConventions: "MyConvention", DataType: DataTypeFIR, R: 5, E: 3}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.f.validateConvention()

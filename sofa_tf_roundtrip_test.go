@@ -115,7 +115,7 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 		{
 			name:  "missing Frequencies",
 			mut:   func(f *File) { f.Frequencies = nil },
-			match: "frequencies",
+			match: "Frequencies",
 		},
 		{
 			name:  "wrong-shape TFReal",
@@ -145,6 +145,7 @@ func TestValidateTFRejectsMissingFields(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.match) {
 				t.Errorf("validate() error = %v, want substring %q", err, tt.match)
 			}
+			requireValidationError(t, err)
 		})
 	}
 }

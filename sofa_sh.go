@@ -47,7 +47,7 @@ func (f *File) claimsSHHeuristically() bool {
 // convention name or History says so), and E equals (L+1)² for some
 // integer L ≥ 0, so E = 1 is order 0.
 func (f *File) SHOrder() (lmax int, ok bool) {
-	if f.DataType != dataTypeTFE || !f.declaresSH() {
+	if f.DataType != DataTypeTFE || !f.declaresSH() {
 		return 0, false
 	}
 	root, square := shCoefficientRoot(f.E)
@@ -76,7 +76,7 @@ func (f *File) SHWarnings() []string {
 	declares := f.declaresSH()
 	root, square := shCoefficientRoot(f.E)
 
-	if declares && f.DataType != dataTypeTFE {
+	if declares && f.DataType != DataTypeTFE {
 		out = append(out, "metadata declares spherical-harmonic encoding but DataType is "+
 			f.DataType+" (expected TF-E)")
 	}
@@ -88,7 +88,7 @@ func (f *File) SHWarnings() []string {
 		out = append(out, "SOFAConventions or History suggests spherical harmonics but EmitterPosition Type is "+
 			strconv.Quote(f.EmitterPositionType)+"; not treated as SH")
 	}
-	if !declares && f.EmitterPositionType == "" && square && root >= 2 && f.DataType == dataTypeTFE {
+	if !declares && f.EmitterPositionType == "" && square && root >= 2 && f.DataType == DataTypeTFE {
 		out = append(out,
 			"E is a perfect square consistent with SH order "+
 				strconv.Itoa(root-1)+", but neither EmitterPosition Type nor SOFAConventions/History declares SH encoding")

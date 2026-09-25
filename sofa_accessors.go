@@ -15,7 +15,7 @@ var ErrUnsupportedDataType = errors.New("unsupported DataType")
 // is one of the DataTypes this package reads and writes.
 func checkDataType(dt string) error {
 	switch dt {
-	case dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS:
+	case DataTypeFIR, DataTypeTF, DataTypeTFE, DataTypeSOS:
 		return nil
 	case "":
 		return fmt.Errorf("%w: DataType attribute is missing or empty", ErrUnsupportedDataType)
@@ -24,7 +24,7 @@ func checkDataType(dt string) error {
 			ErrUnsupportedDataType, dt)
 	default:
 		return fmt.Errorf("%w %q (want %q, %q, %q, or %q)",
-			ErrUnsupportedDataType, dt, dataTypeFIR, dataTypeTF, dataTypeTFE, dataTypeSOS)
+			ErrUnsupportedDataType, dt, DataTypeFIR, DataTypeTF, DataTypeTFE, DataTypeSOS)
 	}
 }
 
@@ -156,8 +156,8 @@ var ErrIndexOutOfRange = errors.New("index out of range")
 // requireFIR returns an ErrUnsupportedDataType-wrapping error unless the
 // file holds impulse responses.
 func (f *File) requireFIR(what string) error {
-	if f.DataType != dataTypeFIR {
-		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, dataTypeFIR)
+	if f.DataType != DataTypeFIR {
+		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, DataTypeFIR)
 	}
 	return nil
 }
