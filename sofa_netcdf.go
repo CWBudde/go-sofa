@@ -167,9 +167,19 @@ func (nc *netcdfDimensions) writeVariable(name string, data []float64, dims ...s
 	return nc.writeVariableWithAttrs(name, data, dims, nil)
 }
 
+// writeVariableTestHook, when non-nil, is called with the variable's name
+// before writeVariableWithAttrs writes it. Tests use it to inject a write
+// failure for one variable.
+var writeVariableTestHook func(name string) error
+
 func (nc *netcdfDimensions) writeVariableWithAttrs(name string, data []float64, dims []string,
 	attrs []hdf5.DatasetOption,
 ) error {
+	if writeVariableTestHook != nil {
+		if err := writeVariableTestHook(name); err != nil {
+			return err
+		}
+	}
 	shape := make([]uint64, len(dims))
 	for i, d := range dims {
 		size, ok := nc.sizes[d]

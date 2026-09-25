@@ -3,6 +3,7 @@ package sofa
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -179,11 +180,84 @@ func TestSaveReplacesExistingAndKeepsMode(t *testing.T) {
 	}
 }
 
+// TestSaveMissingDirectory checks that Save into a directory that does not
+// exist fails creating the temporary file and creates nothing.
 func TestSaveMissingDirectory(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "does", "not", "exist.sofa")
+	root := t.TempDir()
+	path := filepath.Join(root, "does", "not", "exist.sofa")
 	err := robustFIRFile().Save(path)
-	if err == nil || !strings.Contains(err.Error(), "temporary file") {
-		t.Fatalf("Save error = %v, want temporary-file error", err)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Save error = %v, want fs.ErrNotExist", err)
+	}
+	assertOnlyFile(t, root)
+}
+
+// TestSaveTargetIsDirectory checks that Save refuses a path naming a
+// directory before writing anything: no dataset is written, no temporary
+// file is left behind, and the directory is kept.
+func TestSaveTargetIsDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "dir.sofa")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrote := false
+	writeVariableTestHook = func(string) error { wrote = true; return nil }
+	t.Cleanup(func() { writeVariableTestHook = nil })
+
+	if err := robustFIRFile().Save(target); err == nil {
+		t.Fatal("Save to a directory succeeded, want error")
+	}
+	if wrote {
+		t.Error("Save wrote variables before rejecting the directory target")
+	}
+	fi, err := os.Stat(target)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("target after Save: %v, %v; want the directory kept", fi, err)
+	}
+	assertOnlyFile(t, root, "dir.sofa")
+	assertOnlyFile(t, target)
+}
+
+// TestSaveAudioWriteErrors injects a write failure into each audio
+// variable of each DataType and checks the error propagates out of Save
+// and the temporary file is removed.
+func TestSaveAudioWriteErrors(t *testing.T) {
+	cases := []struct {
+		fixture func() *File
+		vars    []string
+	}{
+		{robustFIRFile, []string{"/Data.IR", "/Data.SamplingRate", "/Data.Delay"}},
+		{robustTFFile, []string{"/Data.Real", "/Data.Imag"}},
+		{robustTFEFile, []string{"/Data.Real", "/Data.Imag"}},
+		{robustSOSFile, []string{"/Data.SOS", "/Data.SamplingRate", "/Data.Delay"}},
+	}
+	for _, c := range cases {
+		f := c.fixture()
+		for _, name := range c.vars {
+			t.Run(f.DataType+name, func(t *testing.T) {
+				injected := errors.New("injected write failure")
+				called := false
+				writeVariableTestHook = func(n string) error {
+					if n == name {
+						called = true
+						return injected
+					}
+					return nil
+				}
+				t.Cleanup(func() { writeVariableTestHook = nil })
+
+				dir := t.TempDir()
+				err := f.Save(filepath.Join(dir, "out.sofa"))
+				if !called {
+					t.Fatalf("Save never wrote %s", name)
+				}
+				if !errors.Is(err, injected) {
+					t.Fatalf("Save error = %v, want injected failure", err)
+				}
+				assertOnlyFile(t, dir)
+			})
+		}
 	}
 }
 
