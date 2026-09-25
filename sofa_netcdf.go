@@ -216,14 +216,18 @@ func (nc *netcdfDimensions) writePositionDatasetPerM(name string, perM [][]Vecto
 
 // listenerViewCoordinates returns the Type and Units written on
 // ListenerView and ListenerUp: the File's, defaulting to the conventions'
-// "cartesian" and "metre".
+// "cartesian" and "metre". Empty Units of a non-cartesian Type default to
+// UnitsSphericalDegrees, so the mandatory Units attribute is never omitted.
 func (f *File) listenerViewCoordinates() (typ, units string) {
 	typ, units = f.ListenerViewType, f.ListenerViewUnits
 	if typ == "" {
 		typ = CoordinateCartesian
 	}
-	if units == "" && strings.EqualFold(typ, CoordinateCartesian) {
-		units = "metre"
+	if units == "" {
+		units = UnitsSphericalDegrees
+		if strings.EqualFold(typ, CoordinateCartesian) {
+			units = "metre"
+		}
 	}
 	return typ, units
 }

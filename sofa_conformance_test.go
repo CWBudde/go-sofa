@@ -318,6 +318,14 @@ func TestSaveVariableAttributes(t *testing.T) {
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
 			{"ListenerUp", "Type"}:    "spherical",
 		}},
+		{"spherical view without units", func() *File {
+			f := minimalFIRFile()
+			f.ListenerViewType = CoordinateSpherical
+			return f
+		}(), map[[2]string]string{
+			{"ListenerView", "Units"}: UnitsSphericalDegrees,
+			{"ListenerUp", "Units"}:   UnitsSphericalDegrees,
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
