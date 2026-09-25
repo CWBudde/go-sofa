@@ -67,6 +67,22 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   the convention-name / History heuristics apply only when it is empty.
   `DataType` must be `TF-E`, and `E = 1` is order 0. A heuristic that
   contradicts a set Type is reported by `SHWarnings`.
+- **Breaking (CLI):** `sofa2json` writes the field names of `sofa.File` as
+  JSON keys (`M`, `R`, `E`, `N`, `SamplingRate`, `ImpulseResponses`, … instead
+  of `Measurements`, `Receivers`, `Emitters`, `DataSamples`, `SampleRate`,
+  `IR`), adds `Conventions`, `Version`, `SOFAConventions`,
+  `SOFAConventionsVersion`, all positions with their `Type`/`Units`,
+  `ListenerView`/`ListenerUp`, and writes NaN/±Inf as `null`. It streams the
+  JSON instead of building it in memory and refuses to overwrite an existing
+  `.json` unless `-f` is given.
+- **Breaking (CLI):** `sofa2json`, `sofainfo` and `sofaprobe` parse flags
+  with the `flag` package (`-h` prints usage; unknown flags exit 2), process
+  every file argument instead of only the first, report progress and errors
+  on stderr and exit 1 if any file failed.
+- `sofainfo` prints `Conventions`, `Version`, `SOFAConventions`,
+  `SOFAConventionsVersion` and a full delay summary (count, layout, range,
+  values); `sofaprobe` previews `Data.Real`, `Data.Imag` and `Data.SOS` as
+  well as `Data.IR`, reading two rows instead of the whole dataset.
 
 ### Added
 

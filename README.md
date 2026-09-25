@@ -275,65 +275,103 @@ if len(f.Dropped) > 0 {
 
 ### sofainfo
 
-Displays metadata summary for SOFA files. Similar to PasSofa's SofaReader utility.
+Displays a metadata summary for SOFA files. Similar to PasSofa's SofaReader utility.
 
 **Usage:**
 
 ```bash
-# Process single file
-sofainfo myfile.sofa
+# One or more files
+sofainfo myfile.sofa other.sofa
 
-# Process all .sofa files in current directory
+# All .sofa files in the current directory
 sofainfo
 ```
+
+With several files each summary is preceded by a `==> file <==` header.
+Errors go to stderr; the exit status is 1 if any file could not be read
+and 2 on a usage error (`sofainfo -h` prints the usage).
 
 **Example output:**
 
 ```text
-Title: CIPIC subject 003
+Conventions: SOFA
+Version: 0.6
+SOFAConventions: SimpleFreeFieldHRIR
+SOFAConventionsVersion: 0.4
 DataType: FIR
-DateCreated: 2013-10-17 15:30:00
+RoomType: free field
+DateCreated: 2014-03-20 17:35:22
+DateModified: 2014-03-20 17:35:22
 APIName: ARI SOFA API for Matlab/Octave
-APIVersion: 0.4.3
-Organization: Acoustics Research Institute
-License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+APIVersion: 0.4.0
+License: No license provided, ask the author for permission
+ApplicationName: Demo of the SOFA API
+ApplicationVersion: 0.4.0
+History: Converted from the CIPIC file format
 
 Number of Measurements: 1250
 Number of Receivers: 2
 Number of Emitters: 1
 Number of DataSamples: 200
 SampleRate: 44100
-Delay: 0
+Delay: 2 values [R], min 0, max 0: [0 0]
 ```
+
+The `Delay` line gives the number of values, their layout (`[I]` shared,
+`[M]`, `[R]` or `[M,R]`), the range and, for up to 8 values, the values.
 
 ### sofa2json
 
-Exports SOFA files to JSON format. Enhanced version of PasSofa's SOFA2JSON utility.
+Exports SOFA files to JSON. Enhanced version of PasSofa's SOFA2JSON utility.
 
 **Usage:**
 
 ```bash
 # Export metadata only (default)
-sofa2json myfile.sofa
+sofa2json myfile.sofa other.sofa
 
 # Include impulse response data (FIR files)
 sofa2json --include-ir myfile.sofa
 
-# Include complex transfer-function data (TF files)
+# Include complex transfer-function data (TF / TF-E files)
 sofa2json --include-tf myfile.sofa
 
-# Batch process all .sofa files
-sofa2json
+# Include second-order-section coefficients (SOS files)
+sofa2json --include-sos myfile.sofa
+
+# Overwrite existing .json files
+sofa2json -f myfile.sofa
+
+# All .sofa files in the current directory
 sofa2json --include-ir
-sofa2json --include-tf
 ```
 
-**Output:** Creates `<filename>.json` in the same directory.
+**Output:** Creates `<filename>.json` next to each input and refuses to
+overwrite an existing one unless `-f` is given. Progress and errors go to
+stderr; the exit status is 1 if any file failed and 2 on a usage error.
 
-**Note:** Metadata-only export produces ~700 bytes. With `--include-ir`
-or `--include-tf`, output can be several megabytes depending on data
-size. For TF files the `Frequencies` vector is always included (it is
-small); `TFReal`/`TFImag` are emitted only with `--include-tf`.
+JSON keys are the field names of `sofa.File`: the global attributes
+(`Conventions`, `Version`, `SOFAConventions`, `SOFAConventionsVersion`,
+`DataType`, `Title`, …), the dimensions `M`, `R`, `E`, `N`,
+`SamplingRate`, `Delay`, the positions (`ListenerPositions`,
+`ReceiverPositions`, `SourcePositions`, `EmitterPositions`,
+`ListenerView`, `ListenerUp`) as `[x, y, z]` triples together with their
+`…Type` and `…Units`, and — when requested — `ImpulseResponses`,
+`TFReal`/`TFImag` (TF-E: `TFRealE`/`TFImagE`) or `SOSCoefficients`. For
+TF and TF-E files `Frequencies` is always included (it is small). NaN
+and ±Inf values are written as `null`. The output is streamed, so large
+exports need no in-memory copy of the JSON document.
+
+### sofaprobe
+
+Development tool: dumps the HDF5 structure, attributes and dimension
+scales of each file, then previews `Data.IR`, `Data.Real`, `Data.Imag` or
+`Data.SOS` (shape, first and last values) without reading the whole
+dataset.
+
+```bash
+sofaprobe myfile.sofa
+```
 
 ## API Reference
 
