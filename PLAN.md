@@ -32,7 +32,7 @@ history is in `git log` / CHANGELOG.md, design decisions in
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 remains. Phases B–E are optional / future and can be picked up on
+go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 is done except R9d (release-tag decision). Phases B–E are optional / future and can be picked up on
 demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -108,21 +108,44 @@ Real/Imag/SOS via `ReadSlice` (whole rows, see E5); smoke tests via
 
 #### R9 — Docs, tooling, CI hygiene (low)
 
-- [ ] **R9a.** README: fix module path (`github.com/cwbudde/go-sofa`, not
+- [x] **R9a.** README: fix module path (`github.com/cwbudde/go-sofa`, not
       `MeKo-Christian`) in all `go get`/`go install`/import lines and
       go-hdf5 links; "reading" → "reading and writing"; update "Known
       limitations" (CLASS/NAME are emitted), supported DataTypes, document
       `--include-sos`.
-- [ ] **R9b.** justfile: `GOPRIVATE` points at the wrong owner;
+  - (2026-09-26) — module path and go-hdf5 links point at `cwbudde`; the
+    intro says "reading and writing"; Features list the four DataTypes,
+    netCDF-4 output and all three CLIs (with a `sofaprobe` install line);
+    the stale CLASS/NAME limitation is removed (`--include-sos` was
+    already documented).
+- [x] **R9b.** justfile: `GOPRIVATE` points at the wrong owner;
       `just build` builds only sofaprobe; add `-race` to `just test`.
-- [ ] **R9c.** CI: trigger on `pull_request`; pin tool and golangci-lint
+  - (2026-09-26) — `GOPRIVATE` and `-race` had been fixed earlier;
+    `just build` / `just install` now loop over sofainfo, sofa2json and
+    sofaprobe, and the tool install comment pins the CI versions.
+- [x] **R9c.** CI: trigger on `pull_request`; pin tool and golangci-lint
       versions; enforce a coverage floor; install shellcheck or drop it
       from treefmt; optional Go-version matrix.
+  - (2026-09-26) — `pull_request` was already a trigger; golangci-lint
+    v2.13.2, gofumpt v0.12.0, gci v0.14.0, shfmt v3.14.1 and prettier 3
+    are pinned; shellcheck is installed with apt; `just coverage-check`
+    (root package ≥ 85 %, 89.4 % with the CI fixtures) runs in test-unit,
+    which covers the go.mod Go version and `stable`.
 - [ ] **R9d.** Tag `v0.1.0` only after R1–R4 (CHANGELOG documents a
       release that has no tag).
-- [ ] **R9e.** Coverage gaps: `readGlobalAttributes` 50 % (15 of 20
+  - (2026-09-26) — open: `v0.1.0` is tagged and pushed, but at 24eebca
+    (2026-08-16), before R1–R4 landed. Decide whether to keep it or tag
+    the next release after Phase R.
+- [x] **R9e.** Coverage gaps: `readGlobalAttributes` 50 % (15 of 20
       attributes never read in tests), `Save` error branches,
       `write*AudioDatasets` 66–71 %.
+  - (2026-09-26) — `TestOpenReadsEveryGlobalField` writes and reads back
+    all 22 attributes of `globalFields()`; `TestSaveTargetIsDirectory`
+    and `TestSaveMissingDirectory` (now `errors.Is(fs.ErrNotExist)`)
+    cover the path errors; `TestSaveAudioWriteErrors` injects a failure
+    per audio variable through `writeVariableTestHook`, bringing all
+    `write*AudioDatasets` to 100 % and `Save` to 79 %. The remaining
+    `Save` branches (chmod/rename/fsync failures) need a filesystem seam.
 
 ### Phase A — SH HRTF support ✅ done (2026-05-10)
 
