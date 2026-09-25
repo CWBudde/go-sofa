@@ -9,8 +9,8 @@ import (
 
 // readSpatialData reads listener, receiver, source, and emitter positions
 // and the listener orientation. Each dataset's shape must match one of the
-// layouts AES69 allows; one that does not is an error. Reads themselves
-// stay best-effort: a dataset go-hdf5 cannot read is skipped.
+// layouts AES69 allows, and a dataset or Type/Units attribute that is
+// present but cannot be read is an error; absent datasets are skipped.
 func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	// Position datasets, each carrying Type and Units attributes that name
 	// its coordinate system. perM is set for [X,C,M] layouts.
@@ -42,18 +42,26 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[str
 		if err != nil {
 			return err
 		}
-		*pt.typ = readStringAttribute(ds, "Type")
-		*pt.units = readStringAttribute(ds, "Units")
+		if *pt.typ, err = readStringAttribute(ds, "Type"); err != nil {
+			return fmt.Errorf("%s: %w", pt.name, err)
+		}
+		if *pt.units, err = readStringAttribute(ds, "Units"); err != nil {
+			return fmt.Errorf("%s: %w", pt.name, err)
+		}
 		if len(layout) == 3 && layout[2] == dimM {
-			if perM, err := readVector3sPerMeasurement(ds, f.M); err == nil {
-				*pt.perM = perM
-				*pt.dst = perM[0]
+			perM, err := readVector3sPerMeasurement(ds, f.M)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", pt.name, err)
 			}
+			*pt.perM = perM
+			*pt.dst = perM[0]
 			continue
 		}
-		if vecs, err := readVector3s(ds); err == nil {
-			*pt.dst = vecs
+		vecs, err := readVector3s(ds)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", pt.name, err)
 		}
+		*pt.dst = vecs
 	}
 
 	// Orientation datasets: [I,C], or [M,C] kept in full in the plural field.
@@ -75,7 +83,10 @@ func (f *File) readSpatialData(datasets map[string]*hdf5.Dataset, labels map[str
 			return err
 		}
 		vecs, err := readVector3s(ds)
-		if err != nil || len(vecs) == 0 {
+		if err != nil {
+			return fmt.Errorf("read %s: %w", ot.name, err)
+		}
+		if len(vecs) == 0 {
 			continue
 		}
 		*ot.dst = vecs[0]
@@ -108,13 +119,27 @@ func readVector3sPerMeasurement(ds *hdf5.Dataset, m int) ([][]Vector3, error) {
 }
 
 // readStringAttribute returns a dataset attribute as a lowercased, trimmed
-// string, or "" when the attribute is absent or unreadable.
-func readStringAttribute(ds *hdf5.Dataset, name string) string {
-	val, err := ds.ReadAttribute(name)
-	if err != nil || val == nil {
-		return ""
+// string, or "" when the attribute is absent. An attribute that is present
+// but cannot be decoded is an error.
+func readStringAttribute(ds *hdf5.Dataset, name string) (string, error) {
+	attrs, err := ds.Attributes()
+	if err != nil {
+		return "", fmt.Errorf("attributes: %w", err)
 	}
-	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", val)))
+	for _, a := range attrs {
+		if a.Name != name {
+			continue
+		}
+		val, err := a.ReadValue()
+		if err != nil {
+			return "", fmt.Errorf("attribute %s: %w", name, err)
+		}
+		if val == nil {
+			return "", nil
+		}
+		return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", val))), nil
+	}
+	return "", nil
 }
 
 // readVector3s reads a dataset of float64 triples as Vector3 values.
