@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -852,10 +853,11 @@ func (f *File) writeHDF5(path string) (err error) {
 
 	// Global attributes go into the root object header at creation;
 	// go-hdf5 emits them in option order, so output stays deterministic.
-	opts := make([]interface{}, 0, len(rootAttrs))
+	opts := make([]interface{}, 0, len(rootAttrs)+1)
 	for _, a := range rootAttrs {
 		opts = append(opts, hdf5.WithRootAttribute(a.name, a.value))
 	}
+	opts = append(opts, hdf5.WithRootAttribute("_NCProperties", ncProperties()))
 
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, opts...)
 	if err != nil {
@@ -867,62 +869,44 @@ func (f *File) writeHDF5(path string) (err error) {
 		}
 	}()
 
-	// Write dimension-scale datasets (M, R, E) with netCDF attributes, in a
-	// fixed order so output is deterministic.
-	// /N is written separately: scalar size for FIR, frequency vector for TF.
-	for _, d := range []struct {
-		name string
-		size int
-	}{
-		{"/M", f.M},
-		{"/R", f.R},
-		{"/E", f.E},
-	} {
-		if err := writeDimensionScale(fw, d.name, d.size); err != nil {
-			return fmt.Errorf("write dimension %s: %w", d.name, err)
-		}
-	}
-	if f.DataType == dataTypeTF || f.DataType == dataTypeTFE {
-		if err := writeFrequencyDimension(fw, f.Frequencies); err != nil {
-			return fmt.Errorf("write /N (frequencies): %w", err)
-		}
-	} else {
-		if err := writeDimensionScale(fw, "/N", f.N); err != nil {
-			return fmt.Errorf("write dimension /N: %w", err)
-		}
+	// Dimension scales first; every variable below is attached to them.
+	nc, err := f.writeDimensionScales(fw)
+	if err != nil {
+		return err
 	}
 
 	// Write spatial position datasets
-	if err := writePositionDataset(fw, "/ListenerPosition", f.ListenerPositions,
-		f.ListenerPositionType, f.ListenerPositionUnits); err != nil {
-		return fmt.Errorf("write ListenerPosition: %w", err)
-	}
-	if err := writePositionDataset(fw, "/ReceiverPosition", f.ReceiverPositions,
-		f.ReceiverPositionType, f.ReceiverPositionUnits); err != nil {
-		return fmt.Errorf("write ReceiverPosition: %w", err)
-	}
-	if err := writePositionDataset(fw, "/SourcePosition", f.SourcePositions,
-		f.SourcePositionType, f.SourcePositionUnits); err != nil {
-		return fmt.Errorf("write SourcePosition: %w", err)
-	}
-	if err := writePositionDataset(fw, "/EmitterPosition", f.EmitterPositions,
-		f.EmitterPositionType, f.EmitterPositionUnits); err != nil {
-		return fmt.Errorf("write EmitterPosition: %w", err)
+	for _, p := range []struct {
+		name       string
+		positions  []Vector3
+		dim        string
+		size       int
+		typ, units string
+	}{
+		{"ListenerPosition", f.ListenerPositions, dimM, f.M, f.ListenerPositionType, f.ListenerPositionUnits},
+		{"ReceiverPosition", f.ReceiverPositions, dimR, f.R, f.ReceiverPositionType, f.ReceiverPositionUnits},
+		{"SourcePosition", f.SourcePositions, dimM, f.M, f.SourcePositionType, f.SourcePositionUnits},
+		{"EmitterPosition", f.EmitterPositions, dimE, f.E, f.EmitterPositionType, f.EmitterPositionUnits},
+	} {
+		if err := nc.writePositionDataset("/"+p.name, p.positions,
+			rowDim(len(p.positions), p.dim, p.size), p.typ, p.units); err != nil {
+			return fmt.Errorf("write %s: %w", p.name, err)
+		}
 	}
 
 	// Write listener orientation vectors
-	if err := writeVector3Dataset(fw, "/ListenerUp", []Vector3{f.ListenerUp}); err != nil {
+	if err := nc.writeVariable("/ListenerUp", flattenVector3s([]Vector3{f.ListenerUp}), dimI, dimC); err != nil {
 		return fmt.Errorf("write ListenerUp: %w", err)
 	}
-	if err := writeVector3Dataset(fw, "/ListenerView", []Vector3{f.ListenerView}); err != nil {
+	if err := nc.writeVariable("/ListenerView", flattenVector3s([]Vector3{f.ListenerView}), dimI, dimC); err != nil {
 		return fmt.Errorf("write ListenerView: %w", err)
 	}
-	if err := f.writeRoomScalars(fw); err != nil {
+	if err := f.writeRoomScalars(nc); err != nil {
 		return err
 	}
 
 	// Write audio data
-	if err := f.writeAudioDatasets(fw); err != nil {
+	if err := f.writeAudioDatasets(nc); err != nil {
 		return fmt.Errorf("write audio data: %w", err)
 	}
 
@@ -1179,172 +1163,88 @@ func check3D(name string, data [][][]float64, m, r, n int) error {
 }
 
 // writeAudioDatasets dispatches to the per-DataType writer.
-func (f *File) writeAudioDatasets(fw *hdf5.FileWriter) error {
+func (f *File) writeAudioDatasets(nc *netcdfDimensions) error {
 	switch f.DataType {
 	case dataTypeFIR:
-		return f.writeFIRAudioDatasets(fw)
+		return f.writeFIRAudioDatasets(nc)
 	case dataTypeTF:
-		return f.writeTFAudioDatasets(fw)
+		return f.writeTFAudioDatasets(nc)
 	case dataTypeTFE:
-		return f.writeTFEAudioDatasets(fw)
+		return f.writeTFEAudioDatasets(nc)
 	case dataTypeSOS:
-		return f.writeSOSAudioDatasets(fw)
+		return f.writeSOSAudioDatasets(nc)
 	default:
 		return fmt.Errorf("unsupported DataType %q", f.DataType)
 	}
 }
 
-// writeFIRAudioDatasets writes Data.IR, Data.SamplingRate, and Data.Delay.
-func (f *File) writeFIRAudioDatasets(fw *hdf5.FileWriter) error {
-	// Write Data.IR as [M][R][N] float64
-	irFlat := flattenIR(f.ImpulseResponses)
-	// Dimensions are validated > 0 by validate() before Save() reaches here.
-	irDS, err := fw.CreateDataset("/Data.IR", hdf5.Float64,
-		[]uint64{uint64(f.M), uint64(f.R), uint64(f.N)}) //nolint:gosec // dims > 0 by validate()
-	if err != nil {
-		return fmt.Errorf("create Data.IR dataset: %w", err)
+// writeFIRAudioDatasets writes Data.IR [M,R,N], Data.SamplingRate, and
+// Data.Delay.
+func (f *File) writeFIRAudioDatasets(nc *netcdfDimensions) error {
+	if err := nc.writeVariable("/Data.IR", flattenIR(f.ImpulseResponses), dimM, dimR, dimN); err != nil {
+		return err
 	}
-	if err := irDS.Write(irFlat); err != nil {
-		return fmt.Errorf("write Data.IR data: %w", err)
-	}
+	return f.writeSamplingRateAndDelay(nc)
+}
 
-	// Write Data.SamplingRate
-	srDS, err := fw.CreateDataset("/Data.SamplingRate", hdf5.Float64,
-		[]uint64{uint64(len(f.SamplingRate))})
-	if err != nil {
-		return fmt.Errorf("create Data.SamplingRate dataset: %w", err)
+// writeSamplingRateAndDelay writes Data.SamplingRate ([M] or [I]) and, if
+// present, Data.Delay, shared by FIR and SOS.
+func (f *File) writeSamplingRateAndDelay(nc *netcdfDimensions) error {
+	if err := nc.writeVariable("/Data.SamplingRate", f.SamplingRate,
+		rowDim(len(f.SamplingRate), dimM, f.M)); err != nil {
+		return err
 	}
-	if err := srDS.Write(f.SamplingRate); err != nil {
-		return fmt.Errorf("write Data.SamplingRate data: %w", err)
-	}
-
-	// Write Data.Delay (if present)
 	if len(f.Delay) > 0 {
-		delayDS, err := fw.CreateDataset("/Data.Delay", hdf5.Float64,
-			[]uint64{uint64(len(f.Delay))})
-		if err != nil {
-			return fmt.Errorf("create Data.Delay dataset: %w", err)
-		}
-		if err := delayDS.Write(f.Delay); err != nil {
-			return fmt.Errorf("write Data.Delay data: %w", err)
+		if err := nc.writeVariable("/Data.Delay", f.Delay, delayDims(len(f.Delay), f.M, f.R)...); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
-// writeTFAudioDatasets writes Data.Real and Data.Imag for TF data.
-// The frequency vector is written separately as /N (see writeFrequencyDimension).
-func (f *File) writeTFAudioDatasets(fw *hdf5.FileWriter) error {
-	// Dimensions are validated > 0 by validate() before Save() reaches here.
-	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.N)} //nolint:gosec // dims > 0 by validate()
+// delayDims names the dimensions of a Data.Delay with n values (validated
+// to be 1, M, R or M×R). An M×R delay is written two-dimensional so each
+// axis has a named dimension.
+func delayDims(n, m, r int) []string {
+	switch n {
+	case 1:
+		return []string{dimI}
+	case m:
+		return []string{dimM}
+	case r:
+		return []string{dimR}
+	default:
+		return []string{dimM, dimR}
+	}
+}
 
-	realFlat := flattenIR(f.TFReal)
-	realDS, err := fw.CreateDataset("/Data.Real", hdf5.Float64, dims)
-	if err != nil {
-		return fmt.Errorf("create Data.Real dataset: %w", err)
+// writeTFAudioDatasets writes Data.Real and Data.Imag [M,R,N] for TF data.
+// The frequency vector is written as the /N coordinate variable (see
+// writeDimensionScales).
+func (f *File) writeTFAudioDatasets(nc *netcdfDimensions) error {
+	if err := nc.writeVariable("/Data.Real", flattenIR(f.TFReal), dimM, dimR, dimN); err != nil {
+		return err
 	}
-	if err := realDS.Write(realFlat); err != nil {
-		return fmt.Errorf("write Data.Real data: %w", err)
-	}
-
-	imagFlat := flattenIR(f.TFImag)
-	imagDS, err := fw.CreateDataset("/Data.Imag", hdf5.Float64, dims)
-	if err != nil {
-		return fmt.Errorf("create Data.Imag dataset: %w", err)
-	}
-	if err := imagDS.Write(imagFlat); err != nil {
-		return fmt.Errorf("write Data.Imag data: %w", err)
-	}
-
-	return nil
+	return nc.writeVariable("/Data.Imag", flattenIR(f.TFImag), dimM, dimR, dimN)
 }
 
 // writeTFEAudioDatasets writes Data.Real / Data.Imag as 4D arrays of
 // shape [M][R][E][N] for DataType == "TF-E". The frequency vector is
-// emitted by writeFrequencyDimension as for plain TF.
-func (f *File) writeTFEAudioDatasets(fw *hdf5.FileWriter) error {
-	// Dimensions are validated > 0 by validate() before Save() reaches here.
-	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.E), uint64(f.N)} //nolint:gosec // dims > 0 by validate()
-
-	realFlat := flatten4D(f.TFRealE)
-	realDS, err := fw.CreateDataset("/Data.Real", hdf5.Float64, dims)
-	if err != nil {
-		return fmt.Errorf("create Data.Real dataset: %w", err)
+// the /N coordinate variable as for plain TF.
+func (f *File) writeTFEAudioDatasets(nc *netcdfDimensions) error {
+	if err := nc.writeVariable("/Data.Real", flatten4D(f.TFRealE), dimM, dimR, dimE, dimN); err != nil {
+		return err
 	}
-	if err := realDS.Write(realFlat); err != nil {
-		return fmt.Errorf("write Data.Real data: %w", err)
-	}
-
-	imagFlat := flatten4D(f.TFImagE)
-	imagDS, err := fw.CreateDataset("/Data.Imag", hdf5.Float64, dims)
-	if err != nil {
-		return fmt.Errorf("create Data.Imag dataset: %w", err)
-	}
-	if err := imagDS.Write(imagFlat); err != nil {
-		return fmt.Errorf("write Data.Imag data: %w", err)
-	}
-
-	return nil
+	return nc.writeVariable("/Data.Imag", flatten4D(f.TFImagE), dimM, dimR, dimE, dimN)
 }
 
 // writeSOSAudioDatasets writes Data.SOS as [M][R][N] biquad
 // coefficients along with Data.SamplingRate and (optional) Data.Delay.
-func (f *File) writeSOSAudioDatasets(fw *hdf5.FileWriter) error {
-	// Dimensions are validated > 0 by validate() before Save() reaches here.
-	dims := []uint64{uint64(f.M), uint64(f.R), uint64(f.N)} //nolint:gosec // dims > 0 by validate()
-
-	sosFlat := flattenIR(f.SOSCoefficients)
-	sosDS, err := fw.CreateDataset("/Data.SOS", hdf5.Float64, dims)
-	if err != nil {
-		return fmt.Errorf("create Data.SOS dataset: %w", err)
+func (f *File) writeSOSAudioDatasets(nc *netcdfDimensions) error {
+	if err := nc.writeVariable("/Data.SOS", flattenIR(f.SOSCoefficients), dimM, dimR, dimN); err != nil {
+		return err
 	}
-	if err := sosDS.Write(sosFlat); err != nil {
-		return fmt.Errorf("write Data.SOS data: %w", err)
-	}
-
-	srDS, err := fw.CreateDataset("/Data.SamplingRate", hdf5.Float64,
-		[]uint64{uint64(len(f.SamplingRate))})
-	if err != nil {
-		return fmt.Errorf("create Data.SamplingRate dataset: %w", err)
-	}
-	if err := srDS.Write(f.SamplingRate); err != nil {
-		return fmt.Errorf("write Data.SamplingRate data: %w", err)
-	}
-
-	if len(f.Delay) > 0 {
-		delayDS, err := fw.CreateDataset("/Data.Delay", hdf5.Float64,
-			[]uint64{uint64(len(f.Delay))})
-		if err != nil {
-			return fmt.Errorf("create Data.Delay dataset: %w", err)
-		}
-		if err := delayDS.Write(f.Delay); err != nil {
-			return fmt.Errorf("write Data.Delay data: %w", err)
-		}
-	}
-	return nil
-}
-
-// writeFrequencyDimension writes /N as a vector of frequency values (Hz).
-// The dimension size N is implied by the dataset length, which differs from
-// FIR /N (a scalar holding the count). The dataset is marked as a netCDF
-// coordinate variable: CLASS=DIMENSION_SCALE and NAME equal to the
-// dimension label, matching what upstream tools emit for /N in TF files.
-func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64) error {
-	if len(freqs) == 0 {
-		return fmt.Errorf("frequencies must be non-empty for TF data")
-	}
-	ds, err := fw.CreateDataset("/N", hdf5.Float64,
-		[]uint64{uint64(len(freqs))}, //nolint:gosec // length non-negative
-		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
-		hdf5.WithAttribute("NAME", "N"))
-	if err != nil {
-		return fmt.Errorf("create /N dataset: %w", err)
-	}
-	if err := ds.Write(freqs); err != nil {
-		return fmt.Errorf("write /N values: %w", err)
-	}
-	return nil
+	return f.writeSamplingRateAndDelay(nc)
 }
 
 // flattenIR converts [M][R][N]float64 to []float64 in row-major order.
@@ -1402,37 +1302,171 @@ func flattenVector3s(vecs []Vector3) []float64 {
 	return flat
 }
 
+// netCDF-4 dimension names used by SOFA. C (coordinate triplets) and I
+// (singleton) have fixed sizes.
+const (
+	dimM = "M"
+	dimR = "R"
+	dimE = "E"
+	dimN = "N"
+	dimC = "C"
+	dimI = "I"
+)
+
 // netcdfDimensionNAME formats the netCDF-4 NAME attribute used on
-// dimension-scale datasets that are *not* coordinate variables. The
-// trailing decimal is the dimension size; this is the form emitted by
-// the reference netCDF-4 / MATLAB SOFA Toolbox writers and is what
-// our reader expects when parsing pre-existing files.
+// dimension-scale datasets that are *not* coordinate variables: a fixed
+// text followed by the dimension size in a 10-character field, exactly as
+// netCDF-C writes it (and as our reader parses it).
 func netcdfDimensionNAME(size int) string {
-	return fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.         %d", size)
+	return fmt.Sprintf("This is a netCDF dimension but not a netCDF variable.%10d", size)
 }
 
-// writeDimensionScale writes a netCDF dimension-scale dataset with the
-// standard CLASS=DIMENSION_SCALE and a NAME carrying the dimension
-// size, so files are netCDF-4 compliant and consumable by tools such
-// as the MATLAB SOFA Toolbox.
-func writeDimensionScale(fw *hdf5.FileWriter, name string, size int) error {
-	ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{1},
+// ncProperties returns the _NCProperties root attribute that marks a file
+// as netCDF-4 and records the library that wrote it.
+func ncProperties() string {
+	sofaVersion, hdf5Version := "unknown", "unknown"
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if bi.Main.Path == modulePath {
+			sofaVersion = bi.Main.Version
+		}
+		for _, dep := range bi.Deps {
+			switch dep.Path {
+			case modulePath:
+				sofaVersion = dep.Version
+			case hdf5ModulePath:
+				hdf5Version = dep.Version
+			}
+		}
+	}
+	return fmt.Sprintf("version=2,go-sofa=%s,go-hdf5=%s", sofaVersion, hdf5Version)
+}
+
+const (
+	modulePath     = "github.com/cwbudde/go-sofa"
+	hdf5ModulePath = "github.com/cwbudde/go-hdf5"
+)
+
+// netcdfDimensions holds the dimension scales of a file being written, so
+// each variable can be created with its shape taken from, and attached to,
+// named netCDF-4 dimensions.
+type netcdfDimensions struct {
+	fw     *hdf5.FileWriter
+	sizes  map[string]int
+	scales map[string]*hdf5.DatasetWriter
+}
+
+// writeDimensionScales writes one dimension-scale dataset per SOFA
+// dimension, in a fixed order (which is also their _Netcdf4Dimid order) so
+// output is deterministic. For TF and TF-E, /N is the frequency coordinate
+// variable; otherwise every scale is a netCDF "dimension without variable"
+// whose length is the dimension size.
+func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, error) {
+	nc := &netcdfDimensions{
+		fw:     fw,
+		sizes:  map[string]int{dimM: f.M, dimR: f.R, dimE: f.E, dimN: f.N, dimC: 3, dimI: 1},
+		scales: map[string]*hdf5.DatasetWriter{},
+	}
+	for id, name := range []string{dimM, dimR, dimE, dimN, dimC, dimI} {
+		var ds *hdf5.DatasetWriter
+		var err error
+		if name == dimN && (f.DataType == dataTypeTF || f.DataType == dataTypeTFE) {
+			ds, err = writeFrequencyDimension(fw, f.Frequencies, id)
+		} else {
+			ds, err = writeDimensionScale(fw, "/"+name, nc.sizes[name], id)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("write dimension /%s: %w", name, err)
+		}
+		nc.scales[name] = ds
+	}
+	return nc, nil
+}
+
+// writeDimensionScale writes a netCDF-4 dimension that has no variable of
+// its own: a dataset of the dimension's length with CLASS=DIMENSION_SCALE,
+// the netCDF NAME carrying the size, and _Netcdf4Dimid. Like netCDF-C, it
+// holds no values.
+func writeDimensionScale(fw *hdf5.FileWriter, name string, size, id int) (*hdf5.DatasetWriter, error) {
+	ds, err := fw.CreateDataset(name, hdf5.Float32,
+		[]uint64{uint64(size)}, //nolint:gosec // size > 0 by validate()
 		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
-		hdf5.WithAttribute("NAME", netcdfDimensionNAME(size)))
+		hdf5.WithAttribute("NAME", netcdfDimensionNAME(size)),
+		hdf5.WithAttribute("_Netcdf4Dimid", int32(id))) //nolint:gosec // id < 6
 	if err != nil {
-		return fmt.Errorf("create dimension dataset: %w", err)
+		return nil, fmt.Errorf("create dimension dataset: %w", err)
+	}
+	return ds, nil
+}
+
+// writeFrequencyDimension writes /N as a vector of frequency values (Hz).
+// The dataset is the netCDF coordinate variable of dimension N:
+// CLASS=DIMENSION_SCALE and NAME equal to the dimension label, matching
+// what upstream tools emit for /N in TF files.
+func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64, id int) (*hdf5.DatasetWriter, error) {
+	if len(freqs) == 0 {
+		return nil, fmt.Errorf("frequencies must be non-empty for TF data")
+	}
+	ds, err := fw.CreateDataset("/N", hdf5.Float64,
+		[]uint64{uint64(len(freqs))},
+		hdf5.WithAttribute("CLASS", "DIMENSION_SCALE"),
+		hdf5.WithAttribute("NAME", dimN),
+		hdf5.WithAttribute("_Netcdf4Dimid", int32(id))) //nolint:gosec // id < 6
+	if err != nil {
+		return nil, fmt.Errorf("create /N dataset: %w", err)
+	}
+	if err := ds.Write(freqs); err != nil {
+		return nil, fmt.Errorf("write /N values: %w", err)
+	}
+	return ds, nil
+}
+
+// writeVariable creates a float64 variable whose shape is given by the
+// named dimensions, writes data and attaches the dimension scales, so
+// netCDF-4 readers see named (not phony) dimensions.
+func (nc *netcdfDimensions) writeVariable(name string, data []float64, dims ...string) error {
+	return nc.writeVariableWithAttrs(name, data, dims, nil)
+}
+
+func (nc *netcdfDimensions) writeVariableWithAttrs(name string, data []float64, dims []string,
+	attrs []hdf5.DatasetOption,
+) error {
+	shape := make([]uint64, len(dims))
+	for i, d := range dims {
+		size, ok := nc.sizes[d]
+		if !ok {
+			return fmt.Errorf("%s: unknown dimension %q", name, d)
+		}
+		shape[i] = uint64(size) //nolint:gosec // sizes > 0 by validate()
 	}
 
-	if err := ds.Write([]float64{float64(size)}); err != nil {
-		return fmt.Errorf("write dimension value: %w", err)
+	ds, err := nc.fw.CreateDataset(name, hdf5.Float64, shape, attrs...)
+	if err != nil {
+		return fmt.Errorf("create %s dataset: %w", name, err)
+	}
+	if err := ds.Write(data); err != nil {
+		return fmt.Errorf("write %s data: %w", name, err)
+	}
+	for i, d := range dims {
+		if err := nc.fw.AttachDimensionScale(ds, nc.scales[d], i); err != nil {
+			return fmt.Errorf("attach dimension %s to %s: %w", d, name, err)
+		}
 	}
 	return nil
 }
 
-// writePositionDataset writes a position dataset as [N×3] float64 array,
-// tagged with the Type and Units attributes that name its coordinate system.
-// Empty type or units are omitted rather than written as empty strings.
-func writePositionDataset(fw *hdf5.FileWriter, name string, positions []Vector3, typ, units string) error {
+// rowDim names the first dimension of a variable with n rows that is
+// either per-element of dimension dim (n == size) or constant (n == 1, I).
+func rowDim(n int, dim string, size int) string {
+	if n == size {
+		return dim
+	}
+	return dimI
+}
+
+// writePositionDataset writes a position variable [rows, C] tagged with the
+// Type and Units attributes that name its coordinate system. Empty type or
+// units are omitted rather than written as empty strings.
+func (nc *netcdfDimensions) writePositionDataset(name string, positions []Vector3, rows, typ, units string) error {
 	if len(positions) == 0 {
 		// Skip if no positions provided
 		return nil
@@ -1445,37 +1479,5 @@ func writePositionDataset(fw *hdf5.FileWriter, name string, positions []Vector3,
 	if units != "" {
 		attrs = append(attrs, hdf5.WithAttribute("Units", units))
 	}
-
-	ds, err := fw.CreateDataset(name, hdf5.Float64,
-		[]uint64{uint64(len(positions)), 3}, attrs...)
-	if err != nil {
-		return fmt.Errorf("create dataset: %w", err)
-	}
-
-	data := flattenVector3s(positions)
-	if err := ds.Write(data); err != nil {
-		return fmt.Errorf("write data: %w", err)
-	}
-
-	return nil
-}
-
-// writeVector3Dataset writes a Vector3 dataset (for orientations like ListenerUp).
-func writeVector3Dataset(fw *hdf5.FileWriter, name string, vecs []Vector3) error {
-	if len(vecs) == 0 {
-		return nil
-	}
-
-	ds, err := fw.CreateDataset(name, hdf5.Float64,
-		[]uint64{uint64(len(vecs)), 3})
-	if err != nil {
-		return fmt.Errorf("create dataset: %w", err)
-	}
-
-	data := flattenVector3s(vecs)
-	if err := ds.Write(data); err != nil {
-		return fmt.Errorf("write data: %w", err)
-	}
-
-	return nil
+	return nc.writeVariableWithAttrs(name, flattenVector3s(positions), []string{rows, dimC}, attrs)
 }

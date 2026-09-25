@@ -100,7 +100,7 @@ func (f *File) readRoomScalars(datasets map[string]*hdf5.Dataset) {
 
 // writeRoomScalars writes RoomVolume and RoomTemperature as variables with
 // their units. Zero values mean absent and are not written.
-func (f *File) writeRoomScalars(fw *hdf5.FileWriter) error {
+func (f *File) writeRoomScalars(nc *netcdfDimensions) error {
 	for _, rt := range []struct {
 		name, units string
 		value       float64
@@ -111,13 +111,9 @@ func (f *File) writeRoomScalars(fw *hdf5.FileWriter) error {
 		if rt.value == 0 {
 			continue
 		}
-		ds, err := fw.CreateDataset("/"+rt.name, hdf5.Float64, []uint64{1},
-			hdf5.WithAttribute("Units", rt.units))
-		if err != nil {
-			return fmt.Errorf("create %s: %w", rt.name, err)
-		}
-		if err := ds.Write([]float64{rt.value}); err != nil {
-			return fmt.Errorf("write %s: %w", rt.name, err)
+		if err := nc.writeVariableWithAttrs("/"+rt.name, []float64{rt.value}, []string{dimI},
+			[]hdf5.DatasetOption{hdf5.WithAttribute("Units", rt.units)}); err != nil {
+			return err
 		}
 	}
 	return nil
