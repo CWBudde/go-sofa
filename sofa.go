@@ -331,6 +331,11 @@ func readDimension(datasets map[string]*hdf5.Dataset, name string) (int, error) 
 		}
 	}
 
+	// Bound the read: a crafted dataspace must not make Read allocate
+	// the whole dataset before checkDimension sees its length.
+	if count, ok := datasetElementCount(ds); ok && count > maxDataElements {
+		return 0, fmt.Errorf("dimension %q: size %d out of range [1, %d]", name, count, maxDataElements)
+	}
 	data, err := ds.Read()
 	if err != nil {
 		return 0, fmt.Errorf("dimension %q: read dataset: %w", name, err)
@@ -352,10 +357,7 @@ func readDimension(datasets map[string]*hdf5.Dataset, name string) (int, error) 
 		return checkDimension(name, n)
 	default:
 		// /M, /R, /E from go-sofa-written files: scalar carrying the
-		// count. Fall back to len if the value is unset (zero).
-		if data[0] == 0 {
-			return 1, nil
-		}
+		// count. Zero is rejected like any other out-of-range size.
 		n, err := floatDimension(name, data[0])
 		if err != nil {
 			return 0, err
@@ -730,6 +732,9 @@ func (f *File) Duration() float64 {
 // Returns nil if indices are out of range or the file holds no impulse
 // responses (DataType other than "FIR").
 func (f *File) IRAt(m, r int) []float64 {
+	if f.DataType != dataTypeFIR {
+		return nil
+	}
 	if m < 0 || m >= f.M || r < 0 || r >= f.R {
 		return nil
 	}
@@ -818,9 +823,11 @@ func (f *File) Save(path string) (err error) {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename %s to %s: %w", tmpName, path, err)
 	}
-	// Best effort: persist the directory entry. Not supported everywhere
-	// (e.g. Windows), and the data itself is already durable.
-	_ = syncFile(dir)
+	// Persist the directory entry. Platforms and filesystems that cannot
+	// fsync a directory are tolerated; real I/O errors are returned.
+	if err := syncFile(dir); err != nil && !syncUnsupported(err) {
+		return fmt.Errorf("sync directory %s: %w", dir, err)
+	}
 	return nil
 }
 

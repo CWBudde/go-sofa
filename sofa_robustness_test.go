@@ -150,6 +150,13 @@ func TestOpenRejectsInvalidDimensions(t *testing.T) {
 			wantErr: "out of range",
 		},
 		{
+			// A scalar count of 0 used to be read as dimension 1.
+			name:    "scalar M zero",
+			dims:    map[string]craftedDim{"M": {value: 0}, "R": ok, "E": ok, "N": ok},
+			irLen:   1,
+			wantErr: "out of range",
+		},
+		{
 			name:    "scalar R negative",
 			dims:    map[string]craftedDim{"M": ok, "R": {value: -2}, "E": ok, "N": ok},
 			irLen:   1,
@@ -240,6 +247,8 @@ func TestIRAccessorsOnNonFIR(t *testing.T) {
 			checkNoIR(t, g)
 		})
 	}
+	// Non-FIR file that nonetheless carries ImpulseResponses.
+	checkNoIR(t, &File{DataType: "TF", M: 1, R: 1, N: 1, ImpulseResponses: [][][]float64{{{1}}}})
 	// Inconsistent in-memory FIR value (dims larger than data).
 	checkNoIR(t, &File{DataType: "FIR", M: 3, R: 2, N: 4, ImpulseResponses: [][][]float64{{}}})
 }
