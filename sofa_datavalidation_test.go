@@ -82,6 +82,18 @@ func TestValidateRejectsBadData(t *testing.T) {
 		{"negative frequency", minimalTFFile, func(f *File) { f.Frequencies = []float64{-100, 200, 400} }, "Frequencies"},
 		{"TF-E descending frequencies", minimalTFEFile, func(f *File) { f.Frequencies = []float64{400, 200, 100} }, "Frequencies"},
 		{"frequencies from DC", minimalTFFile, func(f *File) { f.Frequencies = []float64{0, 200, 400} }, ""},
+		// Save writes only the fields of the active DataType; stale ones
+		// from another representation are not checked.
+		{"TF with stale FIR fields", minimalTFFile, func(f *File) {
+			f.ImpulseResponses = [][][]float64{{{math.NaN()}}}
+			f.SamplingRate, f.Delay = []float64{0}, []float64{math.Inf(1)}
+			f.SOSCoefficients = [][][]float64{{{math.NaN()}}}
+		}, ""},
+		{"FIR with stale TF fields", minimalFIRFile, func(f *File) {
+			f.Frequencies = []float64{400, math.NaN(), -1}
+			f.TFReal = [][][]float64{{{math.Inf(-1)}}}
+			f.TFRealE = [][][][]float64{{{{math.NaN()}}}}
+		}, ""},
 		{"zero row in ListenerViews", minimalFIRFile, func(f *File) {
 			f.ListenerViews = []Vector3{{1, 0, 0}, {}, {1, 0, 0}}
 		}, "ListenerViews[1]"},
@@ -133,11 +145,15 @@ func TestSaveDefaultsListenerOrientation(t *testing.T) {
 		{"no type", "", Vector3{}, Vector3{}, []float64{1, 0, 0}, []float64{0, 0, 1}},
 		{"cartesian", CoordinateCartesian, Vector3{}, Vector3{}, []float64{1, 0, 0}, []float64{0, 0, 1}},
 		{"spherical", CoordinateSpherical, Vector3{}, Vector3{}, []float64{0, 0, 1}, []float64{0, 90, 1}},
+		{"spherical radians", CoordinateSpherical, Vector3{}, Vector3{}, []float64{0, 0, 1}, []float64{0, math.Pi / 2, 1}},
 		{"set view kept", CoordinateCartesian, Vector3{0, 1, 0}, Vector3{}, []float64{0, 1, 0}, []float64{0, 0, 1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := minimalFIRFile()
 			f.ListenerViewType = tc.typ
+			if strings.HasSuffix(tc.name, "radians") {
+				f.ListenerViewUnits = "radian, radian, metre"
+			}
 			f.ListenerView, f.ListenerUp = tc.view, tc.up
 			path := filepath.Join(t.TempDir(), "orientation.sofa")
 			if err := f.Save(path); err != nil {

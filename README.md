@@ -401,10 +401,10 @@ defer f.Close()
 Validates the `File` against AES69 requirements (required attributes,
 positive dimensions, consistent array shapes) and its values (every number
 finite, sampling rates above zero, frequencies ascending from zero or above,
-per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
+all for the active `DataType` only; per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
 new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
 the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
-`(0, 90, 1)`). The destination is created from scratch on
+`(0, 90, 1)`, elevation π/2 when `ListenerViewUnits` is in radians). The destination is created from scratch on
 each call; an existing file is overwritten only after validation
 succeeds. Works for both `DataType == "FIR"` and `DataType == "TF"`.
 

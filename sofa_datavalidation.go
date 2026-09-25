@@ -9,55 +9,72 @@ import (
 // validateValues checks the values Save writes, after validate has checked
 // their shapes: every number is finite, sampling rates are positive,
 // frequencies ascend from zero or above, and listener orientations are
-// non-zero. An unset single ListenerView or ListenerUp is allowed; Save
+// non-zero. Only the active DataType's data is checked, since Save writes
+// no other. An unset single ListenerView or ListenerUp is allowed; Save
 // writes the conventions' default instead (see listenerOrientation).
 func (f *File) validateValues() error {
-	for _, s := range []struct {
-		name string
-		vals []float64
-	}{
-		{"SamplingRate", f.SamplingRate},
-		{"Delay", f.Delay},
-		{"Frequencies", f.Frequencies},
-		{"RoomVolume", []float64{f.RoomVolume}},
-		{"RoomTemperature", []float64{f.RoomTemperature}},
-	} {
-		if err := checkFinite(s.name, s.vals); err != nil {
-			return err
-		}
+	if err := checkFinite("RoomVolume", []float64{f.RoomVolume}); err != nil {
+		return err
 	}
-	for _, d := range []struct {
-		name string
-		data [][][]float64
-	}{
-		{"ImpulseResponses", f.ImpulseResponses},
-		{"TFReal", f.TFReal},
-		{"TFImag", f.TFImag},
-		{"SOSCoefficients", f.SOSCoefficients},
-	} {
-		if err := checkFinite3D(d.name, d.data); err != nil {
-			return err
-		}
-	}
-	for _, d := range []struct {
-		name string
-		data [][][][]float64
-	}{
-		{"TFRealE", f.TFRealE},
-		{"TFImagE", f.TFImagE},
-	} {
-		if err := checkFinite4D(d.name, d.data); err != nil {
-			return err
-		}
+	if err := checkFinite("RoomTemperature", []float64{f.RoomTemperature}); err != nil {
+		return err
 	}
 	if err := f.validatePositionValues(); err != nil {
 		return err
 	}
 
+	switch f.DataType {
+	case dataTypeFIR:
+		if err := checkFinite3D("ImpulseResponses", f.ImpulseResponses); err != nil {
+			return err
+		}
+		return f.validateRateAndDelay()
+	case dataTypeSOS:
+		if err := checkFinite3D("SOSCoefficients", f.SOSCoefficients); err != nil {
+			return err
+		}
+		return f.validateRateAndDelay()
+	case dataTypeTF:
+		if err := checkFinite3D("TFReal", f.TFReal); err != nil {
+			return err
+		}
+		if err := checkFinite3D("TFImag", f.TFImag); err != nil {
+			return err
+		}
+		return f.validateFrequencies()
+	case dataTypeTFE:
+		if err := checkFinite4D("TFRealE", f.TFRealE); err != nil {
+			return err
+		}
+		if err := checkFinite4D("TFImagE", f.TFImagE); err != nil {
+			return err
+		}
+		return f.validateFrequencies()
+	}
+	return nil
+}
+
+// validateRateAndDelay checks the FIR/SOS SamplingRate and Delay values.
+func (f *File) validateRateAndDelay() error {
+	if err := checkFinite("SamplingRate", f.SamplingRate); err != nil {
+		return err
+	}
+	if err := checkFinite("Delay", f.Delay); err != nil {
+		return err
+	}
 	for i, sr := range f.SamplingRate {
 		if sr <= 0 {
 			return fmt.Errorf("SamplingRate[%d] = %g must be > 0", i, sr)
 		}
+	}
+	return nil
+}
+
+// validateFrequencies checks the TF/TF-E frequency axis: finite, >= 0 and
+// strictly increasing.
+func (f *File) validateFrequencies() error {
+	if err := checkFinite("Frequencies", f.Frequencies); err != nil {
+		return err
 	}
 	for i, fr := range f.Frequencies {
 		if fr < 0 {
@@ -152,12 +169,19 @@ func zeroDirection(v Vector3, spherical bool) bool {
 
 // listenerOrientation returns the ListenerView and ListenerUp Save writes:
 // the File's, or the conventions' defaults (view along +x, up along +z) for
-// an unset, zero vector.
+// an unset, zero vector. In spherical coordinates the up default's
+// elevation follows the angle unit Save writes, so it is the zenith in
+// radians too.
 func (f *File) listenerOrientation() (view, up Vector3) {
 	view, up = f.ListenerView, f.ListenerUp
 	defView, defUp := Vector3{1, 0, 0}, Vector3{0, 0, 1}
 	if f.listenerViewSpherical() {
-		defView, defUp = Vector3{0, 0, 1}, Vector3{0, 90, 1}
+		zenith := 90.0
+		_, units := f.listenerViewCoordinates()
+		if angleUnitIsRadian(units) {
+			zenith = math.Pi / 2
+		}
+		defView, defUp = Vector3{0, 0, 1}, Vector3{0, zenith, 1}
 	}
 	if view == (Vector3{}) {
 		view = defView
@@ -166,6 +190,15 @@ func (f *File) listenerOrientation() (view, up Vector3) {
 		up = defUp
 	}
 	return view, up
+}
+
+// angleUnitIsRadian reports whether a spherical Units value such as
+// "radian, radian, metre" gives its angles in radians; the SOFA default is
+// degrees.
+func angleUnitIsRadian(units string) bool {
+	angle, _, _ := strings.Cut(units, ",")
+	angle = strings.ToLower(strings.TrimSpace(angle))
+	return angle == "rad" || strings.HasPrefix(angle, "radian")
 }
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
