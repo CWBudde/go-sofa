@@ -423,8 +423,9 @@ func TestSHDetectionByEmitterType(t *testing.T) {
 }
 
 // TestSHFixturesByEmitterType checks the SH detection of every fixture
-// against its EmitterPosition Type: exactly the two "Spherical Harmonics"
-// files are SH (order 33), including sofa20_sh_test.sofa being plain.
+// against its EmitterPosition Type: the two "Spherical Harmonics" files are
+// SH (order 33), cartesian ones are not. Only MIT KEMAR is fetched in CI;
+// the others are optional and skip there.
 func TestSHFixturesByEmitterType(t *testing.T) {
 	for _, tc := range []struct {
 		file   string
@@ -432,7 +433,7 @@ func TestSHFixturesByEmitterType(t *testing.T) {
 	}{
 		{"FreeFieldHRTF_1.0.sofa", true},
 		{"demo_FreeFieldHRTF_4_SH.sofa", true},
-		{"sofa20_sh_test.sofa", false},
+		{"MIT_KEMAR_normal_pinna.sofa", false},
 		{"GeneralTF-E_1.0.sofa", false},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
