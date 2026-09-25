@@ -733,7 +733,10 @@ func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
 // Save leaves any existing file at path untouched and removes the
 // temporary file. If path already exists its permission bits are kept;
 // otherwise the new file gets mode 0644. Output is deterministic: saving
-// the same File twice produces byte-identical files.
+// the same File twice produces byte-identical files, provided DateCreated
+// and DateModified are set. Save stamps empty dates with the current time
+// (as the SOFA Toolbox does) without changing the File, so set them for
+// reproducible output.
 //
 // All required SOFA attributes and datasets are written, along with optional
 // fields if present in the File struct.

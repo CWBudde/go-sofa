@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func saveFixtures() []*File {
@@ -39,6 +40,41 @@ func TestSaveDeterministic(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSaveStampsEmptyDates checks that empty DateCreated/DateModified are
+// stamped with the save time, so output differs across clock seconds (the
+// reason the determinism guarantee requires set dates), and that the File
+// keeps its empty dates.
+func TestSaveStampsEmptyDates(t *testing.T) {
+	f := minimalFIRFile()
+	f.DateCreated, f.DateModified = "", ""
+	dir := t.TempDir()
+	saveAt := func(ts time.Time, name string) []byte {
+		t.Helper()
+		saveTime = func() time.Time { return ts }
+		t.Cleanup(func() { saveTime = time.Now })
+		path := filepath.Join(dir, name)
+		if err := f.Save(path); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	t0 := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	a := saveAt(t0, "a.sofa")
+	if b := saveAt(t0, "b.sofa"); !bytes.Equal(a, b) {
+		t.Error("two saves at the same time differ")
+	}
+	if c := saveAt(t0.Add(time.Second), "c.sofa"); bytes.Equal(a, c) {
+		t.Error("saves one second apart are identical; empty dates were not stamped")
+	}
+	if f.DateCreated != "" || f.DateModified != "" {
+		t.Errorf("Save changed the File's dates to %q/%q", f.DateCreated, f.DateModified)
 	}
 }
 
