@@ -101,7 +101,8 @@ func run(args []string, _, stderr io.Writer) int {
 }
 
 // convert exports one SOFA file and returns the path of the JSON file. On
-// error no (partial) output file is left behind.
+// error no (partial) output file is left behind, and with force an existing
+// output file is replaced only once the new one is completely written.
 func convert(filename string, inc includeFlags, force bool) (out string, err error) {
 	f, err := sofa.Open(filename)
 	if err != nil {
@@ -112,28 +113,49 @@ func convert(filename string, inc includeFlags, force bool) (out string, err err
 	if out == filename {
 		return "", fmt.Errorf("output %s would overwrite the input", out)
 	}
-	mode := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+
+	// Without force, create out exclusively: there is no previous file to
+	// protect. With force, write a temporary file next to out and rename
+	// it over out, so a failed export keeps the previous JSON intact.
+	target := out
+	var w *os.File
 	if force {
-		mode = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-	w, err := os.OpenFile(out, mode, 0o600) //nolint:gosec // output path derived from the user-supplied input path
-	if errors.Is(err, fs.ErrExist) {
-		return "", fmt.Errorf("%s already exists (use -f to overwrite)", out)
+		w, err = os.CreateTemp(filepath.Dir(out), "."+filepath.Base(out)+".tmp-*")
+	} else {
+		w, err = os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // output path derived from the user-supplied input path
+		if errors.Is(err, fs.ErrExist) {
+			return "", fmt.Errorf("%s already exists (use -f to overwrite)", out)
+		}
 	}
 	if err != nil {
 		return "", err
 	}
-	if err = encode(w, f, inc); err == nil {
+	written := w.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(written)
+		}
+	}()
+
+	if err = encodeJSON(w, f, inc); err == nil {
 		err = w.Close()
 	} else {
 		_ = w.Close()
 	}
 	if err != nil {
-		_ = os.Remove(out)
-		return "", fmt.Errorf("write %s: %w", out, err)
+		return "", fmt.Errorf("write %s: %w", target, err)
+	}
+	if force {
+		if err = os.Rename(written, target); err != nil {
+			return "", fmt.Errorf("replace %s: %w", target, err)
+		}
 	}
 	return out, nil
 }
+
+// encodeJSON is the encoder convert uses; tests replace it to simulate a
+// failed export.
+var encodeJSON = encode
 
 // encode streams f as an indented JSON object to w. Bulk data is written
 // value by value, so memory use does not grow with the output size.

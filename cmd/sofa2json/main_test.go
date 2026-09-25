@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -298,4 +300,39 @@ func TestBatchModeGlobsWorkingDirectory(t *testing.T) {
 	}
 	readJSON(t, filepath.Join(dir, "a.sofa"))
 	readJSON(t, filepath.Join(dir, "b.sofa"))
+}
+
+func TestForcedExportFailureKeepsPreviousOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := clitest.Write(t, dir, "a.sofa", sofa.DataTypeFIR)
+	out := filepath.Join(dir, "a.json")
+	if err := os.WriteFile(out, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	encodeJSON = func(w io.Writer, _ *sofa.File, _ includeFlags) error {
+		_, _ = io.WriteString(w, "{\n  \"M\": ")
+		return errors.New("disk full")
+	}
+	t.Cleanup(func() { encodeJSON = encode })
+
+	code, _, stderr := runCLI(t, "-f", path)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "disk full") {
+		t.Errorf("stderr lacks the write error:\n%s", stderr)
+	}
+	if got, _ := os.ReadFile(out); string(got) != "keep" {
+		t.Fatalf("previous output was modified: %q", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "a.sofa" && e.Name() != "a.json" {
+			t.Errorf("leftover file %s", e.Name())
+		}
+	}
 }
