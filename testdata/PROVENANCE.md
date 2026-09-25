@@ -9,7 +9,9 @@ just fetch-testdata      # or: scripts/fetch-testdata.sh
 ```
 
 `scripts/fetch-testdata.sh` is the authoritative manifest (URL + SHA-256).
-Tests that need a file fail with a pointer to that command when it is absent.
+Tests that need a required file fail with a pointer to that command when it is
+absent; tests for the optional and local-only files below skip instead
+(`optionalTestdata` in `testhelpers_test.go`).
 Keep this table and the script in sync.
 
 "Producer" is taken from the file's own `APIName` / `APIVersion` global
@@ -69,7 +71,7 @@ python-sofa, Mesh2HRTF, spaudiopy, SUpDEq, sound_field_analysis-py,
 libspatialaudio, IoSR MatlabToolbox, and the PyPI sdists of sofar, pyfar,
 pysofaconventions, python-sofa, spaudiopy, sofa, sound-field-analysis). The
 fetch script marks them `optional`: a failed download is a warning, and the
-tests that need them fail with a pointer to the script. Hash, size, producer
+tests that need them skip. Hash, size, producer
 and licence are unverified; pin them on the first successful fetch.
 
 | File                            | Source URL                                                                  | Needed by                               | Notes                                                       |
@@ -85,7 +87,8 @@ and licence are unverified; pin them on the first successful fetch.
 Used by the BRIR/SRIR convention tests (Phase B). Both come from the
 sofacoustics.org data server, but no stable URL could be confirmed (the server
 answers 403, including to browser user agents), so `scripts/fetch-testdata.sh`
-does not list them. Copy them into `testdata/` by hand; the hashes below
+does not list them and their tests skip when they are absent. Copy them into
+`testdata/` by hand; the hashes below
 identify the expected files.
 
 | File                      | Needed by                   | Producer (from the file)                                                                                                     | Licence as stated by the file                                                                                                                      | Size (bytes) | SHA-256                                                            |

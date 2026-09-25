@@ -15,7 +15,8 @@
 # Entries marked "optional" come from hosts that are not reachable from every
 # environment (sofacoustics.org answers 403 to GitHub Actions runners): a
 # failed download is reported as a warning, not an error, and the tests that
-# need the file fail on their own with a pointer to this script.
+# need the file skip (they are listed in optionalTestdata in
+# testhelpers_test.go).
 #
 # curl retries only transient failures (timeouts, 408, 429, 5xx); any other
 # 4xx fails immediately.
@@ -73,7 +74,7 @@ for entry in "${manifest[@]}"; do
 		--output "${tmp}" "${url}"; then
 		rm -f "${tmp}"
 		if [[ ${optional:-} == optional ]]; then
-			echo "WARNING  ${name}: optional file not available from ${url}; tests needing it will fail" >&2
+			echo "WARNING  ${name}: optional file not available from ${url}; tests needing it will be skipped" >&2
 			missing_optional=1
 		else
 			echo "ERROR    ${name}: download failed" >&2
