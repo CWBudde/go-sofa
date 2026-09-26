@@ -33,7 +33,7 @@ Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
 go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 is done except R9d (release-tag decision). Phase C1–C4
-(lazy FIR reads) is done; C3b and C5 are open. Phases C–E are optional /
+and C3b (lazy measurement reads for every DataType) are done; C5 is open. Phases C–E are optional /
 future and can be picked up on demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
@@ -202,9 +202,18 @@ count)` and `ReadHyperslab(sel)` (`dataset_read_hyperslab.go:65`,
     synthetic contiguous file and first/middle/last plus the 354/355 chunk
     boundary of the chunked FIR CI fixtures: those chunk Data.IR across all
     measurements, so each read costs 10–30 ms (godoc and README say so).
-- [ ] **C3b. TF / TF-E / SOS measurement readers.** Siblings of
+- [x] **C3b. TF / TF-E / SOS measurement readers.** Siblings of
       `ReadMeasurement` for `Data.Real`/`Data.Imag` (TF-E in either axis
       order) and `Data.SOS`; `OpenLazy` already skips and checks them.
+  - (2026-09-26) — `ReadMeasurementTF` (`[R][N]` real/imag),
+    `ReadMeasurementTFE` (`[R][E][N]`, transposing a file stored
+    `[M,R,N,E]`) and `ReadMeasurementSOS` share one hyperslab helper with
+    `ReadMeasurement`. `TestReadMeasurementTypesMatchEager` compares every
+    measurement of crafted TF, SOS and TF-E files (both axis orders,
+    labelled and not) plus the TF CI fixture with `Open`, lazily and
+    eagerly. `OpenLazy` now also checks each audio dataset's datatype from
+    `Dataset.Info` (E4 workaround) and rejects what `Open` rejects
+    (`TestOpenLazyRejectsNonNumericAudio`, the Codex finding on #13).
 - [x] **C4. Range callback.** Add
       `(*File).RangeMeasurements(func(m int, ir [][]float64) error) error`
       for ergonomic iteration.
