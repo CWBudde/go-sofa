@@ -262,6 +262,9 @@ func buildFIR() (*sofa.File, map[string]dataset) {
 	f.ImpulseResponses = ir
 	f.SamplingRate = []float64{48000}
 	f.Delay = []float64{0, 0}
+	// A non-ASCII global, as in real files: libmysofa's dense attribute
+	// reader rejects it unless it is written with the ASCII character set.
+	f.Attributes = []sofa.Attribute{{Name: "RoomDescription", Value: "anechoic chamber, 2 m × 3 m"}}
 	return f, map[string]dataset{
 		"Data.IR":           {Shape: []int{numM, numR, n}, Dims: []string{"M", "R", "N"}, Values: flat},
 		"Data.SamplingRate": {Shape: []int{1}, Dims: []string{"I"}, Values: f.SamplingRate},

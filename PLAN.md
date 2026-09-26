@@ -167,11 +167,15 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       libmysofa installed. The harness is `scripts/libmysofa/build.sh` there (no cmake);
       `TestLibmysofaLoad` needs `LIBMYSOFA_LOAD` and gets `check 0` on a
       minimal SimpleFreeFieldHRIR file.
-- [ ] **P1.1d. Include the P3.1a dataspace fix**, release go-hdf5 **v0.18.0**,
+- [x] **P1.1d. Include the P3.1a dataspace fix**, release go-hdf5 **v0.18.0**,
       bump go-sofa's `go.mod`. (2026-09-26) — gated: v0.18.0 also waits for
       P1.1b, P1.1k and P1.1l (decided 2026-09-26). P1.1b is merged
       (cwbudde/go-hdf5#10); P1.1k and P1.1l are in cwbudde/go-hdf5#11
       (awaiting merge).
+      (2026-09-26) — v0.18.0 tagged on cwbudde/go-hdf5#12's merge commit
+      (675f591; go-hdf5#6–#11); `go.mod` requires it. `go test ./...`
+      passes, and the P3.1a crasher in `testdata/fuzz/FuzzOpen/` passes
+      (it panics with v0.17.0). P1.1n and P1.1o go into a later release.
 
 Found while doing P1.1a/c: libmysofa does not read HDF5 generically, it
 matches netCDF-C's byte layout (`src/hdf/fractalhead.c`). A new-style root
@@ -228,7 +232,7 @@ hit by P1.1m.
       `TestSOFALayoutForLibmysofa`, `TestGroupAttributesMoveToDenseStorage`
       and `TestLibmysofaLoad` pass on go-hdf5 `main` (51e9ba8). Datasets keep all attributes compact; groups still switch at 9.
       `extras.sofa` now reaches `check 10008` (P1.2).
-- [ ] **P1.1k. Soft/external links under a new-style root** are still a
+- [x] **P1.1k. Soft/external links under a new-style root** are still a
       separate object header hard-linked into the group (non-conformant, as
       before); write them as Link messages in the parent and use the
       standard external-link value format.
@@ -241,7 +245,9 @@ hit by P1.1m.
       the external link; h5py reads both) and
       `TestOpenForWriteKeepsLibhdf5Links` pass on the branch and fail on
       `main`. Symbol table groups are unchanged (see P1.1o).
-- [ ] **P1.1l. go-hdf5 dense attribute RMW** (pre-existing): after the
+      (2026-09-26) — merged (go-hdf5 `main` ce459ae, released in v0.18.0);
+      both tests pass there with h5dump and h5py installed.
+- [x] **P1.1l. go-hdf5 dense attribute RMW** (pre-existing): after the
       compact → dense transition in an `OpenForWrite` session, later
       attributes are written as compact messages next to the Attribute Info
       message; go-hdf5 reads them, libhdf5 ignores them
@@ -264,7 +270,10 @@ hit by P1.1m.
       (new fixture `testdata/dense/h5py_attrs_small.h5`, h5dump and h5py
       checks) and `TestOpenDatasetAttributesAfterDenseTransition` pass on
       the branch and fail on `main`.
-- [ ] **P1.1m. Non-ASCII string attributes as ASCII character set.**
+      (2026-09-26) — merged (go-hdf5 `main` ce459ae, released in v0.18.0);
+      both tests and `TestDeleteLastRebuiltDenseAttribute` pass there with
+      h5dump and h5py installed.
+- [x] **P1.1m. Non-ASCII string attributes as ASCII character set.**
       go-hdf5 marks strings with non-ASCII bytes as UTF-8
       (`attribute_write.go` `inferString`). libmysofa's dense attribute reader
       rejects that, so resaves of `SimpleFreeFieldHRIR_1.0.sofa` and
@@ -280,6 +289,12 @@ hit by P1.1m.
       SimpleFreeFieldHRIR_1.0 resave now reaches `check 10008` (P1.2),
       SimpleHeadphoneIR_0.2 `check 10004`. Remains: the generated interop
       file here, after the P1.1d bump.
+      (2026-09-26) — `internal/interop/gen` gives `fir.sofa` the global
+      `RoomDescription` = "anechoic chamber, 2 m × 3 m" (checked by
+      `just interop` with h5py and netCDF4). libmysofa loads it with
+      v0.18.0 (`check 10008`, P1.2); built against go-hdf5 before the
+      ASCII fix (d7f94c1^) it gets `load err 10001`. Other files' codes
+      are unchanged.
 - [ ] **P1.1n. go-hdf5: attribute creation order index** (v2 B-tree type
       9). Found while doing P1.1b: netCDF-C and h5py `track_order=True`
       index attribute creation order. Once such an object has more than 8
@@ -423,7 +438,7 @@ dimensions, type, comment). Transcribe the needed rows by hand into
 
 ### P3.1 — Crashes
 
-- [ ] **P3.1a. go-hdf5 dataspace panic.**
+- [x] **P3.1a. go-hdf5 dataspace panic.**
       `internal/core/dataspace.go:30` checks `len(data) < 2`, then reads
       `data[2]` (flags) → "index out of range [2] with length 2" on a 1–4 byte
       mutation of a Save-produced seed (found by fuzzing in 9.6 s). Check the
@@ -435,6 +450,9 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       (re-found by this repo's `FuzzOpen` in 2 min) in its `FuzzOpen`
       corpus. Remains: the same input in `testdata/fuzz/FuzzOpen/` here
       after the P1.1d bump (it panics with go-hdf5 v0.17.0).
+      (2026-09-26) — `testdata/fuzz/FuzzOpen/998dc8f4697ed593` added;
+      `go test -run FuzzOpen/998dc8f4697ed593` passes with go-hdf5 v0.18.0
+      and panics ("index out of range [2] with length 2") with v0.17.0.
 - [x] **P3.1b. Grep go-hdf5 `internal/core/*.go` for the same pattern**
       (`len(data) < k` followed by `data[k]` or larger fixed offsets) and fix
       them in the same PR.
