@@ -3,7 +3,8 @@
 Working notes for contributors and coding agents. Usage docs are in
 [README.md](README.md), design decisions in
 [docs/design-notes.md](docs/design-notes.md) (with known gaps and the
-performance baseline), open work in GitHub issues, history in `git log` and
+performance baseline), open work in [PLAN.md](PLAN.md) and GitHub issues,
+history in `git log` and
 CHANGELOG.md.
 
 ## Checks

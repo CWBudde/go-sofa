@@ -66,8 +66,9 @@ coverage-check MIN="85":
 
 # Run tests with coverage
 test-coverage:
-    go test -v -timeout 120s -coverprofile=coverage.out ./...
-    go tool cover -html=coverage.out -o coverage.html
+    mkdir -p bin
+    go test -v -timeout 120s -coverprofile=bin/coverage.out ./...
+    go tool cover -html=bin/coverage.out -o bin/coverage.html
 
 # Run all checks (formatting, linting, tests, tidiness)
 check: check-formatted lint test check-tidy
@@ -86,7 +87,6 @@ install:
 # Clean build artifacts
 clean:
     rm -rf bin/
-    rm -f coverage.out coverage.html
     rm -f sofainfo sofa2json sofaprobe
 
 # Run sofaprobe on sample files

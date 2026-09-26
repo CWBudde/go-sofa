@@ -28,7 +28,6 @@ excludes = [
     # Build artifacts
     "bin/**",
     "dist/**",
-    "sofaprobe",
 
     # Test data
     "testdata/**",

@@ -10,7 +10,7 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 - **Full AES69 support** — Reads and writes all standard SOFA metadata and data arrays
 - **DataTypes** — `FIR`, `TF`, `TF-E` (including spherical-harmonics HRTFs) and `SOS`
 - **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`
-- **Built on go-hdf5** — Leverages [CWBudde/go-hdf5](https://github.com/CWBudde/go-hdf5) for HDF5 file access
+- **Built on go-hdf5** — Leverages [cwbudde/go-hdf5](https://github.com/cwbudde/go-hdf5), our maintained fork of [scigolib/hdf5](https://github.com/scigolib/hdf5), for HDF5 file access
 - **Command-line tools** — Includes `sofainfo`, `sofa2json` and `sofaprobe` utilities
 - **Well-tested** — Validated against reference SOFA files from sofaconventions.org
 
@@ -639,7 +639,7 @@ coefficients per (measurement, receiver, frequency) tuple, then call
 
 ## Related Projects
 
-- [go-hdf5](https://github.com/CWBudde/go-hdf5) — Pure Go HDF5 library (fork)
+- [go-hdf5](https://github.com/cwbudde/go-hdf5) — Pure Go HDF5 library (fork)
 - [PasSofa](../PasSofa) — Pascal SOFA reader (reference implementation)
 - [SOFA Conventions](https://www.sofaconventions.org/) — Official SOFA specifications
 - [libmysofa](https://github.com/hoene/libmysofa) — Lightweight C SOFA reader
