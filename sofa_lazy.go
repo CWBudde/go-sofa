@@ -88,3 +88,20 @@ func (f *File) readLazyMeasurement(m int) ([][]float64, error) {
 	}
 	return reshapeIR(flat, 1, f.R, f.N)[0], nil
 }
+
+// RangeMeasurements calls fn for each measurement in order, with the
+// impulse responses ReadMeasurement returns for it. It stops at the first
+// error: an error from fn is returned as is, a read error names the
+// measurement. See ReadMeasurement for the cost of lazy reads.
+func (f *File) RangeMeasurements(fn func(m int, ir [][]float64) error) error {
+	for m := range f.M {
+		ir, err := f.ReadMeasurement(m)
+		if err != nil {
+			return fmt.Errorf("RangeMeasurements: measurement %d: %w", m, err)
+		}
+		if err := fn(m, ir); err != nil {
+			return err
+		}
+	}
+	return nil
+}

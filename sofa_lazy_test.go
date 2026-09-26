@@ -314,3 +314,66 @@ func TestReadMeasurementErrors(t *testing.T) {
 		t.Errorf("TF ReadMeasurement error %v, want ErrUnsupportedDataType", err)
 	}
 }
+
+// TestRangeMeasurementsAbort checks that an error from the callback stops
+// the iteration and is returned as is.
+func TestRangeMeasurementsAbort(t *testing.T) {
+	f, err := OpenLazy(saveSynthetic(t, 5, 4))
+	if err != nil {
+		t.Fatalf("OpenLazy: %v", err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+
+	errStop := errors.New("stop")
+	calls := 0
+	err = f.RangeMeasurements(func(m int, _ [][]float64) error {
+		calls++
+		if m == 2 {
+			return errStop
+		}
+		return nil
+	})
+	if !errors.Is(err, errStop) {
+		t.Errorf("RangeMeasurements error %v, want the callback's error", err)
+	}
+	if calls != 3 {
+		t.Errorf("callback called %d times, want 3", calls)
+	}
+}
+
+// TestRangeMeasurementsVisitsAll checks that RangeMeasurements passes every
+// measurement in order, equal to Open's ImpulseResponses, and reports read
+// errors with the measurement index.
+func TestRangeMeasurementsVisitsAll(t *testing.T) {
+	path := saveSynthetic(t, 6, 3)
+	eager, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	lazy, err := OpenLazy(path)
+	if err != nil {
+		t.Fatalf("OpenLazy: %v", err)
+	}
+	var got [][][]float64
+	err = lazy.RangeMeasurements(func(m int, ir [][]float64) error {
+		if m != len(got) {
+			t.Errorf("measurement %d passed after %d others", m, len(got))
+		}
+		got = append(got, ir)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RangeMeasurements: %v", err)
+	}
+	if !reflect.DeepEqual(got, eager.ImpulseResponses) {
+		t.Errorf("RangeMeasurements differs from Open")
+	}
+
+	if err := lazy.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	err = lazy.RangeMeasurements(func(int, [][]float64) error { return nil })
+	if !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("RangeMeasurements after Close: error %v, want fs.ErrClosed", err)
+	}
+}

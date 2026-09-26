@@ -96,6 +96,8 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 - `(*File).ReadMeasurement(m)` returns the FIR impulse responses of one
   measurement as `[R][N]`, read from the file for a `File` from `OpenLazy`
   and copied from `ImpulseResponses` otherwise.
+- `(*File).RangeMeasurements(fn)` calls `fn` for every measurement in turn
+  and stops at, and returns, the first error.
 - `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
 - `(*File).DelayDimensions()` returns the netCDF dimensions of `Delay` as
   `Open` read them (`[I,R]`, `[M]`, …), or the layout its length implies for
