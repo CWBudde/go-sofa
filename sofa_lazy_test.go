@@ -2,11 +2,13 @@ package sofa
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/cwbudde/go-hdf5"
@@ -375,5 +377,260 @@ func TestRangeMeasurementsVisitsAll(t *testing.T) {
 	err = lazy.RangeMeasurements(func(int, [][]float64) error { return nil })
 	if !errors.Is(err, fs.ErrClosed) {
 		t.Errorf("RangeMeasurements after Close: error %v, want fs.ErrClosed", err)
+	}
+}
+
+// iotaData returns 0, 1, …, n-1: every value of a crafted dataset differs,
+// so a misplaced sample is detected.
+func iotaData(n int) []float64 {
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = float64(i)
+	}
+	return out
+}
+
+// tfSpec is a TF file with M=3, R=2, N=4 whose Data.Real and Data.Imag
+// hold distinct values.
+func tfSpec() craftedSpec {
+	mrn := []string{dimM, dimR, dimN}
+	return craftedSpec{
+		dataType: DataTypeTF,
+		dims:     map[string]int{dimM: 3, dimR: 2, dimE: 1, dimN: 4, dimC: 3, dimI: 1},
+		vars: map[string]craftedVar{
+			"Data.Real": {dims: mrn, data: iotaData(24)},
+			"Data.Imag": {dims: mrn, data: iotaData(48)[24:]},
+		},
+	}
+}
+
+// sosSpec is an SOS file with M=3, R=2, N=12 (two biquads) of distinct
+// coefficients.
+func sosSpec() craftedSpec {
+	return craftedSpec{
+		dataType: DataTypeSOS,
+		dims:     map[string]int{dimM: 3, dimR: 2, dimE: 1, dimN: 12, dimC: 3, dimI: 1},
+		vars: map[string]craftedVar{
+			"Data.SOS":          {dims: []string{dimM, dimR, dimN}, data: iotaData(72)},
+			"Data.SamplingRate": {dims: []string{dimI}, data: []float64{48000}},
+		},
+	}
+}
+
+// readAnyMeasurement reads measurement m through the ReadMeasurement*
+// method of f's DataType, in the form eagerMeasurement returns.
+func readAnyMeasurement(f *File, m int) (any, error) {
+	switch f.DataType {
+	case DataTypeFIR:
+		return f.ReadMeasurement(m)
+	case DataTypeTF:
+		re, im, err := f.ReadMeasurementTF(m)
+		return [2][][]float64{re, im}, err
+	case DataTypeTFE:
+		re, im, err := f.ReadMeasurementTFE(m)
+		return [2][][][]float64{re, im}, err
+	case DataTypeSOS:
+		return f.ReadMeasurementSOS(m)
+	}
+	return nil, fmt.Errorf("DataType %q", f.DataType)
+}
+
+// eagerMeasurement returns measurement m of an eager File's audio fields.
+func eagerMeasurement(f *File, m int) any {
+	switch f.DataType {
+	case DataTypeFIR:
+		return f.ImpulseResponses[m]
+	case DataTypeTF:
+		return [2][][]float64{f.TFReal[m], f.TFImag[m]}
+	case DataTypeTFE:
+		return [2][][][]float64{f.TFRealE[m], f.TFImagE[m]}
+	case DataTypeSOS:
+		return f.SOSCoefficients[m]
+	}
+	return nil
+}
+
+// TestReadMeasurementTypesMatchEager reads every measurement of crafted TF,
+// TF-E (both axis orders, labelled and not) and SOS files, and sampled
+// measurements of the non-FIR CI fixtures, through a lazy File and through
+// an eager one, and compares both with Open's audio fields.
+func TestReadMeasurementTypesMatchEager(t *testing.T) {
+	mren := []string{dimM, dimR, dimE, dimN}
+	mrne := []string{dimM, dimR, dimN, dimE}
+	paths := map[string]string{
+		"TF":                        writeCraftedSpec(t, tfSpec()),
+		"TF-E [M,R,E,N] unlabelled": writeCraftedSpec(t, tfeSpec(3, 4, mren, false)),
+		"TF-E [M,R,N,E] unlabelled": writeCraftedSpec(t, tfeSpec(3, 4, mrne, false)),
+		"TF-E [M,R,E,N] labelled":   writeCraftedSpec(t, tfeSpec(3, 3, mren, true)),
+		"TF-E [M,R,N,E] labelled":   writeCraftedSpec(t, tfeSpec(3, 3, mrne, true)),
+		"SOS":                       writeCraftedSpec(t, sosSpec()),
+	}
+	for _, name := range ciFixtures {
+		paths[name] = testdataPath(t, name)
+	}
+	for name, path := range paths {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eager, err := Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			if eager.DataType == DataTypeFIR {
+				t.Skip("FIR is covered by TestReadMeasurementMatchesEager")
+			}
+			lazy, err := OpenLazy(path)
+			if err != nil {
+				t.Fatalf("OpenLazy: %v", err)
+			}
+			t.Cleanup(func() { _ = lazy.Close() })
+			for _, m := range sampleMeasurements(eager.M) {
+				want := eagerMeasurement(eager, m)
+				for _, f := range []*File{lazy, eager} {
+					got, err := readAnyMeasurement(f, m)
+					if err != nil {
+						t.Fatalf("lazy=%v measurement %d: %v", f.lazy, m, err)
+					}
+					if !reflect.DeepEqual(got, want) {
+						t.Fatalf("lazy=%v measurement %d differs from Open", f.lazy, m)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestReadMeasurementTypesEagerCopy checks that the TF, TF-E and SOS
+// readers return copies on a File from Open.
+func TestReadMeasurementTypesEagerCopy(t *testing.T) {
+	tf, err := Open(writeCraftedSpec(t, tfSpec()))
+	if err != nil {
+		t.Fatalf("Open TF: %v", err)
+	}
+	re, im, err := tf.ReadMeasurementTF(1)
+	if err != nil {
+		t.Fatalf("ReadMeasurementTF: %v", err)
+	}
+	re[0][0], im[0][0] = -42, -42
+	if tf.TFReal[1][0][0] == -42 || tf.TFImag[1][0][0] == -42 {
+		t.Errorf("ReadMeasurementTF aliases TFReal/TFImag")
+	}
+
+	tfe, err := Open(writeCraftedSpec(t, tfeSpec(3, 4, []string{dimM, dimR, dimN, dimE}, false)))
+	if err != nil {
+		t.Fatalf("Open TF-E: %v", err)
+	}
+	reE, imE, err := tfe.ReadMeasurementTFE(1)
+	if err != nil {
+		t.Fatalf("ReadMeasurementTFE: %v", err)
+	}
+	reE[0][0][0], imE[0][0][0] = -42, -42
+	if tfe.TFRealE[1][0][0][0] == -42 || tfe.TFImagE[1][0][0][0] == -42 {
+		t.Errorf("ReadMeasurementTFE aliases TFRealE/TFImagE")
+	}
+
+	sos, err := Open(writeCraftedSpec(t, sosSpec()))
+	if err != nil {
+		t.Fatalf("Open SOS: %v", err)
+	}
+	c, err := sos.ReadMeasurementSOS(1)
+	if err != nil {
+		t.Fatalf("ReadMeasurementSOS: %v", err)
+	}
+	c[0][0] = -42
+	if sos.SOSCoefficients[1][0][0] == -42 {
+		t.Errorf("ReadMeasurementSOS aliases SOSCoefficients")
+	}
+}
+
+// TestReadMeasurementTypesErrors checks the index, DataType and closed-file
+// errors of the TF, TF-E and SOS readers.
+func TestReadMeasurementTypesErrors(t *testing.T) {
+	specs := []craftedSpec{tfSpec(), tfeSpec(3, 4, []string{dimM, dimR, dimN, dimE}, false), sosSpec()}
+	for _, spec := range specs {
+		path := writeCraftedSpec(t, spec)
+		for _, lazy := range []bool{false, true} {
+			f, err := open(path, lazy)
+			if err != nil {
+				t.Fatalf("%s open(lazy=%v): %v", spec.dataType, lazy, err)
+			}
+			for _, m := range []int{-1, f.M} {
+				if _, err := readAnyMeasurement(f, m); !errors.Is(err, ErrIndexOutOfRange) {
+					t.Errorf("%s lazy=%v measurement %d: error %v, want ErrIndexOutOfRange",
+						spec.dataType, lazy, m, err)
+				}
+			}
+			if err := f.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if _, err := readAnyMeasurement(f, 0); lazy && !errors.Is(err, fs.ErrClosed) {
+				t.Errorf("%s measurement after Close: error %v, want fs.ErrClosed", spec.dataType, err)
+			}
+		}
+	}
+
+	fir := &File{DataType: DataTypeFIR, M: 1, R: 1, N: 1}
+	if _, _, err := fir.ReadMeasurementTF(0); !errors.Is(err, ErrUnsupportedDataType) {
+		t.Errorf("FIR ReadMeasurementTF error %v, want ErrUnsupportedDataType", err)
+	}
+	if _, _, err := fir.ReadMeasurementTFE(0); !errors.Is(err, ErrUnsupportedDataType) {
+		t.Errorf("FIR ReadMeasurementTFE error %v, want ErrUnsupportedDataType", err)
+	}
+	if _, err := fir.ReadMeasurementSOS(0); !errors.Is(err, ErrUnsupportedDataType) {
+		t.Errorf("FIR ReadMeasurementSOS error %v, want ErrUnsupportedDataType", err)
+	}
+}
+
+// TestOpenLazyRejectsNonNumericAudio checks that OpenLazy, which does not
+// read the audio data, still rejects an audio dataset Open cannot read
+// because of its datatype (here fixed-length strings).
+func TestOpenLazyRejectsNonNumericAudio(t *testing.T) {
+	for _, tc := range []struct {
+		spec craftedSpec
+		name string
+	}{
+		{firSpec(), "Data.IR"},
+		{tfSpec(), "Data.Real"},
+		{tfSpec(), "Data.Imag"},
+		{tfeSpec(3, 4, []string{dimM, dimR, dimN, dimE}, false), "Data.Imag"},
+		{sosSpec(), "Data.SOS"},
+	} {
+		t.Run(tc.spec.dataType+" "+tc.name, func(t *testing.T) {
+			shape := make([]uint64, 0, 4)
+			order := tc.spec.vars[tc.name].dims
+			if order == nil {
+				order = []string{dimM, dimR, dimN, dimE}
+			}
+			for _, d := range order {
+				shape = append(shape, uint64(tc.spec.dims[d])) //nolint:gosec // small test sizes
+			}
+			delete(tc.spec.vars, tc.name)
+			tc.spec.extra = func(t *testing.T, fw *hdf5.FileWriter) {
+				t.Helper()
+				n := 1
+				for _, d := range shape {
+					n *= int(d) //nolint:gosec // small test sizes
+				}
+				ds, err := fw.CreateDataset("/"+tc.name, hdf5.String, shape, hdf5.WithStringSize(4))
+				if err != nil {
+					t.Fatalf("create /%s: %v", tc.name, err)
+				}
+				if err := ds.Write(make([]string, n)); err != nil {
+					t.Fatalf("write /%s: %v", tc.name, err)
+				}
+			}
+			path := writeCraftedSpec(t, tc.spec)
+			if f, err := Open(path); err == nil {
+				f.Close()
+				t.Fatalf("Open accepted a string %s", tc.name)
+			}
+			f, err := OpenLazy(path)
+			if err == nil {
+				f.Close()
+				t.Fatalf("OpenLazy accepted a string %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.name) {
+				t.Errorf("error %q does not name %s", err, tc.name)
+			}
+		})
 	}
 }

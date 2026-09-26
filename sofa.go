@@ -196,11 +196,11 @@ type File struct {
 	// Internal
 	delayLayout []string // Data.Delay dimensions as resolved by Open; see delayAxes
 
-	// Set by OpenLazy: the open file and its FIR Data.IR dataset, both nil
-	// again after Close.
+	// Set by OpenLazy: the open file and its audio datasets by name, both
+	// nil again after Close.
 	lazy  bool
 	h5    *hdf5.File
-	audio *hdf5.Dataset
+	audio map[string]lazyAudio
 }
 
 // Open reads a SOFA file. It checks that the file is a SOFA file, reads all
@@ -541,7 +541,9 @@ func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 		return err
 	}
 	if f.lazy {
-		f.audio = irDS
+		if err := f.keepLazy("Data.IR", irDS, layoutMRN); err != nil {
+			return err
+		}
 		return f.readRateAndDelay(datasets, labels)
 	}
 	irFlat, err := irDS.Read()
@@ -615,7 +617,7 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 		return err
 	}
 	if f.lazy {
-		return nil
+		return errors.Join(f.keepLazy("Data.Real", realDS, layoutMRN), f.keepLazy("Data.Imag", imagDS, layoutMRN))
 	}
 	realFlat, err := realDS.Read()
 	if err != nil {
@@ -668,7 +670,7 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 		return err
 	}
 	if f.lazy {
-		return nil
+		return errors.Join(f.keepLazy("Data.Real", realDS, realLayout), f.keepLazy("Data.Imag", imagDS, imagLayout))
 	}
 	realFlat, err := realDS.Read()
 	if err != nil {
@@ -713,6 +715,9 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
 	}
 	if f.lazy {
+		if err := f.keepLazy("Data.SOS", sosDS, layoutMRN); err != nil {
+			return err
+		}
 		return f.readRateAndDelay(datasets, labels)
 	}
 	flat, err := sosDS.Read()

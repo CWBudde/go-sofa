@@ -169,8 +169,14 @@ var ErrIndexOutOfRange = errors.New("index out of range")
 // requireFIR returns an ErrUnsupportedDataType-wrapping error unless the
 // file holds impulse responses.
 func (f *File) requireFIR(what string) error {
-	if f.DataType != DataTypeFIR {
-		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, DataTypeFIR)
+	return f.requireDataType(what, DataTypeFIR)
+}
+
+// requireDataType fails with ErrUnsupportedDataType unless f has the given
+// DataType.
+func (f *File) requireDataType(what, dataType string) error {
+	if f.DataType != dataType {
+		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, dataType)
 	}
 	return nil
 }

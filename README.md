@@ -90,7 +90,10 @@ for m := 0; m < f.M; m++ {
 
 `OpenLazy` reads everything except the audio data and keeps the file open
 until `Close`. `ReadMeasurement` and `RangeMeasurements` then read one FIR
-measurement (`[R][N]`) at a time:
+measurement (`[R][N]`) at a time; `ReadMeasurementTF` (real and imaginary
+parts, `[R][N]` each), `ReadMeasurementTFE` (`[R][E][N]` each, whichever axis
+order the file stores) and `ReadMeasurementSOS` (`[R][N]`) do the same for
+the other DataTypes:
 
 ```go
 f, err := sofa.OpenLazy("large.sofa")
@@ -106,8 +109,8 @@ err = f.RangeMeasurements(func(m int, ir [][]float64) error {
 ```
 
 Each lazy read decompresses the HDF5 chunks the measurement touches. Files
-written by the SOFA Toolbox chunk `Data.IR` across all measurements, so for
-them `Open` is faster whenever most measurements are needed.
+written by the SOFA Toolbox chunk their audio data across all measurements,
+so for them `Open` is faster whenever most measurements are needed.
 
 ### Reading spatial data
 
@@ -504,8 +507,11 @@ defer f.Close()
 
 Like `Open`, but leaves the audio data (`ImpulseResponses`, `TFReal`, …) in
 the file and keeps it open until `Close`. Read FIR measurements with
-`ReadMeasurement(m)` or `RangeMeasurements(fn)`; `IRAt` and `Save` need the
-data in memory and fail on a lazy `File`.
+`ReadMeasurement(m)` or `RangeMeasurements(fn)`, and TF, TF-E and SOS
+measurements with `ReadMeasurementTF(m)`, `ReadMeasurementTFE(m)` and
+`ReadMeasurementSOS(m)`; `IRAt` and `Save` need the data in memory and fail
+on a lazy `File`. Like `Open`, it rejects audio datasets whose datatype is
+not a 4- or 8-byte float or integer.
 
 #### `(*File).Save(path string) error`
 
