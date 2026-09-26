@@ -98,6 +98,11 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   and copied from `ImpulseResponses` otherwise.
 - `(*File).RangeMeasurements(fn)` calls `fn` for every measurement in turn
   and stops at, and returns, the first error.
+- `(*File).ReadMeasurementTF(m)`, `ReadMeasurementTFE(m)` and
+  `ReadMeasurementSOS(m)` do the same for TF (`[R][N]` real and imaginary
+  parts), TF-E (`[R][E][N]`, from either stored axis order) and SOS
+  (`[R][N]`) files. `OpenLazy` checks the datatype of every audio dataset, so
+  it rejects the files `Open` rejects.
 - `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
 - `(*File).DelayDimensions()` returns the netCDF dimensions of `Delay` as
   `Open` read them (`[I,R]`, `[M]`, …), or the layout its length implies for

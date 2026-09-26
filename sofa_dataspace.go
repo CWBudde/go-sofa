@@ -71,3 +71,29 @@ func parseDataspaceElements(info string) (n uint64, ok bool) {
 	}
 	return n, true
 }
+
+// datatypeRE matches the datatype part of go-hdf5's Dataset.Info output:
+// "float (size=8 bytes)", "integer (size=4 bytes)", "string (size=4 bytes)".
+var datatypeRE = regexp.MustCompile(`^Dataset: (\w+) \(size=(\d+) bytes\)`)
+
+// datasetIsNumeric reports whether ds holds values Dataset.Read and
+// Dataset.ReadSlice convert to float64 (4- or 8-byte floats and integers),
+// without reading the data. It is false when the datatype cannot be
+// determined.
+func datasetIsNumeric(ds *hdf5.Dataset) bool {
+	info, err := ds.Info()
+	if err != nil {
+		return false
+	}
+	return parseNumericDatatype(info)
+}
+
+// parseNumericDatatype reports whether a Dataset.Info string names a 4- or
+// 8-byte float or integer datatype.
+func parseNumericDatatype(info string) bool {
+	m := datatypeRE.FindStringSubmatch(info)
+	if m == nil || (m[1] != "float" && m[1] != "integer") {
+		return false
+	}
+	return m[2] == "4" || m[2] == "8"
+}
