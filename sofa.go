@@ -837,7 +837,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 				rowDim(len(p.perM[0]), p.dim, p.size), p.typ, p.units)
 		} else {
 			err = nc.writePositionDataset("/"+p.name, p.positions,
-				rowDim(len(p.positions), p.dim, p.size), p.typ, p.units)
+				rowDim(len(p.positions), p.dim, p.size), p.dim != dimM, p.typ, p.units)
 		}
 		if err != nil {
 			return fmt.Errorf("write %s: %w", p.name, err)

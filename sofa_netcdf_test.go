@@ -110,9 +110,29 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 				"Data.SamplingRate": {"I"},
 				"Data.Delay":        {"M", "R"},
 				"ListenerPosition":  {"I", "C"},
-				"ReceiverPosition":  {"R", "C"},
+				"ReceiverPosition":  {"R", "C", "I"},
 				"SourcePosition":    {"M", "C"},
-				"EmitterPosition":   {"E", "C"},
+				"EmitterPosition":   {"E", "C", "I"},
+				"ListenerUp":        {"I", "C"},
+				"ListenerView":      {"I", "C"},
+			},
+		},
+		{
+			name: "FIR one receiver position",
+			file: func() *File {
+				f := minimalFIRFile()
+				f.ReceiverPositions = f.ReceiverPositions[:1]
+				return f
+			}(),
+			scales: map[string]uint64{"M": 3, "R": 2, "E": 1, "N": 4, "C": 3, "I": 1},
+			variables: map[string][]string{
+				"Data.IR":           {"M", "R", "N"},
+				"Data.SamplingRate": {"I"},
+				"Data.Delay":        {"M", "R"},
+				"ListenerPosition":  {"I", "C"},
+				"ReceiverPosition":  {"I", "C", "I"},
+				"SourcePosition":    {"M", "C"},
+				"EmitterPosition":   {"E", "C", "I"},
 				"ListenerUp":        {"I", "C"},
 				"ListenerView":      {"I", "C"},
 			},
