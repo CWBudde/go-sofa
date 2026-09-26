@@ -86,6 +86,29 @@ for m := 0; m < f.M; m++ {
 }
 ```
 
+### Reading large files measurement by measurement
+
+`OpenLazy` reads everything except the audio data and keeps the file open
+until `Close`. `ReadMeasurement` and `RangeMeasurements` then read one FIR
+measurement (`[R][N]`) at a time:
+
+```go
+f, err := sofa.OpenLazy("large.sofa")
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+err = f.RangeMeasurements(func(m int, ir [][]float64) error {
+    // ir[r] holds the N samples of receiver r
+    return nil // a non-nil error stops the iteration and is returned
+})
+```
+
+Each lazy read decompresses the HDF5 chunks the measurement touches. Files
+written by the SOFA Toolbox chunk `Data.IR` across all measurements, so for
+them `Open` is faster whenever most measurements are needed.
+
 ### Reading spatial data
 
 ```go
@@ -475,6 +498,13 @@ if err != nil {
 }
 defer f.Close()
 ```
+
+#### `OpenLazy(path string) (*File, error)`
+
+Like `Open`, but leaves the audio data (`ImpulseResponses`, `TFReal`, …) in
+the file and keeps it open until `Close`. Read FIR measurements with
+`ReadMeasurement(m)` or `RangeMeasurements(fn)`; `IRAt` and `Save` need the
+data in memory and fail on a lazy `File`.
 
 #### `(*File).Save(path string) error`
 
