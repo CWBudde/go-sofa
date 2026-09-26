@@ -11,7 +11,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- go-hdf5 is upgraded to v0.17.0 (merged
+- Requires go-hdf5 v0.17.0 (merged
   [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5),
   `5753c09`). Dataset shapes and dimension-scale `REFERENCE_LIST`s now
   come from its public API instead of parsing `Dataset.Info()` text and
@@ -63,8 +63,6 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 - `Save` writes `Data.SamplingRate:Units = hertz`, `LongName = frequency` and
   `Units = hertz` on the TF/TF-E `N` variable, and `Type`/`Units` on
   `ListenerView` and `ListenerUp`.
-- Requires go-hdf5 v0.16.1: with v0.16.0, libhdf5 and netCDF-C could not open
-  the `DateModified` and `Organization` attributes.
 - **Breaking:** `IRAt`, `IRPeakdB` and `Duration` return an error:
   `ErrUnsupportedDataType` on non-FIR files (where `Duration` used to divide
   a frequency-bin or coefficient count by the sampling rate) and
