@@ -77,25 +77,44 @@ func TestPositionCoordinateAttributesRoundTrip(t *testing.T) {
 }
 
 // TestPositionCoordinateAttributesWhenEmpty checks that Save refuses a
-// position without a Type (AES69 requires one) and omits an empty Units
-// rather than writing an empty string, which then reads back empty.
+// position without a Type (AES69 requires one) and writes an empty Units
+// as the conventions' default for the Type: "metre" for cartesian and
+// "degree, degree, metre" for spherical and spherical-harmonics positions.
 func TestPositionCoordinateAttributesWhenEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "no-coords.sofa")
 	if err := coordinateTestFile("", "").Save(path); err == nil {
 		t.Fatal("Save() accepted positions without a Type")
 	}
-
-	if err := coordinateTestFile(CoordinateSpherical, "").Save(path); err != nil {
-		t.Fatalf("Save() error = %v", err)
+	if UnitsCartesianMetres != "metre" {
+		t.Errorf("UnitsCartesianMetres = %q, want the conventions' %q", UnitsCartesianMetres, "metre")
 	}
-	got, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer got.Close()
 
-	if got.SourcePositionUnits != "" {
-		t.Errorf("SourcePositionUnits = %q, want empty", got.SourcePositionUnits)
+	for _, tt := range []struct {
+		typ, want string
+	}{
+		{CoordinateCartesian, UnitsCartesianMetres},
+		{CoordinateSpherical, UnitsSphericalDegrees},
+		{"Spherical Harmonics", UnitsSphericalDegrees},
+	} {
+		t.Run(tt.typ, func(t *testing.T) {
+			f := coordinateTestFile(tt.typ, "")
+			f.ReceiverPositionUnits, f.EmitterPositionUnits = "", ""
+			if err := f.Save(path); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			if f.SourcePositionUnits != "" || f.ReceiverPositionUnits != "" {
+				t.Error("Save changed the File's Units")
+			}
+			got, err := Open(path)
+			if err != nil {
+				t.Fatalf("Open() error = %v", err)
+			}
+			defer got.Close()
+			compareStrings(t, "SourcePositionUnits", tt.want, got.SourcePositionUnits)
+			compareStrings(t, "ListenerPositionUnits", tt.want, got.ListenerPositionUnits)
+			compareStrings(t, "ReceiverPositionUnits", UnitsCartesianMetres, got.ReceiverPositionUnits)
+			compareStrings(t, "EmitterPositionUnits", UnitsCartesianMetres, got.EmitterPositionUnits)
+		})
 	}
 }
 

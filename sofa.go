@@ -56,8 +56,9 @@ const (
 	UnitsSphericalDegrees = "degree, degree, metre"
 
 	// UnitsCartesianMetres is the conventional Units value for cartesian
-	// positions.
-	UnitsCartesianMetres = "metre, metre, metre"
+	// positions, as the SOFA convention tables give it. Files may also say
+	// "metre, metre, metre"; Open reads the Units attribute as it is.
+	UnitsCartesianMetres = "metre"
 )
 
 // Vector3 is one coordinate triplet of a position or orientation
@@ -111,7 +112,9 @@ type File struct {
 	// coordinate system should say so rather than guess.
 	//
 	// Save requires a Type ("cartesian", "spherical" or "spherical
-	// harmonics") on every position it writes.
+	// harmonics") on every position it writes, and writes empty Units as the
+	// conventions' default for the Type: UnitsCartesianMetres for cartesian,
+	// UnitsSphericalDegrees otherwise.
 	ListenerPositionType  string
 	ListenerPositionUnits string
 	ReceiverPositionType  string

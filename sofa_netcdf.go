@@ -230,7 +230,8 @@ type savedPosition struct {
 
 // savedPositions returns the four position variables Save writes: the
 // File's, except that an empty ListenerPosition or EmitterPosition becomes
-// the conventions' default, [0 0 0] cartesian in metres. The File itself is
+// the conventions' default, [0 0 0] cartesian in metres, and empty Units
+// become the default for the Type (see defaultUnits). The File itself is
 // not changed.
 func (f *File) savedPositions() []savedPosition {
 	ps := []savedPosition{
@@ -242,17 +243,29 @@ func (f *File) savedPositions() []savedPosition {
 	for i, p := range ps {
 		defaulted := p.name == datasetListenerPosition || p.name == datasetEmitterPosition
 		if defaulted && len(p.positions) == 0 && len(p.perM) == 0 {
-			ps[i].positions, ps[i].typ, ps[i].units = []Vector3{{}}, CoordinateCartesian, "metre"
+			ps[i].positions, ps[i].typ = []Vector3{{}}, CoordinateCartesian
+		}
+		if ps[i].units == "" {
+			ps[i].units = defaultUnits(ps[i].typ)
 		}
 	}
 	return ps
+}
+
+// defaultUnits returns the conventions' Units for a position or ListenerView
+// of Type typ: UnitsCartesianMetres for cartesian, UnitsSphericalDegrees for
+// spherical and spherical harmonics.
+func defaultUnits(typ string) string {
+	if strings.EqualFold(strings.TrimSpace(typ), CoordinateCartesian) {
+		return UnitsCartesianMetres
+	}
+	return UnitsSphericalDegrees
 }
 
 // writePositionDataset writes a position variable tagged with the Type and
 // Units attributes that name its coordinate system: [rows, C] for listener
 // and source positions, [rows, C, I] for receiver and emitter positions
 // (perObject), the only shared layouts the conventions allow for them.
-// Empty type or units are omitted rather than written as empty strings.
 func (nc *netcdfDimensions) writePositionDataset(name string, positions []Vector3, rows string, perObject bool, typ, units string) error {
 	if len(positions) == 0 {
 		// Skip if no positions provided
@@ -285,31 +298,25 @@ func (nc *netcdfDimensions) writePositionDatasetPerM(name string, perM [][]Vecto
 
 // listenerViewCoordinates returns the Type and Units written on
 // ListenerView and ListenerUp: the File's, defaulting to the conventions'
-// "cartesian" and "metre". Empty Units of a non-cartesian Type default to
-// UnitsSphericalDegrees, so the mandatory Units attribute is never omitted.
+// "cartesian" and the Type's default Units (see defaultUnits), so the
+// mandatory Units attribute is never omitted.
 func (f *File) listenerViewCoordinates() (typ, units string) {
 	typ, units = f.ListenerViewType, f.ListenerViewUnits
 	if typ == "" {
 		typ = CoordinateCartesian
 	}
 	if units == "" {
-		units = UnitsSphericalDegrees
-		if strings.EqualFold(typ, CoordinateCartesian) {
-			units = "metre"
-		}
+		units = defaultUnits(typ)
 	}
 	return typ, units
 }
 
 // positionAttributes returns the Type and Units attributes of a position
-// variable. Empty values are omitted rather than written as empty strings.
+// variable, both mandatory in AES69; validate and savedPositions ensure
+// neither is empty.
 func positionAttributes(typ, units string) []hdf5.DatasetOption {
-	var attrs []hdf5.DatasetOption
-	if typ != "" {
-		attrs = append(attrs, hdf5.WithAttribute("Type", typ))
+	return []hdf5.DatasetOption{
+		hdf5.WithAttribute("Type", typ),
+		hdf5.WithAttribute("Units", units),
 	}
-	if units != "" {
-		attrs = append(attrs, hdf5.WithAttribute("Units", units))
-	}
-	return attrs
 }

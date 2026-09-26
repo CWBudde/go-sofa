@@ -50,6 +50,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   writes an empty `ListenerPositions` or `EmitterPositions` as the
   conventions' default, `[0 0 0]` cartesian in metres. The `File` is not
   modified.
+- `Save` always writes the mandatory `Units` attribute of the four position
+  variables; empty `…PositionUnits` are written as the default for the
+  `Type`, `metre` for cartesian and `degree, degree, metre` for spherical
+  and spherical harmonics. An empty `Units` used to be left out.
+- **Breaking:** `UnitsCartesianMetres` is `"metre"`, the value of the SOFA
+  convention tables, instead of `"metre, metre, metre"`. `Open` still reads
+  either as it is stored.
 
 ## [v0.2.0] - 2026-09-26
 
