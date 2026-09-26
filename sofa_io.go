@@ -112,6 +112,9 @@ func (f *File) Save(path string) (err error) {
 // or encoding error writes nothing to w. An error from w is returned
 // together with the bytes w accepted.
 func (f *File) WriteTo(w io.Writer) (n int64, err error) {
+	if w == nil {
+		return 0, errors.New("write: nil io.Writer")
+	}
 	if err := f.checkWritable("write"); err != nil {
 		return 0, err
 	}

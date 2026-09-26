@@ -301,6 +301,12 @@ func TestOpenLazyNeedsExplicitReads(t *testing.T) {
 	if err := f.Save(out); err != nil {
 		t.Errorf("Save of lazy file with loaded data: %v", err)
 	}
+	if ir, err := f.IRAt(2, 1); err != nil || len(ir) != 4 {
+		t.Errorf("IRAt on lazy file with loaded data = %v, %v; want 4 samples", ir, err)
+	}
+	if _, err := f.IRPeakdB(2, 1); err != nil {
+		t.Errorf("IRPeakdB on lazy file with loaded data: %v", err)
+	}
 	g, err := Open(out)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

@@ -29,12 +29,11 @@ history is in `git log` / CHANGELOG.md, design decisions in
 
 ## Open work
 
-Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
-[CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
-[CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7 is done; R8 is done; R9 is done except R9d (release-tag decision). Phase C is done, Phase D except D2
-(MATLAB round trip); Phase E lists go-hdf5 follow-ups. The remaining items are
-optional / future and can be picked up on demand when a real use case appears.
+All phases are done: Phase R (review findings R1–R9), Phases A–D, and the
+go-hdf5 follow-ups of Phase E (fixed in
+[CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5), go-hdf5
+v0.17.0). The entries below stay as a record until the next release; new
+work goes into a new phase.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
 

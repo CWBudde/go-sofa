@@ -112,6 +112,9 @@ func load(path string) (*sofa.File, fields, error) {
 	if err != nil {
 		return nil, fields{}, err
 	}
+	if len(f.ListenerPositions) == 0 {
+		return nil, fields{}, fmt.Errorf("%s: no ListenerPosition", path)
+	}
 	// Broadcast [I,C] positions to M rows so both layouts compare equal.
 	src := make([]sofa.Vector3, f.M)
 	lst := make([]sofa.Vector3, f.M)

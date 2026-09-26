@@ -200,8 +200,8 @@ func (f *File) Duration() (float64, error) {
 // fails with ErrUnsupportedDataType for non-FIR files and with
 // ErrIndexOutOfRange when m or r is outside [0,M)×[0,R) or no complete
 // response (N samples) is stored there. On a File returned by OpenLazy,
-// whose responses stay in the file, it fails with ErrNotLoaded; use
-// ReadMeasurement there.
+// whose responses stay in the file, it fails with ErrNotLoaded (use
+// ReadMeasurement there) unless the caller has filled ImpulseResponses.
 func (f *File) IRAt(m, r int) ([]float64, error) {
 	if err := f.requireFIR("IRAt"); err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (f *File) IRAt(m, r int) ([]float64, error) {
 	if m < 0 || m >= f.M || r < 0 || r >= f.R {
 		return nil, fmt.Errorf("IRAt(%d, %d) with M=%d R=%d: %w", m, r, f.M, f.R, ErrIndexOutOfRange)
 	}
-	if f.lazy != nil {
+	if f.lazy != nil && len(f.ImpulseResponses) == 0 {
 		return nil, fmt.Errorf("IRAt(%d, %d): %w; use ReadMeasurement", m, r, ErrNotLoaded)
 	}
 	if m >= len(f.ImpulseResponses) || r >= len(f.ImpulseResponses[m]) {

@@ -192,6 +192,12 @@ func TestWriteToErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("nil writer", func(t *testing.T) {
+		if n, err := robustTFFile().WriteTo(nil); err == nil || n != 0 {
+			t.Errorf("WriteTo(nil) = %d, %v; want 0 and an error", n, err)
+		}
+	})
+
 	t.Run("lazy without audio", func(t *testing.T) {
 		f := openLazy(t, saveTemp(t, streamFIRFile(3, 1, 4), "lazy.sofa"))
 		var buf bytes.Buffer
