@@ -135,6 +135,9 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       messages (≤8 links) and switch to dense storage above the threshold
       (HDF5 default `max_compact = 8`). Keep the symbol-table path for
       superblock v0 only.
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
+      merge. Linking now reads the root header, so `OpenForWrite` +
+      `CreateDataset` at a v2 root works too (it failed before).
 - [ ] **P1.1b. Track attribute creation order** (Attribute Info message
       flags, `attribute_write.go`) so `ncdump` lists globals in write order
       (`Conventions` first). Cosmetic but cheap once P1.1a touches the OHDR.
@@ -142,8 +145,53 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       pattern) and with `h5dump`; assert the root OHDR contains no 0x11
       message; add a libmysofa-load test if the harness is available (skip
       otherwise).
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
+      merge. The harness is `scripts/libmysofa/build.sh` there (no cmake);
+      `TestLibmysofaLoad` needs `LIBMYSOFA_LOAD` and gets `check 0` on a
+      minimal SimpleFreeFieldHRIR file.
 - [ ] **P1.1d. Include the P3.1a dataspace fix**, release go-hdf5 **v0.18.0**,
       bump go-sofa's `go.mod`.
+
+Found while doing P1.1a/c: libmysofa does not read HDF5 generically, it
+matches netCDF-C's byte layout (`src/hdf/fractalhead.c`). A new-style root
+alone still failed to load. With P1.1e–g a go-sofa resave of MIT_KEMAR
+loads (`check 10006`, see P1.1h).
+
+- [ ] **P1.1e. String datatype message is 8 bytes** (it had a non-spec
+      "properties" byte; libmysofa lost sync on every string attribute).
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
+      merge.
+- [ ] **P1.1f. Scalar attribute dataspace as 4-byte version 2** (as
+      netCDF-C; libmysofa's dense-attribute reader requires it).
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
+      merge.
+- [ ] **P1.1g. Root tracks link creation order** and every link stores it
+      (libmysofa's dense-link reader expects netCDF-C's Link message layout).
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
+      merge.
+- [ ] **P1.1h. Global heap collection below 64 KiB.** libmysofa keeps the
+      GCOL address in a `uint16_t` (`gcol.c:18`), so `DIMENSION_LIST`
+      references written at `Close` (end of file) do not resolve: MIT_KEMAR
+      resave → `check 10006` (`MYSOFA_INVALID_DIMENSION_LIST`). netCDF-C
+      writes the collection early. Needed for P1.3a's `check 0`.
+- [ ] **P1.1i. At most 25 continuation messages per file.** libmysofa's
+      `recursive_counter` never decreases (`dataobject.c:889`); dataset
+      headers that spill attributes (e.g. `DIMENSION_LIST` added at `Close`)
+      into continuation chunks break larger files: SingleRoomSRIR resave →
+      `load err 10001` ("recursive problem"). Reserve header space instead.
+- [ ] **P1.1j. Dense attributes that are not scalar strings** (e.g.
+      `DIMENSION_LIST` on a variable with > 8 attributes, go-sofa interop
+      `extras.sofa`) fail libmysofa's dense-attribute reader → `load err
+10001`. netCDF-C writes version 1 attribute messages in dense storage.
+- [ ] **P1.1k. Soft/external links under a new-style root** are still a
+      separate object header hard-linked into the group (non-conformant, as
+      before); write them as Link messages in the parent and use the
+      standard external-link value format.
+- [ ] **P1.1l. go-hdf5 dense attribute RMW** (pre-existing): after the
+      compact → dense transition in an `OpenForWrite` session, later
+      attributes are written as compact messages next to the Attribute Info
+      message; go-hdf5 reads them, libhdf5 ignores them
+      (`TestDenseAttributeRMW_BasicFlow` fails wherever h5dump is installed).
 
 ### P1.2 — go-sofa: correct position variable dimensions
 
