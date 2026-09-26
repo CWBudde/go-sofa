@@ -112,7 +112,7 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 	case DataTypeTF:
 		names, layouts = []string{varReal, varImag}, [][]string{layoutMRN}
 	case DataTypeTFE:
-		names, layouts = []string{varReal, varImag}, [][]string{layoutMREN, layoutMRNE}
+		names, layouts = []string{varReal, varImag}, [][]string{layoutMRNE, layoutMREN}
 	case DataTypeSOS:
 		if f.N%6 != 0 {
 			return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)

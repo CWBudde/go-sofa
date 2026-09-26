@@ -32,6 +32,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   now 0.6 s and 885 MB, as much as `Open`. Files with one chunk per
   receiver, the common layout, read as before. The `OpenLazy` godoc
   explains when lazy reading saves memory.
+- `Open` and `OpenLazy` read a TF-E file without dimension labels (as h5py
+  writes it) whose E equals N in the AES69 order `[M,R,N,E]`; they used to
+  read it as `[M,R,E,N]`, transposing every emitter/frequency block.
+  Consequence: a TF-E file saved by go-sofa v0.1.0 (`[M,R,E,N]`, no labels)
+  with E == N now reads transposed; nothing in such a file tells the two
+  orders apart. Labelled files, including every file saved by v0.2.0 and
+  later, and files with E ≠ N are unaffected.
 
 ### Changed
 

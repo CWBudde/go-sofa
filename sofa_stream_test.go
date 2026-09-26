@@ -179,6 +179,9 @@ func TestReadMeasurementMatchesEager(t *testing.T) {
 	t.Run("TF-E MRNE crafted", func(t *testing.T) {
 		checkLazyMatchesEager(t, writeCraftedSpec(t, tfeSpec(3, 4, layoutMRNE, false)))
 	})
+	t.Run("TF-E MRNE unlabelled E==N", func(t *testing.T) {
+		checkLazyMatchesEager(t, writeCraftedSpec(t, tfeSpec(3, 3, layoutMRNE, false)))
+	})
 	for _, name := range []string{
 		"CIPIC_subject_003_hrir_final.sofa",
 		"MIT_KEMAR_normal_pinna.sofa",
