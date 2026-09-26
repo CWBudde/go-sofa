@@ -195,24 +195,40 @@ type File struct {
 
 	// Internal
 	delayLayout []string // Data.Delay dimensions as resolved by Open; see delayAxes
+
+	// Set by OpenLazy: the open file and its FIR Data.IR dataset, both nil
+	// again after Close.
+	lazy  bool
+	h5    *hdf5.File
+	audio *hdf5.Dataset
 }
 
 // Open reads a SOFA file. It checks that the file is a SOFA file, reads all
 // data and metadata into the returned File and closes the file again before
 // it returns, so the File holds no open handle. A failure to close the file
 // is returned too, joined with any read error, and yields no File.
-func Open(path string) (f *File, err error) {
+func Open(path string) (*File, error) {
+	return open(path, false)
+}
+
+// open implements Open and, with lazy set, OpenLazy: the audio datasets are
+// then checked but not read, and the file stays open on success.
+func open(path string, lazy bool) (f *File, err error) {
 	h, err := hdf5.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
 	defer func() {
+		if lazy && err == nil {
+			f.h5 = h
+			return
+		}
 		if cerr := h.Close(); cerr != nil {
 			f, err = nil, errors.Join(err, fmt.Errorf("close HDF5: %w", cerr))
 		}
 	}()
 
-	f = &File{}
+	f = &File{lazy: lazy}
 	root := h.Root()
 
 	// Read global attributes from root group.
@@ -258,12 +274,6 @@ func Open(path string) (f *File, err error) {
 	f.readExtras(datasets)
 
 	return f, nil
-}
-
-// Close does nothing and returns nil: Open already closes the file it
-// reads. It is kept so that existing `defer f.Close()` code still compiles.
-func (f *File) Close() error {
-	return nil
 }
 
 // globalAttribute is a root attribute's name and a deferred read of its
@@ -530,6 +540,10 @@ func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if _, err := f.resolveLayout("Data.IR", irDS, labels["Data.IR"], layoutMRN); err != nil {
 		return err
 	}
+	if f.lazy {
+		f.audio = irDS
+		return f.readRateAndDelay(datasets, labels)
+	}
 	irFlat, err := irDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.IR: %w", err)
@@ -593,6 +607,16 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 	if _, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMRN); err != nil {
 		return err
 	}
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRN); err != nil {
+		return err
+	}
+	if f.lazy {
+		return nil
+	}
 	realFlat, err := realDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Real: %w", err)
@@ -603,13 +627,6 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 	}
 	f.TFReal = reshapeIR(realFlat, f.M, f.R, f.N)
 
-	imagDS, ok := datasets["Data.Imag"]
-	if !ok {
-		return fmt.Errorf("Data.Imag dataset not found")
-	}
-	if _, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRN); err != nil {
-		return err
-	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Imag: %w", err)
@@ -642,6 +659,17 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if err != nil {
 		return err
 	}
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
+	if err != nil {
+		return err
+	}
+	if f.lazy {
+		return nil
+	}
 	realFlat, err := realDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Real: %w", err)
@@ -655,14 +683,6 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	}
 	f.TFRealE = reshape4D(realFlat, f.M, f.R, f.E, f.N)
 
-	imagDS, ok := datasets["Data.Imag"]
-	if !ok {
-		return fmt.Errorf("Data.Imag dataset not found")
-	}
-	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
-	if err != nil {
-		return err
-	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Imag: %w", err)
@@ -689,6 +709,12 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if _, err := f.resolveLayout("Data.SOS", sosDS, labels["Data.SOS"], layoutMRN); err != nil {
 		return err
 	}
+	if f.N%6 != 0 {
+		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
+	}
+	if f.lazy {
+		return f.readRateAndDelay(datasets, labels)
+	}
 	flat, err := sosDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.SOS: %w", err)
@@ -697,9 +723,6 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if len(flat) != expected {
 		return fmt.Errorf("Data.SOS size %d, want %d (M=%d R=%d N=%d)",
 			len(flat), expected, f.M, f.R, f.N)
-	}
-	if f.N%6 != 0 {
-		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
 	}
 	f.SOSCoefficients = reshapeIR(flat, f.M, f.R, f.N)
 
@@ -730,36 +753,6 @@ func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset, labels map
 		return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
 	}
 	return nil
-}
-
-// reshapeIR reshapes a flat float64 slice into [M][R][N].
-func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
-	result := make([][][]float64, m)
-	for i := range m {
-		result[i] = make([][]float64, r)
-		for j := range r {
-			start := (i*r + j) * n
-			result[i][j] = flat[start : start+n : start+n]
-		}
-	}
-	return result
-}
-
-// reshape4D converts a flat row-major buffer of length m*r*e*n into a
-// nested [m][r][e][n]float64 view. Used for TF-E audio data.
-func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
-	result := make([][][][]float64, m)
-	for i := range m {
-		result[i] = make([][][]float64, r)
-		for j := range r {
-			result[i][j] = make([][]float64, e)
-			for k := range e {
-				start := ((i*r+j)*e + k) * n
-				result[i][j][k] = flat[start : start+n : start+n]
-			}
-		}
-	}
-	return result
 }
 
 // Save writes the SOFA file to the specified path.

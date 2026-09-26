@@ -32,8 +32,9 @@ history is in `git log` / CHANGELOG.md, design decisions in
 Phase R: the release blockers R1–R4 are done (go-hdf5 fixes from
 [CWBudde/go-hdf5#1](https://github.com/CWBudde/go-hdf5/pull/1) and
 [CWBudde/go-hdf5#2](https://github.com/CWBudde/go-hdf5/pull/2), released as
-go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 is done except R9d (release-tag decision). Phases B–E are optional / future and can be picked up on
-demand when a real use case appears.
+go-hdf5 v0.16.0). R5 and R6 are done; R7 is done except R7c (blocked on go-hdf5 reader/writer entry points) and R7f (API decision); R8 is done; R9 is done except R9d (release-tag decision). Phase C1–C4
+(lazy FIR reads) is done; C3b and C5 are open. Phases C–E are optional /
+future and can be picked up on demand when a real use case appears.
 
 ### Phase R — Review findings 2026-09-24 (blocking)
 
@@ -167,29 +168,51 @@ into memory. Useful for very large HRTF databases.
 
 Tasks:
 
-- [ ] **C1. Upstream capability check.** Inspect the go-hdf5 API for
+- [x] **C1. Upstream capability check.** Inspect the go-hdf5 API for
       hyperslab / partial-read support; if missing, file an upstream
       issue (link it back here) before continuing.
   - Acceptance: this PLAN cites either the supporting go-hdf5 API or
     the tracking issue URL.
-- [ ] **C2. Lazy `File` mode.** Add
+  - (2026-09-26) — go-hdf5 v0.16.1 has `(*Dataset).ReadSlice(start,
+count)` and `ReadHyperslab(sel)` (`dataset_read_hyperslab.go:65`,
+    `:143`) for compact, contiguous and chunked layouts. Selections over
+    whole trailing axes take the linear path and avoid E5; chunked
+    datasets are decompressed chunk by chunk without a cache (see E6).
+- [x] **C2. Lazy `File` mode.** Add
       `OpenLazy(path string) (*File, error)` that parses metadata but
       leaves audio datasets unloaded. Existing `Open` keeps eager
       semantics.
   - Acceptance: `TestOpenLazyDoesNotAllocateAudio` opens a >10 MB
     file and asserts `len(f.ImpulseResponses)==0` plus `runtime.MemStats`
     delta below an eager-open baseline by ≥ 50 %.
-- [ ] **C3. Per-measurement reader.** Implement
+  - (2026-09-26) — `OpenLazy` checks the audio datasets' layout but does
+    not read them and keeps the file open until `Close` (idempotent;
+    `Open` is unchanged). On a 700×2×1024 synthetic file (> 10 MB) it
+    allocates 1.3 MB against Open's 24.4 MB (`TestOpenLazyDoesNotAllocateAudio`);
+    `TestOpenLazyMatchesOpen` compares it with `Open` on the CI fixtures.
+- [x] **C3. Per-measurement reader.** Implement
       `(*File).ReadMeasurement(m int) ([][]float64, error)` shaped
       `[R][N]` for FIR, with sibling helpers for TF/SOS as needed.
   - Acceptance: `TestReadMeasurementMatchesEager` loads the same file
     eagerly and via `ReadMeasurement` for every `m`, asserts deep
     equality.
-- [ ] **C4. Range callback.** Add
+  - (2026-09-26) — FIR only (`ErrUnsupportedDataType` otherwise); reads
+    the hyperslab `[m,0,0]+[1,R,N]`, or copies `ImpulseResponses[m]` on an
+    eager File. `TestReadMeasurementMatchesEager` checks every `m` of a
+    synthetic contiguous file and first/middle/last plus the 354/355 chunk
+    boundary of the chunked FIR CI fixtures: those chunk Data.IR across all
+    measurements, so each read costs 10–30 ms (godoc and README say so).
+- [ ] **C3b. TF / TF-E / SOS measurement readers.** Siblings of
+      `ReadMeasurement` for `Data.Real`/`Data.Imag` (TF-E in either axis
+      order) and `Data.SOS`; `OpenLazy` already skips and checks them.
+- [x] **C4. Range callback.** Add
       `(*File).RangeMeasurements(func(m int, ir [][]float64) error) error`
       for ergonomic iteration.
   - Acceptance: callback returning a non-nil error short-circuits and
     propagates; covered by `TestRangeMeasurementsAbort`.
+  - (2026-09-26) — returns the callback's error unwrapped and read errors
+    with the measurement index; `TestRangeMeasurementsVisitsAll` compares
+    the full iteration with `Open`.
 - [ ] **C5. Benchmark.** `go test -bench BenchmarkStreamVs Eager` over
       a synthetic ≥ 100 MB file generated in `TestMain`.
   - Acceptance: benchmark runs in CI under the `largefiles` build
@@ -266,6 +289,14 @@ certain features are absent.
       selections (linear path) are correct, which sofaprobe relies on.
   - Acceptance: upstream fix and regression test merged; sofaprobe can
     read just the first/last 3 values.
+- [ ] **E6. Chunk cache for hyperslab reads.** Found in C3 (go-hdf5
+      v0.16.1): `ReadSlice` decompresses every chunk a selection touches on
+      each call. SOFA Toolbox files chunk `Data.IR` as `[M,1,N]` (gzip), so
+      `ReadMeasurement` costs a whole-dataset decompression per call
+      (10–30 ms on the CI fixtures) and `RangeMeasurements` is quadratic.
+  - Acceptance: upstream cache (e.g. last-N decompressed chunks per
+    dataset) merged; reading all measurements of CIPIC lazily takes
+    within 2× of `Open`.
 
 ---
 
