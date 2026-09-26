@@ -37,7 +37,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cwbudde/go-sofa"
+	"github.com/CWBudde/go-sofa"
 )
 
 // includeFlags carries the user's --include-* selections.

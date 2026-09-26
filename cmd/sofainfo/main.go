@@ -21,7 +21,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cwbudde/go-sofa"
+	"github.com/CWBudde/go-sofa"
 )
 
 // maxDelayValues is the most Delay values printed in full.

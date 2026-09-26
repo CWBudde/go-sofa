@@ -62,7 +62,7 @@ func buildVersions() (sofaVersion, hdf5Version string) {
 }
 
 const (
-	modulePath     = "github.com/cwbudde/go-sofa"
+	modulePath     = "github.com/CWBudde/go-sofa"
 	hdf5ModulePath = "github.com/cwbudde/go-hdf5"
 )
 

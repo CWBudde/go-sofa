@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sofa "github.com/cwbudde/go-sofa"
+	sofa "github.com/CWBudde/go-sofa"
 )
 
 // Dimensions of every file Build returns (E is 2 for TF-E).

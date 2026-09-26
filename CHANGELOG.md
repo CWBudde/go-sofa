@@ -9,6 +9,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** the module path is `github.com/CWBudde/go-sofa`, matching
+  the repository's name on GitHub. Go module paths are case-sensitive, so
+  imports and `go get`/`go install` lines using `github.com/cwbudde/go-sofa`
+  must be updated.
 - `Open` reads everything and closes the file before it returns, so a `File`
   holds no open handle; `Close` does nothing and returns nil.
 - Validation errors from `Save` name the `File` field first, capitalised as

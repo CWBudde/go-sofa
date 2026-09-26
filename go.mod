@@ -1,4 +1,4 @@
-module github.com/cwbudde/go-sofa
+module github.com/CWBudde/go-sofa
 
 go 1.25.0
 

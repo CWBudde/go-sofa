@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	sofa "github.com/cwbudde/go-sofa"
+	sofa "github.com/CWBudde/go-sofa"
 )
 
 // dataset is the expected content of one HDF5 dataset / netCDF variable.

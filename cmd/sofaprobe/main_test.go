@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	sofa "github.com/CWBudde/go-sofa"
+	"github.com/CWBudde/go-sofa/internal/clitest"
 	hdf5 "github.com/cwbudde/go-hdf5"
-	sofa "github.com/cwbudde/go-sofa"
-	"github.com/cwbudde/go-sofa/internal/clitest"
 )
 
 func runCLI(t *testing.T, args ...string) (code int, stdout, stderr string) {

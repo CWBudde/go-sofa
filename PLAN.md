@@ -113,7 +113,7 @@ Real/Imag/SOS via `ReadSlice` (whole rows, see E5); smoke tests via
       go-hdf5 links; "reading" → "reading and writing"; update "Known
       limitations" (CLASS/NAME are emitted), supported DataTypes, document
       `--include-sos`.
-  - (2026-09-26) — module path and go-hdf5 links point at `cwbudde`; the
+  - (2026-09-26) — module path and go-hdf5 links point at `CWBudde`; the
     intro says "reading and writing"; Features list the four DataTypes,
     netCDF-4 output and all three CLIs (with a `sofaprobe` install line);
     the stale CLASS/NAME limitation is removed (`--include-sos` was

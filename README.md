@@ -10,7 +10,7 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 - **Full AES69 support** — Reads and writes all standard SOFA metadata and data arrays
 - **DataTypes** — `FIR`, `TF`, `TF-E` (including spherical-harmonics HRTFs) and `SOS`
 - **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`
-- **Built on go-hdf5** — Leverages [cwbudde/go-hdf5](https://github.com/cwbudde/go-hdf5) for HDF5 file access
+- **Built on go-hdf5** — Leverages [CWBudde/go-hdf5](https://github.com/CWBudde/go-hdf5) for HDF5 file access
 - **Command-line tools** — Includes `sofainfo`, `sofa2json` and `sofaprobe` utilities
 - **Well-tested** — Validated against reference SOFA files from sofaconventions.org
 
@@ -19,15 +19,15 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 ### Library
 
 ```bash
-go get github.com/cwbudde/go-sofa
+go get github.com/CWBudde/go-sofa
 ```
 
 ### Command-line tools
 
 ```bash
-go install github.com/cwbudde/go-sofa/cmd/sofainfo@latest
-go install github.com/cwbudde/go-sofa/cmd/sofa2json@latest
-go install github.com/cwbudde/go-sofa/cmd/sofaprobe@latest
+go install github.com/CWBudde/go-sofa/cmd/sofainfo@latest
+go install github.com/CWBudde/go-sofa/cmd/sofa2json@latest
+go install github.com/CWBudde/go-sofa/cmd/sofaprobe@latest
 ```
 
 ## Library Usage
@@ -41,7 +41,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/cwbudde/go-sofa"
+    "github.com/CWBudde/go-sofa"
 )
 
 func main() {
@@ -184,7 +184,7 @@ package main
 import (
     "log"
 
-    "github.com/cwbudde/go-sofa"
+    "github.com/CWBudde/go-sofa"
 )
 
 func main() {
@@ -557,7 +557,7 @@ coefficients per (measurement, receiver, frequency) tuple, then call
 
 ## Related Projects
 
-- [go-hdf5](https://github.com/cwbudde/go-hdf5) — Pure Go HDF5 library (fork)
+- [go-hdf5](https://github.com/CWBudde/go-hdf5) — Pure Go HDF5 library (fork)
 - [PasSofa](../PasSofa) — Pascal SOFA reader (reference implementation)
 - [SOFA Conventions](https://www.sofaconventions.org/) — Official SOFA specifications
 - [libmysofa](https://github.com/hoene/libmysofa) — Lightweight C SOFA reader
