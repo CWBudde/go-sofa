@@ -2,8 +2,9 @@
 
 Working notes for contributors and coding agents. Usage docs are in
 [README.md](README.md), design decisions in
-[docs/design-notes.md](docs/design-notes.md), open work in [PLAN.md](PLAN.md)
-(open items only; history is in `git log` and CHANGELOG.md).
+[docs/design-notes.md](docs/design-notes.md) (with known gaps and the
+performance baseline), open work in GitHub issues, history in `git log` and
+CHANGELOG.md.
 
 ## Checks
 
@@ -15,6 +16,10 @@ Working notes for contributors and coding agents. Usage docs are in
 - `just interop` writes one file per DataType and reads it back with h5py and
   netCDF4 (`pip install h5py netCDF4`). Run it after any write-path change.
 - Fuzzing: `GOMEMLIMIT=2GiB go test -run '^$' -fuzz FuzzOpen -fuzztime 60s`.
+- Large files: `go test -tags largefiles -run . -bench . -benchtime 1x ./...`
+  (≥ 100 MB synthetic file; weekly in `.github/workflows/largefiles.yml`).
+  Compare against the baseline in docs/design-notes.md after read-path or
+  go-hdf5 changes.
 
 ## Test fixtures
 
@@ -49,4 +54,5 @@ Working notes for contributors and coding agents. Usage docs are in
   failed file 1 after the remaining files are processed. Progress and errors
   go to stderr.
 - HDF5-level defects belong in the go-hdf5 fork. Where go-sofa has to work
-  around one meanwhile, record it in PLAN.md Phase E.
+  around one meanwhile, open an issue on the fork and note the workaround in
+  docs/design-notes.md (go-hdf5).

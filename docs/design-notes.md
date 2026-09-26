@@ -1,8 +1,8 @@
 # Design notes
 
 Decisions and findings behind the read and write paths that are not obvious
-from the code. `PLAN.md` tracks open work only; this file keeps what was learnt
-while closing it.
+from the code. Open work is tracked in GitHub issues; the history is in
+`git log` and CHANGELOG.md.
 
 ## Write path (`Save`)
 
@@ -36,7 +36,8 @@ while closing it.
 ## Read path (`Open`)
 
 - **Eager.** All data is read up front and the HDF5 handle is closed before
-  `Open` returns; `Close` is a no-op kept for API stability.
+  `Open` returns; `Close` is a no-op kept for API stability. `OpenLazy` is
+  the streaming alternative (below).
 - **Untrusted input.** Dimensions are checked (> 0, finite, no `int` overflow,
   size cap) before any dataset is read. `FuzzOpen` (`fuzz_test.go`) guards
   against panics and OOMs; run it with `GOMEMLIMIT`.
@@ -53,6 +54,32 @@ while closing it.
   kept (scalars, wide strings, compounds) is listed in `Dropped`. `Type` and
   `Units` keep their case; comparisons use `strings.EqualFold`.
 - **Null-dataspace globals** (the Toolbox's empty `Title`) read as `""`.
+
+## Lazy reads (`OpenLazy`)
+
+- **Same parser.** `OpenLazy` shares `open` with `Open`: everything but the
+  audio variables is loaded, the audio layouts are resolved and checked
+  without reading values, and the HDF5 handle stays open until `Close`
+  (idempotent). Later audio reads fail with `fs.ErrClosed`; `IRAt`,
+  `IRPeakdB`, `Save` and `WriteTo` fail with `ErrNotLoaded` while the audio
+  fields are empty. On an 11.5 MB file `Open` allocates 23.4 MB and
+  `OpenLazy` 0.35 MB.
+- **One `ReadSlice` per measurement.** Every read selects `[m, 0:…, 0:…]`,
+  spanning all trailing axes, so contiguous data (what `Save` writes) is one
+  linear run. The per-measurement readers work on eager files too, returning
+  the loaded slices. TF-E is returned `[R][E][N]` whichever of the two file
+  orders was read.
+- **No go-sofa cache.** Chunked, deflated files rely on go-hdf5's
+  per-dataset cache (parsed header, chunk index, recently used decompressed
+  chunks). A go-sofa cache of whole chunk rows along M would save at most
+  ~10 % on top of it and was removed.
+
+## API shape
+
+The parallel per-DataType fields (`ImpulseResponses`, `TFReal`/`TFImag`,
+`TFRealE`/`TFImagE`, `SOSCoefficients`) stay; a `Data` interface or tagged
+union was rejected. The typed accessors, the `DataType*` constants and the
+per-measurement readers give the ergonomics without breaking every caller.
 
 ## Spherical harmonics
 
@@ -78,6 +105,15 @@ that contradicts a set Type.
 - Survey an unknown file with `go run ./cmd/sofaprobe <file>` or
   `h5dump -A -H <file>`.
 
+## Known gaps
+
+- MultiSpeakerBRIR has no CI fixture: sofar only has version 0.3 with
+  `DataType=FIRE`, which go-sofa rejects.
+- A Directivity validator needs an example file; today there is only
+  `IsDirectivity` and the registry's DataType/layout rule.
+- `Save`'s chmod/rename/fsync failure branches are untested; they need a
+  filesystem seam.
+
 ## go-hdf5
 
 go-sofa depends on the [CWBudde/go-hdf5](https://github.com/CWBudde/go-hdf5)
@@ -85,9 +121,45 @@ fork. v0.16.0 made the output readable by libhdf5/netCDF-C (root header past
 the EOA), added `DatasetWriter.AttachDimensionScale`, dataset headers over 255
 bytes and libhdf5-readable VLEN data; v0.16.1 fixed dense attributes with
 12-byte names (`DateModified`, `Organization`). go-sofa uses v0.17.0
-(merged [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5), `5753c09`)
-for reader/writer entry points (`OpenReader`, `CreateForWriteTo`), dataset
-shapes, dimension-scale readers, correct hyperslab reads, growing root link
-storage, dense link/attribute reads with v2 B-trees of any depth, and
-scalar (NC_CHAR) string attributes. Remaining
-upstream gaps are tracked as Phase E in `PLAN.md`.
+(merged [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5), `5753c09`;
+`go.mod` pins that commit as a pseudo-version until the tag exists) for
+reader/writer entry points (`OpenReader`, `CreateForWriteTo`), dataset
+shapes, dimension-scale readers, correct hyperslab reads at any offset, the
+per-dataset read cache, dense storage for more than eight dataset
+attributes, growing root link storage, dense link/attribute reads with v2
+B-trees of any depth, and scalar (NC_CHAR) string attributes.
+
+The fork is pre-1.0 with a single maintainer, so go-sofa pins an exact
+version and fuzzes `Open`. No upstream gap is known to affect go-sofa; report
+new ones as issues on the fork and note any go-sofa workaround here.
+
+## Performance baseline
+
+`go test -tags largefiles -run '^$' -bench . -benchtime 5x -count 3`
+(2026-09-26, go-hdf5 `34395b7`, Go 1.25.0, linux/amd64, 4 × Intel Xeon @
+2.10 GHz, shared machine, so expect ±30 % noise). File: 6400 × 2 × 1024
+float64 = 104.9 MB of `Data.IR`, contiguous (as `Save` writes it); MB/s is
+over that size, median of three runs. The weekly
+`.github/workflows/largefiles.yml` runs the same suite once per benchmark.
+
+| Benchmark                        |       ns/op | MB/s |    B/op | allocs/op |
+| -------------------------------- | ----------: | ---: | ------: | --------: |
+| `BenchmarkReadLarge` (`Open`)    | 112,922,830 |  929 | 210.9 M |    11,794 |
+| `BenchmarkWriteLarge` (`Save`)   | 352,037,968 |  298 | 210.3 M |     3,288 |
+| `StreamVsEager/eager` (`Open`)   | 115,980,542 |  904 | 210.9 M |    11,794 |
+| `StreamVsEager/stream` (all `M`) | 110,991,560 |  945 | 211.6 M |    56,614 |
+| `StreamVsEager/stream-one`       |      18,404 |  890 |  33,248 |        15 |
+
+`stream` reads all 6400 measurements through `OpenLazy` +
+`RangeMeasurements` in about the time of `Open`, while the live heap stays at
+a few MB instead of 210 MB. `stream-one` is one random `ReadMeasurement`
+(R × N × 8 = 16 KB; MB/s counts that) on an open lazy file.
+
+`BenchmarkStreamChunked` (default build) streams every measurement of the
+chunked, deflate-compressed CI fixtures, `OpenLazy` included:
+
+| Fixture (`Data.IR` shape, chunks)          | ns/op      | B/op   | allocs/op |
+| ------------------------------------------ | ---------- | ------ | --------: |
+| CIPIC (1250 × 2 × 200, 1250 × 1 × 200)     | 45,913,542 | 21.4 M |    37,807 |
+| MIT_KEMAR (710 × 2 × 512, 355 × 1 × 256)   | 47,086,432 | 26.6 M |    35,553 |
+| Mesh2HRTF (1850 × 2 × 320, 1850 × 1 × 320) | 68,215,675 | 49.5 M |    56,201 |

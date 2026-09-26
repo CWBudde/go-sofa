@@ -1,5 +1,5 @@
 function roundtrip(infile, outfile, createdfile)
-%ROUNDTRIP Cross-validate go-sofa against the SOFA Toolbox (PLAN.md D2).
+%ROUNDTRIP Cross-validate go-sofa against the SOFA Toolbox (README "Cross-validation").
 %
 %   roundtrip(INFILE, OUTFILE, CREATEDFILE)
 %

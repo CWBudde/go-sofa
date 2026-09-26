@@ -277,7 +277,7 @@ func buildExtras() (*sofa.File, map[string]dataset) {
 	f.Title = "go-sofa interop extras"
 	f.Attributes = []sofa.Attribute{{Name: "DatabaseName", Value: "go-sofa interop"}}
 	// Data.IR and SourceView get more than eight attributes, which go-hdf5
-	// keeps in dense storage (PLAN.md E1).
+	// keeps in dense storage.
 	irAttrs := append([]sofa.Attribute{{Name: "ChannelOrdering", Value: "left, right"}}, notes("IR", 10)...)
 	viewAttrs := append([]sofa.Attribute{{Name: "Type", Value: "cartesian"}, {Name: "Units", Value: "metre"}}, notes("view", 8)...)
 	f.VariableAttributes = map[string][]sofa.Attribute{"Data.IR": irAttrs}
