@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
+	"math/bits"
 	"slices"
 	"sync"
 
@@ -33,6 +35,16 @@ var ErrNotLoaded = errors.New("audio data not loaded (file opened with OpenLazy)
 // The File keeps the file open until Close, which the caller must call;
 // after it, reading audio data fails with fs.ErrClosed. Reads on one File are
 // serialised, so it may be shared between goroutines.
+//
+// How much memory OpenLazy saves depends on the file's storage layout. A
+// chunked, compressed file is decompressed one chunk at a time, and
+// typical HRTF files store one chunk per receiver across all measurements
+// (CIPIC: Data.IR [1250,2,200] in chunks of [1250,1,200]). There the first
+// ReadMeasurement decompresses every receiver's chunk and keeps it cached,
+// so OpenLazy saves memory over Open only for files chunked along M or
+// stored contiguously. The cache holds the chunks one measurement spans (up to
+// 256 MiB per audio variable), so reading every measurement decompresses
+// each chunk once.
 func OpenLazy(path string) (*File, error) {
 	return open(path, true)
 }
@@ -69,9 +81,9 @@ type lazyAudio struct {
 //
 // Each read is one ReadSlice of a whole measurement. go-hdf5 caches the
 // dataset's parsed header and chunk index and keeps recently used chunks
-// decompressed (8 chunks / 16 MiB per dataset by default), so sequential
-// reads of a chunked file decompress each chunk once as long as the chunks
-// one measurement spans fit in that cache.
+// decompressed; prepareLazyAudio sizes that cache to the chunks one
+// measurement spans (see chunkCacheSize), so sequential reads of a chunked
+// file decompress each chunk once.
 type lazyVariable struct {
 	ds     *hdf5.Dataset
 	layout []string
@@ -132,6 +144,13 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 		for i, d := range layout {
 			shape[i] = f.axisSize(d)
 		}
+		chunk, chunked, err := ds.ChunkShape()
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if chunked {
+			ds.SetChunkCacheSize(chunkCacheSize(shape, chunk, slices.Index(layout, dimM), uint64(dt.Size)))
+		}
 		vars[name] = &lazyVariable{ds: ds, layout: layout, shape: shape}
 	}
 
@@ -147,6 +166,50 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 	}
 	f.lazy = &lazyAudio{h: h, vars: vars}
 	return nil
+}
+
+// maxChunkCacheBytes bounds the chunk cache chunkCacheSize asks for.
+const maxChunkCacheBytes = 256 << 20
+
+// chunkCacheSize returns the chunk cache bounds for a dataset of the given
+// shape, stored in chunks of the given shape with elemSize-byte elements
+// and read one index of axis mAxis (M) at a time: room for the chunks one
+// such read spans, at least go-hdf5's defaults, and at most
+// maxChunkCacheBytes. With a smaller cache, reading every measurement in
+// order evicts each chunk before the next measurement needs it again, so
+// every read decompresses all its chunks. Malformed chunk shapes get the
+// defaults.
+func chunkCacheSize(shape, chunk []uint64, mAxis int, elemSize uint64) (maxChunks int, maxBytes int64) {
+	maxChunks, maxBytes = hdf5.DefaultChunkCacheChunks, hdf5.DefaultChunkCacheBytes
+	if len(chunk) != len(shape) {
+		return maxChunks, maxBytes
+	}
+	perRead, chunkBytes := uint64(1), elemSize
+	for i, c := range chunk {
+		if c == 0 {
+			return hdf5.DefaultChunkCacheChunks, hdf5.DefaultChunkCacheBytes
+		}
+		chunkBytes = saturatingMul(chunkBytes, c)
+		if i != mAxis {
+			perRead = saturatingMul(perRead, shape[i]/c+min(shape[i]%c, 1))
+		}
+	}
+	// No more than maxChunkCacheBytes chunks can fit; this also keeps the
+	// conversions below in range.
+	perRead = min(perRead, maxChunkCacheBytes)
+	maxChunks = max(maxChunks, int(perRead)) //nolint:gosec // perRead <= maxChunkCacheBytes
+	total := min(saturatingMul(perRead, chunkBytes), maxChunkCacheBytes)
+	maxBytes = max(maxBytes, int64(total)) //nolint:gosec // total <= maxChunkCacheBytes
+	return maxChunks, maxBytes
+}
+
+// saturatingMul returns a·b, or math.MaxUint64 if that overflows.
+func saturatingMul(a, b uint64) uint64 {
+	hi, lo := bits.Mul64(a, b)
+	if hi != 0 {
+		return math.MaxUint64
+	}
+	return lo
 }
 
 // hasAudio reports whether the audio field of the file's DataType holds

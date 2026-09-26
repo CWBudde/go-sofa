@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 // streamFIRFile is an FIR file with M measurements whose samples are
@@ -539,16 +541,134 @@ func TestReadMeasurementChunkCache(t *testing.T) {
 	}
 }
 
-// BenchmarkStreamChunked streams every measurement of the chunked,
-// deflate-compressed CI fixtures through OpenLazy and RangeMeasurements.
+// chunkedFIRSpec is a FIR file with M=64, R=4, N=1024 whose Data.IR is
+// deflate-compressed in chunks of [M/4, 1, N/4], so one measurement spans
+// 16 chunks: more than go-hdf5 caches by default. Each value encodes its
+// own index.
+func chunkedFIRSpec() craftedSpec {
+	const m, r, n = 64, 4, 1024
+	ir := make([]float64, m*r*n)
+	for i := range ir {
+		ir[i] = float64(i)
+	}
+	spec := firSpec()
+	spec.dims[dimM], spec.dims[dimR], spec.dims[dimN] = m, r, n
+	spec.vars["Data.IR"] = craftedVar{
+		dims: []string{dimM, dimR, dimN},
+		data: ir,
+		opts: []hdf5.DatasetOption{
+			hdf5.WithChunkDims([]uint64{m / 4, 1, n / 4}),
+			hdf5.WithGZIPCompression(6),
+		},
+	}
+	return spec
+}
+
+// allocatedBytes returns the bytes fn allocates on the heap. The test that
+// calls it must not run in parallel with others.
+func allocatedBytes(fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	fn()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// TestLazyChunkedAllocs streams a file whose measurements span more chunks
+// than go-hdf5's default chunk cache holds: every chunk must be inflated
+// once, so one pass allocates about as much as Open, not once per
+// measurement and chunk.
+func TestLazyChunkedAllocs(t *testing.T) {
+	path := writeCraftedSpec(t, chunkedFIRSpec())
+	eager, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	eagerBytes := allocatedBytes(func() {
+		if _, err := Open(path); err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+	})
+	var rangeErr error
+	lazyBytes := allocatedBytes(func() {
+		f, err := OpenLazy(path)
+		if err != nil {
+			t.Fatalf("OpenLazy: %v", err)
+		}
+		defer f.Close()
+		rangeErr = f.RangeMeasurements(func(m int, ir [][]float64) error {
+			return sameBits(ir, eager.ImpulseResponses[m])
+		})
+	})
+	if rangeErr != nil {
+		t.Fatalf("RangeMeasurements: %v", rangeErr)
+	}
+	t.Logf("Open allocates %d bytes, OpenLazy + RangeMeasurements %d (%.2fx)",
+		eagerBytes, lazyBytes, float64(lazyBytes)/float64(eagerBytes))
+	if lazyBytes >= 2*eagerBytes {
+		t.Errorf("OpenLazy + RangeMeasurements allocated %d bytes, want < 2x Open's %d",
+			lazyBytes, eagerBytes)
+	}
+}
+
+func TestChunkCacheSize(t *testing.T) {
+	const defChunks, defBytes = hdf5.DefaultChunkCacheChunks, hdf5.DefaultChunkCacheBytes
+	for _, tc := range []struct {
+		name         string
+		shape, chunk []uint64
+		mAxis        int
+		elemSize     uint64
+		wantChunks   int
+		wantBytes    int64
+	}{
+		// 8 receivers × 4 chunks along N of 146×1200 doubles each.
+		{"Kayser2009", []uint64{584, 8, 4800}, []uint64{146, 1, 1200}, 0, 8, 32, 32 * 146 * 1200 * 8},
+		// One chunk per receiver: fits the defaults.
+		{"CIPIC", []uint64{1250, 2, 200}, []uint64{1250, 1, 200}, 0, 8, defChunks, defBytes},
+		{"crafted", []uint64{64, 4, 1024}, []uint64{16, 1, 256}, 0, 8, 16, defBytes},
+		// Partial chunks at the edges count: ceil(5/2) × ceil(7/3).
+		{"partial chunks", []uint64{10, 5, 7}, []uint64{4, 2, 3}, 0, 4, 9, defBytes},
+		{"M last", []uint64{3, 4, 40}, []uint64{1, 1, 4}, 2, 8, 12, defBytes},
+		{"no M axis", []uint64{4, 2, 2}, []uint64{1, 1, 1}, -1, 8, 16, defBytes},
+		{"too many chunks", []uint64{1, 1 << 20, 1 << 20}, []uint64{1, 1, 1}, 0, 8, maxChunkCacheBytes, maxChunkCacheBytes},
+		{"too large", []uint64{1, 64, 1 << 20}, []uint64{1, 1, 1 << 20}, 0, 8, 64, maxChunkCacheBytes},
+		{"overflowing chunk", []uint64{1 << 40, 1 << 40, 1 << 40}, []uint64{1 << 40, 1 << 40, 1 << 40}, 0, 8, defChunks, maxChunkCacheBytes},
+		{"zero chunk dim", []uint64{584, 8, 4800}, []uint64{146, 0, 1200}, 0, 8, defChunks, defBytes},
+		{"rank mismatch", []uint64{584, 8, 4800}, []uint64{146, 1}, 0, 8, defChunks, defBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chunks, bytes := chunkCacheSize(tc.shape, tc.chunk, tc.mAxis, tc.elemSize)
+			if chunks != tc.wantChunks || bytes != tc.wantBytes {
+				t.Errorf("chunkCacheSize = %d chunks, %d bytes; want %d, %d",
+					chunks, bytes, tc.wantChunks, tc.wantBytes)
+			}
+		})
+	}
+}
+
+// BenchmarkStreamChunked streams every measurement of chunked,
+// deflate-compressed files through OpenLazy and RangeMeasurements: the CI
+// fixtures (2–4 chunks per measurement), Kayser2009 when present (32) and a
+// crafted file that CI can write (16).
 func BenchmarkStreamChunked(b *testing.B) {
+	files := []struct{ name, path string }{
+		{"crafted_M64_R4_N1024", writeCraftedSpec(b, chunkedFIRSpec())},
+	}
 	for _, name := range []string{
 		"CIPIC_subject_003_hrir_final.sofa",
 		"MIT_KEMAR_normal_pinna.sofa",
 		"Mesh2HRTF.sofa",
+		"Kayser2009_Anechoic.sofa",
 	} {
-		path := testdataPath(b, name)
-		b.Run(name, func(b *testing.B) {
+		files = append(files, struct{ name, path string }{name, ""})
+	}
+	for _, file := range files {
+		b.Run(file.name, func(b *testing.B) {
+			path := file.path
+			if path == "" {
+				path = testdataPath(b, file.name)
+			}
 			b.ReportAllocs()
 			var sink float64
 			for b.Loop() {
