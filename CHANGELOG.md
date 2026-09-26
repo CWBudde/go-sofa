@@ -7,6 +7,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- libmysofa regression check: `just interop` (and the `test-interop` CI
+  workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
+  and loads every generated file and every re-saved reference file with it.
+  SimpleFreeFieldHRIR files must pass `mysofa_check`; re-saved files must
+  get the same result as their originals.
+
 ### Fixed
 
 - `Save` writes `ReceiverPosition` and `EmitterPosition` as `[R,C,I]` and
