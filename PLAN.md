@@ -564,7 +564,7 @@ per read (max(256 MiB, fileSize × ratio)). There is no budget across one
 
 ## Phase 4 — Performance
 
-### P4.1 — Lazy reads (high)
+### P4.1 — Lazy reads (high) — ✅ DONE (2026-09-27)
 
 go-hdf5 keeps at most 8 decompressed chunks / 16 MiB per dataset;
 `prepareLazyAudio` (`sofa_stream.go:95-150`) never calls
@@ -578,20 +578,37 @@ per measurement → every `ReadMeasurement` evicts and re-inflates all of them.
 | `OpenLazy` + full range (now)  | 81.4 s | 75.7 GB   |
 | same, cache 32 chunks / 64 MiB | 0.70 s | 884 MB    |
 
-- [ ] **P4.1a.** In `prepareLazyAudio`, after `resolveLayout`, read
+- [x] **P4.1a.** In `prepareLazyAudio`, after `resolveLayout`, read
       `ds.ChunkShape()`; for chunked datasets compute
       `k = ∏ ceil(shape[i]/chunk[i])` over all axes except M (the chunks one
       measurement row touches), and call
       `ds.SetChunkCacheSize(max(8, k), clamp(k × chunkBytes, 16 MiB, 256 MiB))`.
       Contiguous datasets: nothing to do.
-- [ ] **P4.1b.** Extend `BenchmarkStreamChunked` with a file chunked along R
+      (2026-09-27) — `chunkCacheSize` (`sofa_stream.go`) computes the bounds
+      with saturating products (malformed chunk shapes keep the defaults);
+      `prepareLazyAudio` applies them to each chunked audio dataset.
+      `TestChunkCacheSize` covers Kayser2009 (32 chunks, 44.9 MB), CIPIC
+      (defaults), edge chunks, the clamps and overflow.
+      `BenchmarkStreamChunked/Kayser2009`: 78.4 s / 75.7 GB → 0.60 s /
+      885 MB; the CI fixtures are unchanged (CIPIC 25.2 → 24.1 ms, same
+      allocations).
+- [x] **P4.1b.** Extend `BenchmarkStreamChunked` with a file chunked along R
       and N (Kayser2009 when present, plus a synthetic go-hdf5-written file
       with chunks `[M/4, 1, N/4]` so CI covers it). Add a test asserting one
       full `RangeMeasurements` pass allocates < 2× the eager allocation.
-- [ ] **P4.1c.** Document on `OpenLazy`: typical HRTF files are chunked as one
+      (2026-09-27) — `chunkedFIRSpec` (M=64 R=4 N=1024, deflate chunks
+      `[16,1,256]`, 16 per measurement) is written with the crafted-file
+      helper (`craftedVar.opts`; the helpers take `testing.TB`).
+      `TestLazyChunkedAllocs` checks the values and gets 9.73× Open's
+      allocation before P4.1a (fails) and 1.02× after. Kayser2009 is in
+      `optionalTestdata` and PROVENANCE.md's local-only table.
+- [x] **P4.1c.** Document on `OpenLazy`: typical HRTF files are chunked as one
       chunk per receiver across all M (CIPIC `[1250,1,200]`), so the first
       `ReadMeasurement` inflates the whole receiver — lazy saves memory only
       for files chunked along M or stored contiguously.
+      (2026-09-27) — new `OpenLazy` godoc paragraph with the CIPIC layout
+      (checked: `Data.IR` [1250,2,200] in chunks of [1250,1,200]) and the
+      cache bound; CHANGELOG entry under Fixed.
 
 ### P4.2 — Copies (medium)
 
