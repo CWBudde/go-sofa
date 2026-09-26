@@ -147,24 +147,6 @@ def single_room_srir(rng: np.random.Generator) -> sf.Sofa:
     s.ReceiverUp = np.tile([0.0, 0.0, 1.0], (4, 1))
     s.SourcePosition = np.array([[5.0, 1.0, 1.5], [5.0, 1.0, 1.5], [5.0, 1.0, 1.5]])
     s.MeasurementDate = np.array([1.0e9, 1.0e9 + 60, 1.0e9 + 120])
-    # With all 34 root attributes, netCDF-C stores them in a v2 B-tree of
-    # depth 1, which go-hdf5 cannot read yet (docs/design-notes.md,
-    # "Fixtures"). Drop the empty optional short names and descriptions
-    # (ReceiverDescription and EmitterDescription are required alongside
-    # the *Descriptions variables) to stay at depth 0.
-    for name in (
-        "RoomShortName",
-        "RoomDescription",
-        "RoomLocation",
-        "RoomGeometry",
-        "ListenerShortName",
-        "ListenerDescription",
-        "ReceiverShortName",
-        "SourceShortName",
-        "SourceDescription",
-        "EmitterShortName",
-    ):
-        s.delete("GLOBAL_" + name)
     return s
 
 

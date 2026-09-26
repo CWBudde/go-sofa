@@ -11,7 +11,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - go-hdf5 is upgraded to the commit of
   [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
-  (`93c0ac1`). Dataset shapes, chunk dimensions and dimension-scale
+  (`29f7b17`). Dataset shapes, chunk dimensions and dimension-scale
   `REFERENCE_LIST`s now come from its public API instead of parsing
   `Dataset.Info()` text and attribute bytes; files read the same.
 - `sofaprobe` reads only the three previewed values at each end of the
@@ -158,15 +158,19 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   file; `BenchmarkStreamVsEager`, `BenchmarkWriteLarge`,
   `BenchmarkReadLarge`), run weekly by `.github/workflows/largefiles.yml`.
 
-### Known issues
-
-- go-sofa cannot yet `Save` a file with as many variables as a typical
-  SingleRoomSRIR (go-hdf5's root link heap is full), `Open` misses one of
-  30 root links of such a file (`ReceiverUp` in the sofar fixture), and the
-  SOFA Toolbox under Octave cannot load go-sofa files because their
-  attributes are NC_STRING. All three are go-hdf5 issues (PLAN.md E6–E8).
-
 ### Fixed
+
+- Files with many root variables, such as a SingleRoomSRIR with its
+  descriptive variables, can be saved (go-hdf5's fixed 256-byte root link
+  heap was full).
+- `Open` no longer silently misses a root link of files netCDF-C wrote with
+  dense link storage (`ReceiverUp` in the sofar SingleRoomSRIR fixture), and
+  reads root attributes kept in a v2 B-tree of depth 1 or more (such as the
+  34 root attributes sofar writes for SingleRoomSRIR). Errors in dense link or attribute storage are returned instead of
+  skipped.
+- String attributes are written as scalar fixed-length strings, which
+  netCDF-C reads as text (NC_CHAR) instead of NC_STRING, so the SOFA Toolbox
+  under Octave loads go-sofa files without conversion.
 
 - Global attributes the SOFA Toolbox stores as empty (null dataspace), such
   as an empty `Title` or `Comment`, were read as `"[]"` and written back that

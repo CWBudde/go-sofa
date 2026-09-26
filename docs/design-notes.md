@@ -70,11 +70,11 @@ that contradicts a set Type.
 - `MIT_KEMAR_normal_pinna.sofa` is an HRIR; the BRIR round-trip uses
   `OfficeII.sofa`. `SingleRoomSRIR_1.1.sofa` is a demo with R=1 (order 0).
 - `SimpleFreeFieldSOS_1.0.sofa` (local only, `RoomVolume` as a root
-  attribute) cannot be opened: go-hdf5 supports only depth-0 B-trees. The
-  attribute fallback for `RoomVolume`/`RoomTemperature` is unit-tested only.
-  sofar writes 34 root attributes for SingleRoomSRIR, which netCDF-C stores
-  in such a depth-1 B-tree, so `scripts/make_sofar_fixtures.py` drops the
-  empty optional ones from `testdata/sofar/SingleRoomSRIR_1.0.sofa`.
+  attribute) could not be opened while go-hdf5 read only depth-0 v2 B-trees;
+  go-hdf5#5 reads any depth, so it should open now (not re-tested, the file
+  is not available). `testdata/sofar/SingleRoomSRIR_1.0.sofa` covers a
+  depth-1 attribute B-tree (34 root attributes). The attribute fallback for
+  `RoomVolume`/`RoomTemperature` is unit-tested only.
 - Survey an unknown file with `go run ./cmd/sofaprobe <file>` or
   `h5dump -A -H <file>`.
 
@@ -87,5 +87,7 @@ bytes and libhdf5-readable VLEN data; v0.16.1 fixed dense attributes with
 12-byte names (`DateModified`, `Organization`). go-sofa currently pins the
 unreleased commit of [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
 for reader/writer entry points (`OpenReader`, `CreateForWriteTo`), dataset
-shapes, dimension-scale readers and correct hyperslab reads. Remaining
+shapes, dimension-scale readers, correct hyperslab reads, growing root link
+storage, dense link/attribute reads with v2 B-trees of any depth, and
+scalar (NC_CHAR) string attributes. Remaining
 upstream gaps are tracked as Phase E in `PLAN.md`.

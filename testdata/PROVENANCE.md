@@ -80,13 +80,12 @@ no third-party data; it is MIT like the rest of go-sofa (file attribute
 | `FreeFieldHRTF_1.0.sofa`        | FreeFieldHRTF 1.0         | TF-E     | M=3 R=2 E=1 N=5, cartesian emitter           |        44907 | `c7bb41fab8a67323e4bc3e772de663c3e78f736ec53197330160207189acf372` |
 | `FreeFieldHRTF_1.0_SH_L2.sofa`  | FreeFieldHRTF 1.0         | TF-E     | M=1 R=2 E=9 N=4, spherical harmonics order 2 |        47968 | `6990351e4b3fd793283e463f4089f80351f5a7b76d3c071e6c6511cd85a839e9` |
 | `SimpleFreeFieldHRSOS_1.0.sofa` | SimpleFreeFieldHRSOS 1.0  | SOS      | M=6 R=2 E=1 N=12                             |        44438 | `202c7e1b6006a69be8f423064f5b5d84ff7876026e42f23892ae6796c4be33db` |
-| `SingleRoomSRIR_1.0.sofa`       | SingleRoomSRIR 1.0        | FIR      | M=3 R=4 (Ambisonics order 1) E=1 N=64        |        93838 | `66361229cad67647a95cef8d744682492278b33458a32164929458882b2fcaf8` |
+| `SingleRoomSRIR_1.0.sofa`       | SingleRoomSRIR 1.0        | FIR      | M=3 R=4 (Ambisonics order 1) E=1 N=64        |        94862 | `a5b28b3eb0964b6d560c6828ca711660886ef43794bc2fe89e976386b57243d4` |
 | `SingleRoomDRIR_0.3.sofa`       | SingleRoomDRIR 0.3 (BRIR) | FIR      | M=2 R=2 E=1 N=48                             |        52153 | `d826fd36bea65e4ac27812f005dc99da4ecb79fc00c4ba97d7a947e35a6c4dde` |
 
-SingleRoomSRIR omits sofar's empty optional short-name and description
-attributes, see `docs/design-notes.md` ("Fixtures"). Even so, go-sofa cannot
-yet re-save it with all its variables and misses its `ReceiverUp` variable
-(PLAN.md E6, E7); the tests pin both as known failures.
+SingleRoomSRIR has all 34 root attributes sofar writes (including the empty
+optional ones), which netCDF-C stores in a v2 B-tree of depth 1, and 30 root
+links in dense storage.
 
 ## sofacoustics.org (optional, not reachable from CI)
 

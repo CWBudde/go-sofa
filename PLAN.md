@@ -57,7 +57,7 @@ R1–R4 are release blockers.
     order 2), SimpleFreeFieldHRSOS 1.0, SingleRoomSRIR 1.0 and
     SingleRoomDRIR 0.3; `sofa_sofar_fixtures_test.go` pins values and
     round-trips them, `just interop` re-saves them for h5py/netCDF4. They
-    surfaced E6 and E7. MultiSpeakerBRIR is not covered (sofar only has
+    surfaced E6 and E7 (both fixed). MultiSpeakerBRIR is not covered (sofar only has
     0.3, DataType FIRE, which go-sofa rejects).
 - **R4 Save durability:** close error returned, atomic temp+fsync+rename,
   deterministic output.
@@ -269,6 +269,10 @@ Tasks:
   - Acceptance: README has a "Cross-validation" section with the
     exact command sequence; reference output diff is bit-exact for
     `Data.IR`, `SourcePosition`, `ListenerPosition`.
+  - (2026-09-26) — re-run after E8 without the attribute conversion
+    (GNU Octave 8.4.0, SOFA Toolbox 2.6.0 `d2a83b3`, go-hdf5 `29f7b17`):
+    `SOFAload` reads the go-sofa file directly; both comparisons
+    bit-exact.
 - [x] **D3. Benchmarks for write/read.** Add `BenchmarkWriteLarge`
       and `BenchmarkReadLarge` under the `largefiles` tag.
   - Acceptance: benchmark numbers (ns/op, MB/s) recorded in PLAN.md
@@ -378,7 +382,7 @@ certain features are absent.
     `TestDataPreview` covers a contiguous selection starting inside a row
     and `TestDataPreviewMatchesOpen` a chunked file. The streaming reads
     keep whole-measurement selections (one linear run each).
-- [ ] **E6. Root groups with many links cannot be written.** Found with
+- [x] **E6. Root groups with many links cannot be written.** Found with
       `testdata/sofar/SingleRoomSRIR_1.0.sofa` (2026-09-26): go-hdf5 gives
       the root group a fixed 256-byte local heap for link names (and one
       32-entry symbol table node), so `Save` of a file with 26 variables
@@ -388,14 +392,25 @@ certain features are absent.
     storage is used); drop `sofarSaveKnownFailures` in
     `sofa_sofar_fixtures_test.go` and the fallback in
     `internal/interop/gen`.
-- [ ] **E7. A root link is silently missing on read.** Same file: h5py
+  - (2026-09-26) — fixed in
+    [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
+    (`29f7b17`): link storage grows. The known failure and the gen
+    fallback are gone; `TestSofarFixturesRoundTrip` and `just interop`
+    re-save SingleRoomSRIR with all its variables.
+- [x] **E7. A root link is silently missing on read.** Same file: h5py
       lists 30 root links (netCDF-C's dense link storage), go-hdf5's
       `Children()`/`Walk` 29 — `ReceiverUp` is never seen, so `Open`
       neither keeps it in `Variables` nor reports it in `Dropped`.
   - Acceptance: all 30 links listed; flip the `ReceiverUp` assertion in
     `TestSofarSingleRoomSRIR` and empty `KNOWN_LOST` in
     `scripts/interop_check.py`.
-- [ ] **E8. String attributes are written as NC_STRING.** go-hdf5 stores
+  - (2026-09-26) — fixed in go-hdf5#5 (`29f7b17`): all 30 links are
+    read, and dense heap/attribute errors are returned instead of skipped.
+    `ReceiverUp` is asserted and `KNOWN_LOST` is gone. go-hdf5#5 also reads
+    v2 B-trees of any depth, so `scripts/make_sofar_fixtures.py` no longer
+    drops SingleRoomSRIR's 10 empty optional attributes: the fixture has
+    all 34 root attributes (a depth-1 B-tree), byte-stable across runs.
+- [x] **E8. String attributes are written as NC_STRING.** go-hdf5 stores
       a string attribute with a one-element simple dataspace; netCDF-C
       reads that as an NC_STRING array (`ncdump -h` prints
       `string :Title = …`) where netCDF-C itself writes a scalar dataspace
@@ -404,6 +419,11 @@ certain features are absent.
   - Acceptance: scalar string attributes upstream; `ncdump -h` of a
     go-sofa file shows no `string` attributes; drop
     `scripts/matlab/char_attributes.py` from the D2 sequence.
+  - (2026-09-26) — fixed in go-hdf5#5 (`29f7b17`): Go string attributes
+    are scalar fixed-length strings. `ncdump -h` of `just interop` output
+    (generated and re-saved files) shows no `string` attributes, and
+    `scripts/interop_check.py` now fails on any string attribute that is
+    not scalar fixed-length. `char_attributes.py` is deleted; see D2.
 - [ ] **E9. Per-call overhead of `Dataset.ReadSlice`.** Found in C1
       (go-hdf5 v0.16.1): every call re-reads and re-parses the object
       header and, for chunked data, the whole chunk B-tree, and

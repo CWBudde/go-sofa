@@ -723,11 +723,8 @@ go-sofa's output is checked against independent SOFA implementations:
   d=$(mktemp -d)
 
   go run ./internal/interop/toolbox write "$d/gosofa.sofa"
-  # Until go-hdf5 writes scalar string attributes (PLAN.md E8), the toolbox
-  # cannot load go-sofa's attributes; rewrite them as netCDF text first.
-  python3 scripts/matlab/char_attributes.py "$d/gosofa.sofa" "$d/gosofa-text.sofa"
   octave --no-gui --quiet --path scripts/matlab \
-    --eval "roundtrip('$d/gosofa-text.sofa', '$d/toolbox.sofa', '$d/created.sofa')"
+    --eval "roundtrip('$d/gosofa.sofa', '$d/toolbox.sofa', '$d/created.sofa')"
 
   # go-sofa -> toolbox -> go-sofa, and toolbox -> go-sofa
   go run ./internal/interop/toolbox compare "$d/gosofa.sofa" "$d/toolbox.sofa"
@@ -736,7 +733,8 @@ go-sofa's output is checked against independent SOFA implementations:
 
   In MATLAB, run `roundtrip(...)` from `scripts/matlab` with the toolbox on
   the path (or `SOFATOOLBOX` set) instead of the `octave` line. Last run
-  2026-09-26 with GNU Octave 8.4.0 and SOFA Toolbox 2.6.0 (`d2a83b3`): both
+  2026-09-26 with GNU Octave 8.4.0 and SOFA Toolbox 2.6.0 (`d2a83b3`) on the
+  go-hdf5#5 writer (scalar string attributes): both
   comparisons bit-exact.
 
 ## License

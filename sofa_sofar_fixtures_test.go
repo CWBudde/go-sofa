@@ -197,6 +197,17 @@ func TestSofarSingleRoomSRIR(t *testing.T) {
 	if w := f.ConventionWarnings(); len(w) != 0 {
 		t.Errorf("ConventionWarnings() = %v, want none", w)
 	}
+	// sofar writes 34 root attributes here, which netCDF-C keeps in a v2
+	// B-tree of depth 1; the empty optional ones land in Attributes.
+	for _, name := range []string{"RoomShortName", "RoomGeometry", "EmitterShortName"} {
+		found := false
+		for _, a := range f.Attributes {
+			found = found || a.Name == name
+		}
+		if !found {
+			t.Errorf("global attribute %s not kept in Attributes", name)
+		}
+	}
 	checkFloat(t, "Data.IR[0][0][0]", f.ImpulseResponses[0][0][0], 1.053116)
 	checkFloat(t, "Data.IR[1][2][10]", f.ImpulseResponses[1][2][10], -0.462228)
 	checkFloat(t, "Data.IR[2][3][63]", f.ImpulseResponses[2][3][63], 0.027037)
@@ -208,16 +219,10 @@ func TestSofarSingleRoomSRIR(t *testing.T) {
 	checkVectors(t, "SourcePositions", f.SourcePositions,
 		[]Vector3{{5, 1, 1.5}, {5, 1, 1.5}, {5, 1, 1.5}})
 	checkType(t, "ReceiverPosition", f.ReceiverPositionType, CoordinateSpherical)
-	for _, name := range []string{"ReceiverDescriptions", "ReceiverView", "MeasurementDate", "RoomCornerA"} {
+	for _, name := range []string{"ReceiverDescriptions", "ReceiverView", "ReceiverUp", "MeasurementDate", "RoomCornerA"} {
 		if !hasVariable(f, name) {
 			t.Errorf("variable %s not kept in Variables", name)
 		}
-	}
-	// Known loss (PLAN.md E7): go-hdf5 lists 29 of the file's 30 root links
-	// and misses ReceiverUp, so Open silently cannot keep it. When this
-	// fails, go-hdf5 is fixed: assert hasVariable instead.
-	if hasVariable(f, "ReceiverUp") {
-		t.Error("ReceiverUp is now read: go-hdf5 E7 is fixed, update this test and KNOWN_LOST in scripts/interop_check.py")
 	}
 }
 
@@ -252,14 +257,6 @@ func hasVariable(f *File, name string) bool {
 	return false
 }
 
-// sofarSaveKnownFailures maps fixtures that go-sofa cannot save yet to the
-// error it returns. SingleRoomSRIR has 33 root links (26 variables and 7
-// dimensions), more than go-hdf5's fixed 256-byte root local heap holds
-// (PLAN.md E6). When go-hdf5 is fixed this test fails: delete the entry.
-var sofarSaveKnownFailures = map[string]string{
-	"SingleRoomSRIR_1.0.sofa": "local heap is full",
-}
-
 // TestSofarFixturesRoundTrip saves every sofar fixture with go-sofa and
 // checks that reopening yields the same File: nothing sofar wrote is lost or
 // changed by Open → Save → Open, except the documented defaults Save adds
@@ -280,17 +277,7 @@ func TestSofarFixturesRoundTrip(t *testing.T) {
 				t.Errorf("Open dropped %v", src.Dropped)
 			}
 			out := filepath.Join(t.TempDir(), name)
-			err := src.Save(out)
-			if known, ok := sofarSaveKnownFailures[name]; ok {
-				if err == nil || !strings.Contains(err.Error(), known) {
-					t.Fatalf("Save: %v, want the known failure %q (fixed? remove it from sofarSaveKnownFailures)", err, known)
-				}
-				// Without the variables go-sofa does not model, the file
-				// has few enough root links to save.
-				src.Variables = nil
-				err = src.Save(out)
-			}
-			if err != nil {
+			if err := src.Save(out); err != nil {
 				t.Fatalf("Save: %v", err)
 			}
 			back, err := Open(out)

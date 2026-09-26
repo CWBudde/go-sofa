@@ -13,7 +13,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,10 +117,7 @@ func run(dir string) error {
 }
 
 // resaveSofar opens every .sofa file in src and saves it into dst. It writes
-// dst/resaved.json mapping each file name to the variables that had to be
-// left out: go-hdf5 cannot yet write a root group with as many links as
-// sofar's SingleRoomSRIR (PLAN.md E6), so on a failed Save the file is saved
-// again without the variables go-sofa does not model.
+// dst/resaved.json listing the re-saved file names.
 func resaveSofar(src, dst string) error {
 	names, err := filepath.Glob(filepath.Join(src, "*.sofa"))
 	if err != nil {
@@ -133,7 +129,7 @@ func resaveSofar(src, dst string) error {
 	if err := os.MkdirAll(dst, 0o750); err != nil { //nolint:gosec // output dir from CLI arg (dev tool)
 		return err
 	}
-	omitted := make(map[string][]string, len(names))
+	resaved := make([]string, 0, len(names))
 	for _, p := range names {
 		name := filepath.Base(p)
 		f, err := sofa.Open(p)
@@ -141,21 +137,13 @@ func resaveSofar(src, dst string) error {
 			return fmt.Errorf("open %s: %w", p, err)
 		}
 		out := filepath.Join(dst, name)
-		omitted[name] = []string{}
 		if err := f.Save(out); err != nil {
-			for _, v := range f.Variables {
-				omitted[name] = append(omitted[name], v.Name)
-			}
-			f.Variables = nil
-			if err2 := f.Save(out); err2 != nil {
-				return fmt.Errorf("save %s: %w", out, errors.Join(err, err2))
-			}
-			fmt.Printf("resaved %s without %v (%v)\n", out, omitted[name], err)
-			continue
+			return fmt.Errorf("save %s: %w", out, err)
 		}
+		resaved = append(resaved, name)
 		fmt.Println("resaved", out)
 	}
-	data, err := json.MarshalIndent(omitted, "", "  ")
+	data, err := json.MarshalIndent(resaved, "", "  ")
 	if err != nil {
 		return err
 	}

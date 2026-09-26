@@ -4,7 +4,9 @@
 Reads every file listed in DIR/expected.json (written by
 `go run ./internal/interop/gen DIR`) with both h5py and netCDF4 (netCDF-C),
 and compares global attributes, dataset shapes and values against the
-expected values. Exits non-zero on any mismatch or open/read error.
+expected values, and requires every string attribute to be a scalar
+fixed-length string (netCDF NC_CHAR text, not NC_STRING). Exits non-zero on
+any mismatch or open/read error.
 
     python3 scripts/interop_check.py DIR
 
@@ -78,9 +80,30 @@ def _compare_attrs(errors: list[str], where: str, name: str, attrs, spec: dict) 
             errors.append(f"{where}: {name}: attribute {key} = {_as_str(attrs[key])!r}, want {want!r}")
 
 
+def _check_text_attrs(errors: list[str], where: str, f: h5py.File) -> None:
+    """Require every string attribute to be a scalar fixed-length string.
+
+    netCDF-C reads those as NC_CHAR text; a variable-length string or a
+    one-element array becomes NC_STRING (`ncdump -h` prints `string :Title`),
+    which the SOFA Toolbox under Octave cannot load (PLAN.md E8).
+    """
+    prefix = f"{where}: " if where else ""
+    objects = [("/", f)] + [(name, f[name]) for name in f]
+    for name, obj in objects:
+        for key in obj.attrs:
+            attr = h5py.h5a.open(obj.id, key.encode())
+            tid = attr.get_type()
+            if not isinstance(tid, h5py.h5t.TypeStringID):
+                continue
+            if tid.is_variable_str() or attr.shape != ():
+                kind = "variable-length" if tid.is_variable_str() else "fixed-length"
+                errors.append(f"{prefix}{name}: attribute {key} is a {kind} string of shape {attr.shape}, want scalar fixed-length (NC_CHAR)")
+
+
 def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
     where = f"h5py    {os.path.basename(path)}"
     with h5py.File(path, "r") as f:
+        _check_text_attrs(errors, where, f)
         for key, want in exp["attributes"].items():
             if key not in f.attrs:
                 errors.append(f"{where}: missing global attribute {key}")
@@ -160,36 +183,28 @@ def _same_values(orig, got) -> bool:
     return bool(np.array_equal(orig, got))
 
 
-# Variables go-sofa loses today, per original file. go-hdf5 does not list
-# ReceiverUp among the 30 root links of the sofar SingleRoomSRIR file, so
-# Open never sees it (PLAN.md E7). A listed variable that does come back
-# fails the check, so that the entry is removed once go-hdf5 is fixed.
-KNOWN_LOST = {"SingleRoomSRIR_1.0.sofa": {"ReceiverUp"}}
-
-
 def check_resaved(directory: str) -> bool:
     """Compare DIR/resaved/*.sofa with the originals in testdata/sofar/."""
     with open(os.path.join(directory, "resaved", "resaved.json"), encoding="utf-8") as fh:
-        omitted = json.load(fh)
+        resaved = json.load(fh)
     failed = False
-    for fname in sorted(omitted):
+    for fname in sorted(resaved):
         for label in ("h5py", "netCDF4"):
             errors: list[str] = []
             try:
                 want_attrs, want_vars = _read_all(os.path.join(SOFAR_DIR, fname), label)
-                got_attrs, got_vars = _read_all(os.path.join(directory, "resaved", fname), label)
+                got_path = os.path.join(directory, "resaved", fname)
+                got_attrs, got_vars = _read_all(got_path, label)
+                if label == "h5py":
+                    with h5py.File(got_path, "r") as f:
+                        _check_text_attrs(errors, "", f)
                 for key, want in want_attrs.items():
                     # Save does not write empty optional attributes.
                     if got_attrs.get(key, "") != want:
                         errors.append(f"attribute {key} = {got_attrs.get(key)!r}, want {want!r}")
-                known = KNOWN_LOST.get(fname, set())
                 for name, want in want_vars.items():
-                    if name in known:
-                        if name in got_vars:
-                            errors.append(f"{name} is no longer lost: remove it from KNOWN_LOST")
-                    elif name not in got_vars:
-                        if name not in omitted[fname]:
-                            errors.append(f"missing variable {name}")
+                    if name not in got_vars:
+                        errors.append(f"missing variable {name}")
                     elif not _same_values(want, got_vars[name]):
                         errors.append(f"{name}: values differ from the original")
             except Exception as exc:  # noqa: BLE001 - report every reader failure
@@ -200,9 +215,7 @@ def check_resaved(directory: str) -> bool:
                 for e in errors:
                     print(f"     {e}")
             else:
-                lost = len(omitted[fname]) + len(KNOWN_LOST.get(fname, ()))
-                note = f", without {lost} variables (PLAN.md E6/E7)" if lost else ""
-                print(f"ok   {label:7} resaved/{fname} (same as the sofar original{note})")
+                print(f"ok   {label:7} resaved/{fname} (same as the sofar original)")
     return failed
 
 
