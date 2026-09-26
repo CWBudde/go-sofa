@@ -9,7 +9,7 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 - **Pure Go implementation** — No C dependencies
 - **Full AES69 support** — Reads and writes all standard SOFA metadata and data arrays
 - **DataTypes** — `FIR`, `TF`, `TF-E` (including spherical-harmonics HRTFs) and `SOS`
-- **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4, `ncdump` and libmysofa ([details](#interoperability))
+- **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`; FIR and SOS files also load in libmysofa, which does not read TF/TF-E ([details](#interoperability))
 - **Built on go-hdf5** — Leverages [cwbudde/go-hdf5](https://github.com/cwbudde/go-hdf5), our maintained fork of [scigolib/hdf5](https://github.com/scigolib/hdf5), for HDF5 file access
 - **Command-line tools** — Includes `sofainfo`, `sofa2json` and `sofaprobe` utilities
 - **Well-tested** — Validated against reference SOFA files from sofaconventions.org
@@ -640,17 +640,18 @@ coefficients per (measurement, receiver, frequency) tuple, then call
 ## Interoperability
 
 Files written by `Save` are netCDF-4/HDF5 and open in h5py, netCDF4
-(netCDF-C), `ncdump` and the SOFA Toolbox. They also load in
+(netCDF-C), `ncdump` and the SOFA Toolbox.
 [libmysofa](https://github.com/hoene/libmysofa), the C reader used by ffmpeg's
-`sofalizer` filter, within what libmysofa supports. Results with libmysofa
-3f4cb66, checked in CI for every DataType go-sofa writes and for re-saved
-reference files:
+`sofalizer` filter, loads the FIR and SOS files go-sofa writes but no
+transfer-function (TF, TF-E) files, and its check passes only
+`SimpleFreeFieldHRIR` FIR files. Results with libmysofa 3f4cb66, checked in CI
+for every DataType go-sofa writes and for re-saved reference files:
 
-| Written file                                                      | `mysofa_load`                                            | `mysofa_check`                                                              |
-| ----------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `SimpleFreeFieldHRIR`, DataType `FIR`                             | OK                                                       | OK                                                                          |
-| Other FIR and SOS files (e.g. SRIR, DRIR, `SimpleFreeFieldHRSOS`) | OK                                                       | `MYSOFA_INVALID_ATTRIBUTES`: it accepts only `SimpleFreeFieldHRIR` with FIR |
-| `TF` and `TF-E` files                                             | `MYSOFA_INVALID_FORMAT`: it reads only impulse responses | —                                                                           |
+| Written file                                                      | `mysofa_load`                                               | `mysofa_check`                                                              |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `SimpleFreeFieldHRIR`, DataType `FIR`                             | OK                                                          | OK                                                                          |
+| Other FIR and SOS files (e.g. SRIR, DRIR, `SimpleFreeFieldHRSOS`) | OK                                                          | `MYSOFA_INVALID_ATTRIBUTES`: it accepts only `SimpleFreeFieldHRIR` with FIR |
+| `TF` and `TF-E` files                                             | `MYSOFA_INVALID_FORMAT`: it has no transfer-function reader | —                                                                           |
 
 The last two rows are not go-sofa limitations: libmysofa gives the same
 result for the originals written by netCDF-C, and CI requires every re-saved
