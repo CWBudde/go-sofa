@@ -317,7 +317,7 @@ hit by P1.1m.
       pad and `linkToParent` resets every entry's cache type
       (`internal/structures/symboltable_node.go`, `group_write.go`).
 
-### P1.2 — go-sofa: correct position variable dimensions
+### P1.2 — go-sofa: correct position variable dimensions — ✅ DONE (2026-09-26)
 
 `ReceiverPosition` is written `(R,C)` and `EmitterPosition` `(E,C)`
 (`sofa.go:829-841` → `writePositionDataset`, `sofa_netcdf.go:220`, row dim
@@ -328,16 +328,34 @@ from `rowDim`, `sofa_netcdf.go:212`). Every convention allows only
 (`MYSOFA_RECEIVERS_WITH_RCI_SUPPORTED`,
 `MYSOFA_ONLY_EMITTER_WITH_ECI_SUPPORTED`) even once P1.1 is fixed.
 
-- [ ] **P1.2a.** Write Receiver/Emitter shared positions as `[X, C, I]`
+- [x] **P1.2a.** Write Receiver/Emitter shared positions as `[X, C, I]`
       (`[I, C, I]` when broadcast, i.e. one row). The per-measurement variants
       (`ReceiverPositionsM`, `EmitterPositionsM`) are already `[X, C, M]` —
       check `writePositionDatasetPerM` for the same axis order.
-- [ ] **P1.2b.** Read side: confirm `(R,C)`-shaped files written by go-sofa
+      (2026-09-26) — `writePositionDataset` adds the trailing `I` axis for
+      receiver and emitter positions; listener and source stay `[M|I, C]`.
+      `writePositionDatasetPerM` already writes `[X, C, M]`, unchanged.
+      `TestSaveWritesNetcdf4Dimensions` asserts `(R,C,I)`/`(E,C,I)` and
+      `(I,C,I)` for one broadcast receiver. libmysofa: `fir.sofa` and
+      `extras.sofa` from `internal/interop/gen`, and the resaves of
+      MIT_KEMAR, SimpleFreeFieldHRIR_1.0 and CIPIC get `check 0` (were
+      `check 10008`). Every other resave gets the same code as its
+      original (SimpleHeadphoneIR_0.2 and the sofar SOS/SRIR/DRIR files
+      `check 10004`, the sofar TF files `load err 10000`).
+- [x] **P1.2b.** Read side: confirm `(R,C)`-shaped files written by go-sofa
       ≤0.2.0 still open (keep accepting both; add a test fixture written the
       old way via a small helper, not a binary blob).
-- [ ] **P1.2c.** Update `TestRoundTrip*` / interop checks to assert
+      (2026-09-26) — the reader already accepted both.
+      `TestOpenLegacyTwoDimensionalPositions` writes `[R,C]`/`[E,C]`
+      positions with `writeCraftedSpec`, opens them, and checks that `Save`
+      rewrites them as `[R,C,I]`/`[E,C,I]` with the same values.
+- [x] **P1.2c.** Update `TestRoundTrip*` / interop checks to assert
       `ReceiverPosition` has dims `("R","C","I")` via h5py/netCDF4
       (`scripts/interop_check.py`).
+      (2026-09-26) — `internal/interop/gen` expects Receiver/Emitter
+      shapes `[X,3,1]` and dims `(X,"C","I")`; `interop_check.py` compares
+      them unchanged (shape with h5py, dims with netCDF4). `just interop`
+      passes; files generated before the fix fail it.
 
 ### P1.3 — Regression gate
 
