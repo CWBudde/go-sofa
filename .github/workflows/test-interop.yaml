@@ -1,7 +1,9 @@
 name: test-interop
 
 # Writes one SOFA file per DataType with sofa.Save and reads it back with the
-# reference readers h5py (HDF5) and netCDF4 (netCDF-C), comparing values.
+# reference readers h5py (HDF5) and netCDF4 (netCDF-C), comparing values;
+# then loads those files and re-saved reference files with libmysofa at a
+# pinned commit (see `just libmysofa` and internal/interop/mysofa).
 
 on: [push, pull_request]
 
@@ -33,10 +35,28 @@ jobs:
       - name: Install h5py and netCDF4
         run: python -m pip install --upgrade h5py netCDF4 numpy
 
+      - name: Install zlib for the libmysofa harness
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends zlib1g-dev
+
       - name: Setup just
         uses: extractions/setup-just@v2
 
-      - name: Write files with Save and check them with h5py and netCDF4
+      - name: Cache reference SOFA files
+        uses: actions/cache@v4
+        with:
+          path: testdata/*.sofa
+          key: testdata-${{ hashFiles('scripts/fetch-testdata.sh') }}
+
+      - name: Fetch reference SOFA files
+        run: just fetch-testdata
+
+      - name: Cache the libmysofa harness
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-sofa
+          key: libmysofa-${{ hashFiles('justfile', 'scripts/libmysofa/*') }}
+
+      - name: Write files with Save and check them with h5py, netCDF4 and libmysofa
         run: just interop "${{ runner.temp }}/interop"
 
       - name: Upload written files

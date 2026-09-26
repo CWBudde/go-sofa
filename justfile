@@ -43,8 +43,10 @@ fetch-testdata:
 test:
     go test -race -v -timeout 300s ./...
 
-# Write one file per DataType with Save and read it back with h5py and netCDF4
-# (needs Python with h5py and netCDF4: pip install h5py netCDF4)
+# Write one file per DataType with Save and read it back with h5py and netCDF4,
+# then load the files and re-saves with libmysofa
+# (needs Python with h5py and netCDF4: pip install h5py netCDF4; a C compiler
+# and zlib for the libmysofa harness; the fixtures from `just fetch-testdata`)
 interop DIR="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -52,6 +54,31 @@ interop DIR="":
     if [[ -z "$dir" ]]; then dir="$(mktemp -d)"; fi
     go run ./internal/interop/gen "$dir"
     python3 scripts/interop_check.py "$dir"
+    harness="$({{ just_executable() }} libmysofa)"
+    go run ./internal/interop/mysofa -load "$harness" "$dir" testdata/MIT_KEMAR_normal_pinna.sofa
+
+# Build the libmysofa load harness at the pinned commit and print its path.
+# The build is cached in $GO_SOFA_CACHE (default ~/.cache/go-sofa);
+# $LIBMYSOFA_LOAD, when set, names a harness to use instead.
+libmysofa:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "${LIBMYSOFA_LOAD:-}" ]]; then echo "$LIBMYSOFA_LOAD"; exit 0; fi
+    sha=3f4cb663f171ecb5c6fc3262fb6156efb3f1ddd2
+    root="${GO_SOFA_CACHE:-$HOME/.cache/go-sofa}/libmysofa-$sha"
+    # Named after the harness sources, so editing them rebuilds it.
+    bin="$root/load-$(cat scripts/libmysofa/build.sh scripts/libmysofa/load.c | git hash-object --stdin | cut -c1-12)"
+    if [[ ! -x "$bin" ]]; then
+        if [[ ! -f "$root/src/src/hrtf/mysofa.h" ]]; then
+            rm -rf "$root/src"
+            git init -q "$root/src"
+            git -C "$root/src" fetch -q --depth 1 https://github.com/hoene/libmysofa.git "$sha" >&2
+            git -C "$root/src" checkout -q FETCH_HEAD
+        fi
+        scripts/libmysofa/build.sh "$root/src" "$bin.tmp" >&2
+        mv "$bin.tmp" "$bin"
+    fi
+    echo "$bin"
 
 # Fail when the root package's statement coverage is below MIN percent
 coverage-check MIN="85":
