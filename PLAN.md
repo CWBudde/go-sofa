@@ -402,33 +402,62 @@ simple use stays simple.
 dimensions, type, comment). Transcribe the needed rows by hand into
 `sofa_conventions.go`; do not add a code generator.
 
-### P2.1 — Mandatory variables and attributes
+### P2.1 — Mandatory variables and attributes — ✅ DONE (2026-09-27)
 
-- [ ] **P2.1a. Positions are mandatory.** `validate` (`sofa.go:994-1009`)
+- [x] **P2.1a. Positions are mandatory.** `validate` (`sofa.go:994-1009`)
       allows length 0 for all four positions. Require ≥1 row for
       `ListenerPosition`, `ReceiverPosition`, `SourcePosition`,
       `EmitterPosition`; **default** `EmitterPosition` to `[0 0 0]` cartesian
       and `ListenerPosition` to `[0 0 0]` cartesian when empty, as the
       conventions do (same pattern as `listenerOrientation()` for
       ListenerView/Up). Receiver and Source have no sensible default → error.
-- [ ] **P2.1b. Type/Units are mandatory on every position.** Default Units
+      (2026-09-27) — `savedPositions` (`sofa_netcdf.go`) gives Save, the
+      count/Type checks and `writtenVariables` one view of the four
+      positions, with the Listener/Emitter default applied in the file only;
+      `validatePositionCounts` rejects an empty Receiver or Source.
+      Tests: `TestSaveRequiresPositions`,
+      `TestSavePositionDefaults` (failed before: no error, empty positions
+      read back).
+- [x] **P2.1b. Type/Units are mandatory on every position.** Default Units
       from Type when empty: cartesian → `metre`, spherical →
       `degree, degree, metre`. Reject an empty Type. Remove the "empty units
       are omitted" branch in `positionAttributes`.
-- [ ] **P2.1c. Fix `UnitsCartesianMetres`** (`sofa.go:60`): the conventions'
+      (2026-09-27) — `defaultUnits` (also used for ListenerView); spherical
+      harmonics default to `degree, degree, metre` too. An empty Type was
+      already rejected. `TestPositionCoordinateAttributesWhenEmpty` checks
+      the Units read back per Type (failed before: empty).
+- [x] **P2.1c. Fix `UnitsCartesianMetres`** (`sofa.go:60`): the conventions'
       value is `metre`, not `metre, metre, metre`. Keep accepting both on read.
       Note it in CHANGELOG (value change of an exported constant).
-- [ ] **P2.1d. Validate Units vocabulary** (low cost): accept `metre`/`meter`/
+      (2026-09-27) — now `"metre"`; Open passes Units through unchanged, so
+      both read. Asserted in `TestPositionCoordinateAttributesWhenEmpty`
+      (failed before with `"metre, metre, metre"`).
+- [x] **P2.1d. Validate Units vocabulary** (low cost): accept `metre`/`meter`/
       `metres`/`meters` and `degree`/`degrees` in the comma-separated
       positions; reject garbage such as `furlong, parsec, cubit`. Put the
       accepted aliases in one table with a comment citing sofar/SOFAtoolbox.
-- [ ] **P2.1e. Per-convention mandatory globals.** Add a `mandatoryGlobals`
+      (2026-09-27) — `sofaUnits` + `validateUnits` (positions and
+      ListenerView, case-insensitive). Decision: radians are rejected on
+      Save (neither sofar nor the Toolbox knows them); the radian zenith
+      default is gone, Open still reads them. `TestSaveRejectsBadUnits`
+      (garbage, radians and empty parts failed to be rejected before).
+- [x] **P2.1e. Per-convention mandatory globals.** Add a `mandatoryGlobals`
       list to each `conventionRegistry` entry (e.g. SimpleFreeFieldHRIR:
       `DatabaseName`, `ListenerShortName` — verify against the CSV). Default
       where the CSV has a default; otherwise return a `*ValidationError`.
-- [ ] **P2.1f. Fix the README "create from scratch" example** (README.md:231-265):
+      (2026-09-27) — verified against the Toolbox CSVs (latest versions):
+      every extra mandatory global has the default `""`, so Save writes it
+      empty when `Attributes` lacks it (decision: no error).
+      SimpleFreeField*/FreeFieldHRTF: DatabaseName, ListenerShortName;
+      FreeFieldDirectivityTF: + SourceType, SourceManufacturer;
+      SimpleHeadphoneIR (new registry entry): + ReceiverDescription,
+      EmitterDescription; SingleRoomSRIR: DatabaseName.
+      `TestSaveConventionMandatoryGlobals` (failed before: none written).
+- [x] **P2.1f. Fix the README "create from scratch" example** (README.md:231-265):
       set the four `…PositionType` fields and use a spherical source
       `{0, 0, 1}`. Moved into an `Example` test in P6.2 so it cannot rot.
+      (2026-09-27) — done; the snippet, extracted verbatim and run, failed
+      before with `ListenerPositionType: is required` and now saves a file.
 
 ### P2.2 — Convention rules
 
@@ -443,6 +472,10 @@ dimensions, type, comment). Transcribe the needed rows by hand into
 "free field"` (`sofa.go:898`) is used for every convention. Take it from
       the registry: SingleRoomSRIR → `shoebox` (then `RoomCornerA/B` become
       mandatory per the CSV), SingleRoomDRIR → `reverberant` (verify).
+      Note (2026-09-27, P2.1e research): the SRIR 1.1 CSV does not flag
+      `RoomCornerA/B` `m`; sofar's rules require them for `shoebox`. The
+      SOFA Toolbox has no SingleRoomDRIR table any more (deprecated in
+      favour of SingleRoomSRIR; pyfar keeps 0.2/0.3 under `deprecated/`).
 - [ ] **P2.2c. Remove or implement dead registry entries.** MultiSpeakerBRIR
       and SingleRoomMIMOSRIR have rules (`sofa_conventions.go:26,28`) but their
       DataType (FIR-E / FIRE) is rejected on read (`sofa_accessors.go:23`), so
@@ -453,6 +486,10 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       TF-E, `EmitterPosition:Type = "spherical harmonics"`. Accept only known
       `SOFAConventionsVersion` values per convention; unknown → warning, not
       error (be liberal for custom conventions).
+      Note (2026-09-27, P2.1e research): sofar knows only SimpleFreeField\*
+      1.0, SimpleHeadphoneIR 1.0 and SingleRoomSRIR 1.0 and raises on other
+      `SOFAConventionsVersion` values, while the Toolbox's latest are 1.2,
+      1.1 and 1.1.
 
 ### P2.3 — Provenance on save
 
