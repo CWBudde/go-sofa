@@ -77,11 +77,11 @@ tools := "sofainfo sofa2json sofaprobe"
 
 # Build all CLI tools into bin/
 build:
-    for t in {{ tools }}; do go build -o "bin/$t" "./cmd/$t"; done
+    for t in {{ tools }}; do go build -o "bin/$t" "./cmd/$t" || exit; done
 
 # Install all CLI tools to $GOPATH/bin
 install:
-    for t in {{ tools }}; do go install "./cmd/$t"; done
+    for t in {{ tools }}; do go install "./cmd/$t" || exit; done
 
 # Clean build artifacts
 clean:
