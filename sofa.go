@@ -276,18 +276,6 @@ func open(path string, lazy bool) (f *File, err error) {
 	return f, nil
 }
 
-// Close releases the file a File from OpenLazy holds open; further calls
-// return nil. For a File from Open it does nothing and returns nil, since
-// Open already closes the file it reads.
-func (f *File) Close() error {
-	if f.h5 == nil {
-		return nil
-	}
-	h := f.h5
-	f.h5, f.audio = nil, nil
-	return h.Close()
-}
-
 // globalAttribute is a root attribute's name and a deferred read of its
 // value, so that attributes go-sofa does not interpret are never decoded.
 type globalAttribute struct {
@@ -765,36 +753,6 @@ func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset, labels map
 		return fmt.Errorf("/N length %d does not match N=%d", len(freqs), f.N)
 	}
 	return nil
-}
-
-// reshapeIR reshapes a flat float64 slice into [M][R][N].
-func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
-	result := make([][][]float64, m)
-	for i := range m {
-		result[i] = make([][]float64, r)
-		for j := range r {
-			start := (i*r + j) * n
-			result[i][j] = flat[start : start+n : start+n]
-		}
-	}
-	return result
-}
-
-// reshape4D converts a flat row-major buffer of length m*r*e*n into a
-// nested [m][r][e][n]float64 view. Used for TF-E audio data.
-func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
-	result := make([][][][]float64, m)
-	for i := range m {
-		result[i] = make([][][]float64, r)
-		for j := range r {
-			result[i][j] = make([][]float64, e)
-			for k := range e {
-				start := ((i*r+j)*e + k) * n
-				result[i][j][k] = flat[start : start+n : start+n]
-			}
-		}
-	}
-	return result
 }
 
 // Save writes the SOFA file to the specified path.

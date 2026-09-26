@@ -93,6 +93,9 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 
 - `OpenLazy` reads a file's metadata, positions, sampling rate and delay but
   leaves the audio data in the file, which it keeps open until `Close`.
+- `(*File).ReadMeasurement(m)` returns the FIR impulse responses of one
+  measurement as `[R][N]`, read from the file for a `File` from `OpenLazy`
+  and copied from `ImpulseResponses` otherwise.
 - `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
 - `(*File).DelayDimensions()` returns the netCDF dimensions of `Delay` as
   `Open` read them (`[I,R]`, `[M]`, …), or the layout its length implies for

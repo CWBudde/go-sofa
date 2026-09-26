@@ -2,6 +2,7 @@ package sofa
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,12 +35,12 @@ func syntheticFIRFile(m, r, n int) *File {
 	return f
 }
 
-// saveSynthetic writes syntheticFIRFile(m, r, n) to a temporary file and
+// saveSynthetic writes syntheticFIRFile(m, 2, n) to a temporary file and
 // returns its path.
-func saveSynthetic(t *testing.T, m, r, n int) string {
+func saveSynthetic(t *testing.T, m, n int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "synthetic.sofa")
-	if err := syntheticFIRFile(m, r, n).Save(path); err != nil {
+	if err := syntheticFIRFile(m, 2, n).Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	return path
@@ -59,7 +60,7 @@ func allocatedBy(fn func()) uint64 {
 // checks that the impulse responses are not loaded: OpenLazy allocates at
 // most half of what Open does.
 func TestOpenLazyDoesNotAllocateAudio(t *testing.T) {
-	path := saveSynthetic(t, 700, 2, 1024)
+	path := saveSynthetic(t, 700, 1024)
 	if st, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	} else if st.Size() <= 10<<20 {
@@ -100,7 +101,7 @@ func TestOpenLazyCloseReleasesHandle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no /dev/fd on Windows")
 	}
-	path := saveSynthetic(t, 3, 2, 4)
+	path := saveSynthetic(t, 3, 4)
 
 	before := openFDs(t)
 	f, err := OpenLazy(path)
@@ -155,7 +156,7 @@ func TestOpenLazyRejects(t *testing.T) {
 // TestOpenLazySaveFails checks that a lazily opened File, whose audio is
 // not loaded, cannot be saved.
 func TestOpenLazySaveFails(t *testing.T) {
-	f, err := OpenLazy(saveSynthetic(t, 3, 2, 4))
+	f, err := OpenLazy(saveSynthetic(t, 3, 4))
 	if err != nil {
 		t.Fatalf("OpenLazy: %v", err)
 	}
@@ -199,5 +200,117 @@ func TestOpenLazyMatchesOpen(t *testing.T) {
 				t.Errorf("OpenLazy and Open differ beyond the audio data")
 			}
 		})
+	}
+}
+
+// sampleMeasurements returns every measurement index of a small file and,
+// for a larger one, the first, middle and last index and both sides of the
+// chunk boundary of MIT_KEMAR's Data.IR (355). The CI fixtures store Data.IR
+// in chunks spanning all measurements, so each lazy read decompresses them
+// whole and reading every index would take minutes under -race.
+func sampleMeasurements(m int) []int {
+	if m <= 64 {
+		idx := make([]int, m)
+		for i := range idx {
+			idx[i] = i
+		}
+		return idx
+	}
+	idx := []int{0, m / 2, m - 1}
+	if m > 355 {
+		idx = append(idx, 354, 355)
+	}
+	return idx
+}
+
+// TestReadMeasurementMatchesEager reads measurements of a synthetic file (all
+// of them) and of the FIR CI fixtures (see sampleMeasurements) through a
+// lazy File and compares them with Open's ImpulseResponses.
+func TestReadMeasurementMatchesEager(t *testing.T) {
+	paths := map[string]string{"synthetic": saveSynthetic(t, 60, 16)}
+	for _, name := range ciFixtures {
+		paths[name] = testdataPath(t, name)
+	}
+	for name, path := range paths {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eager, err := Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			if eager.DataType != DataTypeFIR {
+				t.Skipf("DataType %s", eager.DataType)
+			}
+			lazy, err := OpenLazy(path)
+			if err != nil {
+				t.Fatalf("OpenLazy: %v", err)
+			}
+			t.Cleanup(func() { _ = lazy.Close() })
+			for _, m := range sampleMeasurements(eager.M) {
+				got, err := lazy.ReadMeasurement(m)
+				if err != nil {
+					t.Fatalf("ReadMeasurement(%d): %v", m, err)
+				}
+				if !reflect.DeepEqual(got, eager.ImpulseResponses[m]) {
+					t.Fatalf("ReadMeasurement(%d) differs from Open", m)
+				}
+			}
+		})
+	}
+}
+
+// TestReadMeasurementEagerCopies checks that ReadMeasurement on a File from
+// Open returns a copy, not the File's own slices.
+func TestReadMeasurementEagerCopies(t *testing.T) {
+	f, err := Open(saveSynthetic(t, 3, 4))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	got, err := f.ReadMeasurement(1)
+	if err != nil {
+		t.Fatalf("ReadMeasurement: %v", err)
+	}
+	if !reflect.DeepEqual(got, f.ImpulseResponses[1]) {
+		t.Fatalf("ReadMeasurement(1) = %v, want %v", got, f.ImpulseResponses[1])
+	}
+	got[0][0] = -42
+	if f.ImpulseResponses[1][0][0] == -42 {
+		t.Errorf("ReadMeasurement aliases ImpulseResponses")
+	}
+}
+
+// TestReadMeasurementErrors checks the index, DataType and closed-file
+// errors.
+func TestReadMeasurementErrors(t *testing.T) {
+	path := saveSynthetic(t, 3, 4)
+	for _, lazy := range []bool{false, true} {
+		f, err := open(path, lazy)
+		if err != nil {
+			t.Fatalf("open(lazy=%v): %v", lazy, err)
+		}
+		for _, m := range []int{-1, 3} {
+			if _, err := f.ReadMeasurement(m); !errors.Is(err, ErrIndexOutOfRange) {
+				t.Errorf("lazy=%v ReadMeasurement(%d) error %v, want ErrIndexOutOfRange", lazy, m, err)
+			}
+		}
+		if err := f.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+
+	f, err := OpenLazy(path)
+	if err != nil {
+		t.Fatalf("OpenLazy: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := f.ReadMeasurement(0); !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("ReadMeasurement after Close: error %v, want fs.ErrClosed", err)
+	}
+
+	tf := &File{DataType: DataTypeTF, M: 1, R: 1, N: 1}
+	if _, err := tf.ReadMeasurement(0); !errors.Is(err, ErrUnsupportedDataType) {
+		t.Errorf("TF ReadMeasurement error %v, want ErrUnsupportedDataType", err)
 	}
 }
