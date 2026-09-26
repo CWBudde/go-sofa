@@ -359,13 +359,25 @@ from `rowDim`, `sofa_netcdf.go:212`). Every convention allows only
 
 ### P1.3 — Regression gate
 
-- [ ] **P1.3a.** Add libmysofa to `just interop` and `test-interop.yaml`:
+- [x] **P1.3a.** Add libmysofa to `just interop` and `test-interop.yaml`:
       build libmysofa at a pinned commit (cache the build), run the harness
       above over every file `internal/interop/gen` writes plus a resave of
       MIT_KEMAR and the `testdata/sofar/*` fixtures; fail on any non-zero
       load/check code. Only convention/DataType combinations libmysofa supports
       (SimpleFreeFieldHRIR FIR) must `check 0`; for others require
       `load` success only.
+      (2026-09-27) — `load` success is unreachable for TF/TF-E: libmysofa's
+      loader rejects them by design (`load err 10000`, the sofar originals
+      too). Rule as decided instead: generated SimpleFreeFieldHRIR files
+      must `check 0`, TF/TF-E exactly `load err 10000` (so an HDF5 parse
+      failure such as 10001 still fails), everything else must load; every
+      resave must get exactly its original's result. `just libmysofa` builds
+      the harness (`scripts/libmysofa`, from go-hdf5) at libmysofa 3f4cb66
+      into `~/.cache/go-sofa`, cached in CI; `internal/interop/mysofa`
+      applies the rules. `just interop` passes (13 libmysofa checks); the
+      files from before P1.2 fail it (fir, extras `check 10008`), as do
+      go-hdf5 v0.17 files (all `load err 10001`) and a resave whose result
+      differs from its original's.
 - [ ] **P1.3b.** Document the libmysofa result in README "Interoperability".
 
 ---
