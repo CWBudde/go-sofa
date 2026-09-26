@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 // streamFIRFile is an FIR file with M measurements whose samples are
@@ -505,19 +507,43 @@ func TestReadMeasurementChunkCache(t *testing.T) {
 	}
 }
 
-func TestParseChunkShape(t *testing.T) {
-	for _, tc := range []struct {
-		info string
-		want []uint64
-	}{
-		{"Dataset: float (size=8 bytes), 3D array [710 2 512], chunked (chunks=[355 1 256 8])", []uint64{355, 1, 256}},
-		{"Dataset: float (size=8 bytes), 3D array [710 2 512], contiguous", nil},
-		{"chunked (chunks=[8])", nil},
-		{"chunked (chunks=[0 8])", nil},
+// TestDatasetChunkShape checks the chunk dimensions of a chunked dataset
+// and that a contiguous one reports none.
+func TestDatasetChunkShape(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chunks.h5")
+	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
+	if err != nil {
+		t.Fatalf("CreateForWrite: %v", err)
+	}
+	for name, opts := range map[string][]hdf5.DatasetOption{
+		"/chunked":    {hdf5.WithChunkDims([]uint64{2, 1, 4})},
+		"/contiguous": nil,
 	} {
-		got, ok := parseChunkShape(tc.info)
-		if ok != (tc.want != nil) || fmt.Sprint(got) != fmt.Sprint(tc.want) {
-			t.Errorf("parseChunkShape(%q) = %v, %v; want %v", tc.info, got, ok, tc.want)
+		ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{4, 2, 8}, opts...)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if err := ds.Write(make([]float64, 64)); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := fw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	h, err := hdf5.Open(path)
+	if err != nil {
+		t.Fatalf("hdf5.Open: %v", err)
+	}
+	defer h.Close()
+	want := map[string][]uint64{"chunked": {2, 1, 4}, "contiguous": nil}
+	for _, child := range h.Root().Children() {
+		ds, ok := child.(*hdf5.Dataset)
+		if !ok {
+			continue
+		}
+		got, ok := datasetChunkShape(ds)
+		if w := want[ds.Name()]; ok != (w != nil) || fmt.Sprint(got) != fmt.Sprint(w) {
+			t.Errorf("datasetChunkShape(%s) = %v, %v; want %v", ds.Name(), got, ok, w)
 		}
 	}
 }

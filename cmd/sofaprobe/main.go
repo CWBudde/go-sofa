@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
@@ -84,8 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // prober dumps one file to w. Failures to read the file's structure or
 // data go to stderr and mark the file as failed. Attribute values go-hdf5
-// cannot decode (such as the REFERENCE_LIST and DIMENSION_LIST of every
-// netCDF-4 file) are findings of the probe, not failures: they are shown
+// cannot decode are findings of the probe, not failures: they are shown
 // inline on w.
 type prober struct {
 	w, stderr io.Writer
@@ -203,18 +200,15 @@ func findDataset(root *hdf5.Group, name string) *hdf5.Dataset {
 
 // previewDataset prints the shape of ds and the first values of its first
 // row and the last values of its last row (rows run along the last axis).
-// It reads only those two rows, never the whole dataset. Whole rows are
-// read because go-hdf5 v0.16.1 returns zeros for a contiguous hyperslab of
-// three or more dimensions that starts inside a row.
+// It reads only those values, never the whole dataset.
 func (p *prober) previewDataset(label string, ds *hdf5.Dataset) {
-	info, err := ds.Info()
+	shape, err := ds.Shape()
 	if err != nil {
-		p.fail("%s: info: %v", label, err)
+		p.fail("%s: shape: %v", label, err)
 		return
 	}
-	shape := parseShape(info)
 	if len(shape) == 0 {
-		p.fail("%s: not an array: %q", label, info)
+		p.fail("%s: not an array", label)
 		return
 	}
 	total := uint64(1)
@@ -227,69 +221,41 @@ func (p *prober) previewDataset(label string, ds *hdf5.Dataset) {
 	}
 
 	last := len(shape) - 1
-	rowLen := shape[last]
-	n := min(rowLen, previewValues)
+	n := min(shape[last], previewValues)
 	count := make([]uint64, len(shape))
 	for i := range count {
 		count[i] = 1
 	}
-	count[last] = rowLen
+	count[last] = n
 
-	firstRow := make([]uint64, len(shape))
-	lastRow := make([]uint64, len(shape))
-	for i, d := range shape[:last] {
-		lastRow[i] = d - 1
+	head := make([]uint64, len(shape))
+	tail := make([]uint64, len(shape))
+	for i, d := range shape {
+		tail[i] = d - 1
 	}
+	tail[last] = shape[last] - n
 
 	for _, s := range []struct {
 		name  string
 		start []uint64
-		tail  bool
 	}{
-		{fmt.Sprintf("first %d:", n), firstRow, false},
-		{fmt.Sprintf("last %d: ", n), lastRow, true},
+		{fmt.Sprintf("first %d:", n), head},
+		{fmt.Sprintf("last %d: ", n), tail},
 	} {
-		row, err := ds.ReadSlice(s.start, count)
+		raw, err := ds.ReadSlice(s.start, count)
 		if err != nil {
-			p.fail("%s: read row at %v: %v", label, s.start, err)
+			p.fail("%s: read %d values at %v: %v", label, n, s.start, err)
 			continue
 		}
-		vals, ok := row.([]float64)
+		vals, ok := raw.([]float64)
 		if !ok {
-			p.fail("%s: read row at %v: got %T, want []float64", label, s.start, row)
+			p.fail("%s: read %d values at %v: got %T, want []float64", label, n, s.start, raw)
 			continue
 		}
-		if uint64(len(vals)) != rowLen {
-			p.fail("%s: read row at %v: got %d values, want %d", label, s.start, len(vals), rowLen)
+		if uint64(len(vals)) != n {
+			p.fail("%s: read %d values at %v: got %d", label, n, s.start, len(vals))
 			continue
-		}
-		if s.tail {
-			vals = vals[rowLen-n:]
-		} else {
-			vals = vals[:n]
 		}
 		fmt.Fprintf(p.w, "    %s %v\n", s.name, vals)
 	}
-}
-
-// shapeRE matches the dataspace part of go-hdf5's Dataset.Info output:
-// "1D array [5]", "2D array [3 x 4]".
-var shapeRE = regexp.MustCompile(`\b\d+D array \[([0-9 x]*)\]`)
-
-// parseShape extracts the dimensions from a Dataset.Info string; nil if it
-// describes no array.
-func parseShape(info string) []uint64 {
-	m := shapeRE.FindStringSubmatch(info)
-	if m == nil {
-		return nil
-	}
-	var shape []uint64
-	for _, field := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ' ' || r == 'x' }) {
-		d, err := strconv.ParseUint(field, 10, 64)
-		if err != nil {
-			return nil
-		}
-		shape = append(shape, d)
-	}
-	return shape
 }

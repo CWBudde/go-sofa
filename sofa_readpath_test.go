@@ -1,7 +1,6 @@
 package sofa
 
 import (
-	"encoding/binary"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -440,30 +439,43 @@ func TestOpenOfficeIIListenerViewPerMeasurement(t *testing.T) {
 	}
 }
 
-func TestDecodeReferenceList(t *testing.T) {
-	entry := func(addr uint64, dim uint32) []byte {
-		b := make([]byte, 16)
-		binary.LittleEndian.PutUint64(b, addr)
-		binary.LittleEndian.PutUint32(b[8:], dim)
-		return b
+// TestDimensionLabels checks the labels reconstructed from the scales'
+// REFERENCE_LIST: a variable attached to all its axes is labelled, a bare
+// one is not, and a malformed REFERENCE_LIST yields no labels.
+func TestDimensionLabels(t *testing.T) {
+	path := writeCraftedSpec(t, craftedSpec{
+		dims: map[string]int{dimM: 2, dimR: 2, dimN: 4},
+		vars: map[string]craftedVar{
+			"Data.IR": {dims: []string{dimM, dimR, dimN}},
+			"Bare":    {shape: []uint64{2, 2}},
+		},
+		extra: func(t *testing.T, fw *hdf5.FileWriter) {
+			t.Helper()
+			ds, err := fw.CreateDataset("/Bogus", hdf5.Float64, []uint64{1},
+				hdf5.WithAttribute("REFERENCE_LIST", "not a compound"))
+			if err != nil {
+				t.Fatalf("create /Bogus: %v", err)
+			}
+			if err := ds.Write([]float64{0}); err != nil {
+				t.Fatalf("write /Bogus: %v", err)
+			}
+		},
+	})
+	h, err := hdf5.Open(path)
+	if err != nil {
+		t.Fatalf("hdf5.Open: %v", err)
 	}
-	data := append(entry(0x100, 0), entry(0x200, 2)...)
-	got := decodeReferenceList(data, 16)
-	want := []dimensionRef{{0x100, 0}, {0x200, 2}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("decodeReferenceList = %v, want %v", got, want)
-	}
-	for name, tc := range map[string]struct {
-		data []byte
-		size int
-	}{
-		"entry too small":   {data, 8},
-		"ragged length":     {data[:20], 16},
-		"dimension >= rank": {entry(0x100, maxRank), 16},
-	} {
-		if got := decodeReferenceList(tc.data, tc.size); len(got) != 0 {
-			t.Errorf("%s: decodeReferenceList = %v, want none", name, got)
+	defer h.Close()
+	datasets := map[string]*hdf5.Dataset{}
+	for _, child := range h.Root().Children() {
+		if ds, ok := child.(*hdf5.Dataset); ok {
+			datasets[ds.Name()] = ds
 		}
+	}
+	got := dimensionLabels(datasets, append([]string{"Bogus"}, sofaDimensions...))
+	want := map[string][]string{"Data.IR": {dimM, dimR, dimN}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("dimensionLabels = %v, want %v", got, want)
 	}
 }
 

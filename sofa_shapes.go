@@ -1,7 +1,6 @@
 package sofa
 
 import (
-	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,26 +31,21 @@ func dimensionLabels(datasets map[string]*hdf5.Dataset, scales []string) map[str
 		if !ok {
 			continue
 		}
-		attrs, err := ds.Attributes()
+		refs, err := ds.ReferenceList()
 		if err != nil {
-			continue
+			continue // malformed: the labels only disambiguate layouts
 		}
-		for _, a := range attrs {
-			if a.Name != "REFERENCE_LIST" || a.Datatype == nil {
+		for _, ref := range refs {
+			name, ok := byAddr[uint64(ref.Dataset)]
+			if !ok || ref.Index < 0 || ref.Index >= maxRank {
 				continue
 			}
-			for _, ref := range decodeReferenceList(a.Data, int(a.Datatype.Size)) {
-				name, ok := byAddr[ref.addr]
-				if !ok {
-					continue
-				}
-				l := labels[name]
-				for len(l) <= ref.dim {
-					l = append(l, "")
-				}
-				l[ref.dim] = scale
-				labels[name] = l
+			l := labels[name]
+			for len(l) <= int(ref.Index) {
+				l = append(l, "")
 			}
+			l[ref.Index] = scale
+			labels[name] = l
 		}
 	}
 	for name, l := range labels {
@@ -60,31 +54,6 @@ func dimensionLabels(datasets map[string]*hdf5.Dataset, scales []string) map[str
 		}
 	}
 	return labels
-}
-
-type dimensionRef struct {
-	addr uint64 // object header address of the attached variable
-	dim  int    // axis of that variable the scale is attached to
-}
-
-// decodeReferenceList decodes the entries of an H5DS REFERENCE_LIST
-// attribute: a compound of an object reference (offset 0) and the
-// dimension index as a 32-bit integer (offset 8), entrySize bytes each.
-// Malformed data yields no entries rather than an error: the labels only
-// disambiguate layouts that sizes cannot.
-func decodeReferenceList(data []byte, entrySize int) []dimensionRef {
-	if entrySize < 12 || len(data)%entrySize != 0 {
-		return nil
-	}
-	refs := make([]dimensionRef, 0, len(data)/entrySize)
-	for off := 0; off < len(data); off += entrySize {
-		dim := binary.LittleEndian.Uint32(data[off+8:])
-		if dim >= maxRank {
-			continue
-		}
-		refs = append(refs, dimensionRef{addr: binary.LittleEndian.Uint64(data[off:]), dim: int(dim)})
-	}
-	return refs
 }
 
 // axisSize returns the size of a SOFA dimension.

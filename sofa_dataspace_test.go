@@ -6,33 +6,28 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-func TestParseDataspaceElements(t *testing.T) {
+func TestElementCount(t *testing.T) {
 	tests := []struct {
-		info   string
-		want   uint64
-		wantOK bool
+		shape []uint64
+		want  uint64
 	}{
-		{"Dataset: float64, 1D array [5], contiguous", 5, true},
-		{"Dataset: float64, 2D array [3 x 4], chunked", 12, true},
-		{"Dataset: float64, 3D array [2 3 4], contiguous", 24, true},
-		{"Dataset: float64, scalar, compact", 1, true},
-		{"Dataset: float64, 1D array [0], contiguous", 0, true},
-		{"Dataset: float64, 1D array [18446744073709551615], contiguous", maxDataElements + 1, true},
-		{"Dataset: float64, 2D array [4294967296 x 4294967296], contiguous", maxDataElements + 1, true},
-		{"Dataset: float64, null, contiguous", 0, false},
-		{"garbage", 0, false},
+		{[]uint64{5}, 5},
+		{[]uint64{3, 4}, 12},
+		{[]uint64{2, 3, 4}, 24},
+		{[]uint64{}, 1},
+		{[]uint64{0}, 0},
+		{[]uint64{18446744073709551615}, maxDataElements + 1},
+		{[]uint64{4294967296, 4294967296}, maxDataElements + 1},
 	}
 	for _, tt := range tests {
-		got, ok := parseDataspaceElements(tt.info)
-		if got != tt.want || ok != tt.wantOK {
-			t.Errorf("parseDataspaceElements(%q) = (%d, %v), want (%d, %v)", tt.info, got, ok, tt.want, tt.wantOK)
+		if got := elementCount(tt.shape); got != tt.want {
+			t.Errorf("elementCount(%v) = %d, want %d", tt.shape, got, tt.want)
 		}
 	}
 }
 
 // TestDatasetElementCountMatchesRead checks the dataspace-derived count
-// against a real dataset, so a format change in go-hdf5's Info output is
-// caught instead of silently disabling the pre-read bound.
+// against a real dataset.
 func TestDatasetElementCountMatchesRead(t *testing.T) {
 	path := writeCraftedFIR(t, map[string]craftedDim{
 		"M": named("2"), "R": named("2"), "E": named("1"), "N": {value: 4},

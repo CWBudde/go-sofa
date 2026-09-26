@@ -3,6 +3,7 @@ package sofa
 import (
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -37,6 +38,14 @@ var ErrNotLoaded = errors.New("audio data not loaded (file opened with OpenLazy)
 // serialised, so it may be shared between goroutines.
 func OpenLazy(path string) (*File, error) {
 	return open(path, true)
+}
+
+// OpenLazyReader is OpenLazy for a SOFA file of size bytes read from r,
+// such as a bytes.Reader or an *os.File opened elsewhere. The File reads
+// audio data from r until Close, so r must stay usable until then; Close
+// does not close r.
+func OpenLazyReader(r io.ReaderAt, size int64) (*File, error) {
+	return openReader(r, size, true)
 }
 
 // Close releases the file handle of a File returned by OpenLazy; after it,
@@ -209,10 +218,10 @@ func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariabl
 
 // readRows reads measurements [start, start+count) of the variable, each
 // row values long, as the hyperslab [start:start+count, 0:…, 0:…] that
-// spans every trailing axis in full. Only such selections are used:
-// go-hdf5 v0.16.1 misreads contiguous 3-D hyperslabs that start inside a
-// row (PLAN.md E5), and on a contiguous dataset this one is a single
-// linear run (count is 1 there; chunked datasets are read chunk by chunk).
+// spans every trailing axis in full. On a contiguous dataset that is a
+// single linear run (count is 1 there; chunked datasets are read chunk by
+// chunk), which is why whole measurements are read even when the caller
+// needs only part of one.
 func (v *lazyVariable) readRows(start, count, row int) ([]float64, error) {
 	name := v.ds.Name()
 	first := make([]uint64, len(v.shape))

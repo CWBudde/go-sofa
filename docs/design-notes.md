@@ -72,6 +72,9 @@ that contradicts a set Type.
 - `SimpleFreeFieldSOS_1.0.sofa` (local only, `RoomVolume` as a root
   attribute) cannot be opened: go-hdf5 supports only depth-0 B-trees. The
   attribute fallback for `RoomVolume`/`RoomTemperature` is unit-tested only.
+  sofar writes 34 root attributes for SingleRoomSRIR, which netCDF-C stores
+  in such a depth-1 B-tree, so `scripts/make_sofar_fixtures.py` drops the
+  empty optional ones from `testdata/sofar/SingleRoomSRIR_1.0.sofa`.
 - Survey an unknown file with `go run ./cmd/sofaprobe <file>` or
   `h5dump -A -H <file>`.
 
@@ -81,5 +84,8 @@ go-sofa depends on the [CWBudde/go-hdf5](https://github.com/CWBudde/go-hdf5)
 fork. v0.16.0 made the output readable by libhdf5/netCDF-C (root header past
 the EOA), added `DatasetWriter.AttachDimensionScale`, dataset headers over 255
 bytes and libhdf5-readable VLEN data; v0.16.1 fixed dense attributes with
-12-byte names (`DateModified`, `Organization`). Remaining upstream gaps are
-tracked as Phase E and R7c in `PLAN.md`.
+12-byte names (`DateModified`, `Organization`). go-sofa currently pins the
+unreleased commit of [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
+for reader/writer entry points (`OpenReader`, `CreateForWriteTo`), dataset
+shapes, dimension-scale readers and correct hyperslab reads. Remaining
+upstream gaps are tracked as Phase E in `PLAN.md`.

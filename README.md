@@ -406,8 +406,8 @@ exports need no in-memory copy of the JSON document.
 Development tool: dumps the HDF5 structure, attributes and dimension
 scales of each file, then previews `Data.IR`, `Data.Real`, `Data.Imag` or
 `Data.SOS` (shape, first and last values) without reading the whole
-dataset. Attribute values go-hdf5 cannot decode are shown inline as
-`(unreadable: …)`; failures to read the structure or the data go to stderr
+dataset (just the first and last three values). Attribute values go-hdf5
+cannot decode are shown inline as `(unreadable: …)`; failures to read the structure or the data go to stderr
 and make the exit status 1.
 
 ```bash
@@ -450,10 +450,12 @@ memory for `Save`; such a `File` holds no open file handle. A `File` from
 
 - `Open(path string) (*File, error)` — Reads a SOFA file completely and closes it again
 - `OpenLazy(path string) (*File, error)` — Reads everything but the audio arrays and keeps the file open for `ReadMeasurement` and friends
+- `OpenReader(r io.ReaderAt, size int64) (*File, error)`, `OpenLazyReader(r io.ReaderAt, size int64) (*File, error)` — `Open` and `OpenLazy` for a file in memory or any other `io.ReaderAt`
 - `Close() error` — Releases the file handle of a `File` from `OpenLazy` (idempotent); does nothing and returns nil for any other `File`
 - `ReadMeasurement(m int) ([][]float64, error)` — FIR impulse responses `[R][N]` of measurement m; `ReadTFMeasurement` (TF), `ReadTFEMeasurement` (TF-E, `[R][E][N]`) and `ReadSOSMeasurement` (SOS) are the siblings for the other DataTypes
 - `RangeMeasurements(fn func(m int, ir [][]float64) error) error` — Calls fn for every measurement in order, stopping at the first error; `RangeTFMeasurements` for TF
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
+- `WriteTo(w io.Writer) (int64, error)` — Validates the `File` and writes the bytes `Save` would write to `w` (`io.WriterTo`)
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
   `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
   per-measurement rates differ
@@ -529,6 +531,17 @@ until `Close`. Read audio data with `ReadMeasurement`, `ReadTFMeasurement`,
 `ReadTFEMeasurement`, `ReadSOSMeasurement`, `RangeMeasurements` or
 `RangeTFMeasurements`; see [Streaming large files](#streaming-large-files).
 
+#### `OpenReader(r io.ReaderAt, size int64) (*File, error)`
+
+Like `Open`, for a SOFA file of `size` bytes read from `r`, such as a
+`bytes.Reader` over a downloaded or embedded file. `r` is not used after
+`OpenReader` returns and is never closed. `OpenLazyReader` is the
+`OpenLazy` counterpart: it reads audio data from `r` until `Close`.
+
+```go
+f, err := sofa.OpenReader(bytes.NewReader(data), int64(len(data)))
+```
+
 #### `(*File).Save(path string) error`
 
 Validates the `File` against AES69 requirements (required attributes,
@@ -549,6 +562,21 @@ succeeds. Works for every supported `DataType` (FIR, TF, TF-E, SOS).
 
 ```go
 if err := f.Save("output.sofa"); err != nil {
+    log.Fatal(err)
+}
+```
+
+#### `(*File).WriteTo(w io.Writer) (int64, error)`
+
+Validates the `File` like `Save` and writes the same bytes to `w`, returning
+how many `w` accepted. The file is assembled in memory and written in one
+call once complete, so a validation or encoding error writes nothing to
+`w`. `Save` stays the way to write a file on disk: it replaces the
+destination atomically.
+
+```go
+var buf bytes.Buffer
+if _, err := f.WriteTo(&buf); err != nil {
     log.Fatal(err)
 }
 ```
@@ -665,6 +693,51 @@ just test-coverage
 # Build CLI tools
 just build
 ```
+
+### Cross-validation
+
+go-sofa's output is checked against independent SOFA implementations:
+
+- **h5py and netCDF4 (netCDF-C):** `just interop` (also run in CI) writes
+  one file per DataType with `Save` and compares what h5py and netCDF4 read
+  with the expected values. It also re-saves every file in
+  `testdata/sofar/` with go-sofa and checks that h5py and netCDF4 read the
+  same attributes and values as in the original.
+- **sofar (pyfar):** `testdata/sofar/` holds small synthetic files written by
+  [sofar](https://github.com/pyfar/sofar) through netCDF-C, one per
+  convention that CI cannot otherwise fetch (GeneralTF 2.0, GeneralTF-E,
+  FreeFieldHRTF with and without spherical harmonics, SimpleFreeFieldHRSOS,
+  SingleRoomSRIR, SingleRoomDRIR). `sofa_sofar_fixtures_test.go` pins their
+  values and round-trips them through `Save`. Regenerate them with
+  `pip install sofar==1.3.0 && python3 scripts/make_sofar_fixtures.py`.
+- **SOFA Toolbox (MATLAB / GNU Octave):** `scripts/matlab/roundtrip.m`
+  loads a go-sofa-written file with `SOFAload`, writes it back with
+  `SOFAsave`, and writes a second file from scratch with the toolbox;
+  `internal/interop/toolbox` then checks that `Data.IR`, `SourcePosition`
+  and `ListenerPosition` are bit-for-bit identical in both directions:
+
+  ```bash
+  # GNU Octave (Ubuntu): apt-get install octave octave-netcdf
+  git clone --depth 1 https://github.com/sofacoustics/SOFAtoolbox /tmp/SOFAtoolbox
+  export SOFATOOLBOX=/tmp/SOFAtoolbox/SOFAtoolbox
+  d=$(mktemp -d)
+
+  go run ./internal/interop/toolbox write "$d/gosofa.sofa"
+  # Until go-hdf5 writes scalar string attributes (PLAN.md E8), the toolbox
+  # cannot load go-sofa's attributes; rewrite them as netCDF text first.
+  python3 scripts/matlab/char_attributes.py "$d/gosofa.sofa" "$d/gosofa-text.sofa"
+  octave --no-gui --quiet --path scripts/matlab \
+    --eval "roundtrip('$d/gosofa-text.sofa', '$d/toolbox.sofa', '$d/created.sofa')"
+
+  # go-sofa -> toolbox -> go-sofa, and toolbox -> go-sofa
+  go run ./internal/interop/toolbox compare "$d/gosofa.sofa" "$d/toolbox.sofa"
+  go run ./internal/interop/toolbox check-created "$d/created.sofa"
+  ```
+
+  In MATLAB, run `roundtrip(...)` from `scripts/matlab` with the toolbox on
+  the path (or `SOFATOOLBOX` set) instead of the `octave` line. Last run
+  2026-09-26 with GNU Octave 8.4.0 and SOFA Toolbox 2.6.0 (`d2a83b3`): both
+  comparisons bit-exact.
 
 ## License
 
