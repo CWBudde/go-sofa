@@ -14,7 +14,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   imports and `go get`/`go install` lines using `github.com/cwbudde/go-sofa`
   must be updated.
 - `Open` reads everything and closes the file before it returns, so a `File`
-  holds no open handle; `Close` does nothing and returns nil.
+  holds no open handle; `Close` does nothing and returns nil, except on a
+  `File` from `OpenLazy`, whose file it closes.
 - Validation errors from `Save` name the `File` field first, capitalised as
   the field is (`M: must be > 0, got 0`, `SamplingRate: length 3 must be M=2
 or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
@@ -90,6 +91,8 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 
 ### Added
 
+- `OpenLazy` reads a file's metadata, positions, sampling rate and delay but
+  leaves the audio data in the file, which it keeps open until `Close`.
 - `DataTypeFIR`, `DataTypeTF`, `DataTypeTFE` and `DataTypeSOS` constants.
 - `(*File).DelayDimensions()` returns the netCDF dimensions of `Delay` as
   `Open` read them (`[I,R]`, `[M]`, …), or the layout its length implies for
