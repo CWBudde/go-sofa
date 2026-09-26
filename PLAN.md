@@ -141,6 +141,9 @@ storage** (fractal heap + v2 B-tree name index) at the root.
 - [ ] **P1.1b. Track attribute creation order** (Attribute Info message
       flags, `attribute_write.go`) so `ncdump` lists globals in write order
       (`Conventions` first). Cosmetic but cheap once P1.1a touches the OHDR.
+      Also needed to modify netCDF-C files: go-hdf5 refuses to rewrite object
+      headers that track attribute creation order, so `OpenForWrite` cannot
+      add links to a netCDF-C (or h5py `track_order=True`) root yet.
 - [ ] **P1.1c. Tests in go-hdf5:** read back with h5py (`c_compat_h5py_test.go`
       pattern) and with `h5dump`; assert the root OHDR contains no 0x11
       message; add a libmysofa-load test if the harness is available (skip
@@ -155,7 +158,10 @@ storage** (fractal heap + v2 B-tree name index) at the root.
 Found while doing P1.1a/c: libmysofa does not read HDF5 generically, it
 matches netCDF-C's byte layout (`src/hdf/fractalhead.c`). A new-style root
 alone still failed to load. With P1.1e–g a go-sofa resave of MIT_KEMAR
-loads (`check 10006`, see P1.1h).
+loads (`check 10006`, see P1.1h). With P1.1h–j it reaches `check 10008`
+(P1.2); every go-sofa interop file and fixture resave then loads except the
+TF/TF-E conventions (their netCDF-C originals fail the same way) and files
+hit by P1.1m.
 
 - [ ] **P1.1e. String datatype message is 8 bytes** (it had a non-spec
       "properties" byte; libmysofa lost sync on every string attribute).
@@ -174,15 +180,30 @@ loads (`check 10006`, see P1.1h).
       references written at `Close` (end of file) do not resolve: MIT_KEMAR
       resave → `check 10006` (`MYSOFA_INVALID_DIMENSION_LIST`). netCDF-C
       writes the collection early. Needed for P1.3a's `check 0`.
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7 (stacked on
+      #6), awaiting merge. v2 files reserve the first collection right after
+      the root group. libmysofa derives the collection end from the 16-bit
+      address and then reads no objects. It also looks references up by
+      index across collections and stops at objects over 8 bytes, so all
+      references must share one collection.
 - [ ] **P1.1i. At most 25 continuation messages per file.** libmysofa's
       `recursive_counter` never decreases (`dataobject.c:889`); dataset
       headers that spill attributes (e.g. `DIMENSION_LIST` added at `Close`)
       into continuation chunks break larger files: SingleRoomSRIR resave →
       `load err 10001` ("recursive problem"). Reserve header space instead.
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7, awaiting
+      merge. Dataset headers reserve room for `DIMENSION_LIST`; resaves now
+      need 6–7 continuations (netCDF-C originals: 12–23). Attributes written
+      after creation can still use up that room; go-sofa passes them at
+      creation.
 - [ ] **P1.1j. Dense attributes that are not scalar strings** (e.g.
       `DIMENSION_LIST` on a variable with > 8 attributes, go-sofa interop
       `extras.sofa`) fail libmysofa's dense-attribute reader → `load err
-10001`. netCDF-C writes version 1 attribute messages in dense storage.
+10001`. libmysofa reads only scalar string attributes from dense storage,
+      whatever the message version.
+      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7, awaiting
+      merge. Datasets keep all attributes compact; groups still switch at 9.
+      `extras.sofa` now reaches `check 10008` (P1.2).
 - [ ] **P1.1k. Soft/external links under a new-style root** are still a
       separate object header hard-linked into the group (non-conformant, as
       before); write them as Link messages in the parent and use the
@@ -192,6 +213,21 @@ loads (`check 10006`, see P1.1h).
       attributes are written as compact messages next to the Attribute Info
       message; go-hdf5 reads them, libhdf5 ignores them
       (`TestDenseAttributeRMW_BasicFlow` fails wherever h5dump is installed).
+      With go-hdf5#7 datasets no longer switch to dense storage, so that test
+      passes. The bug remains for groups and for datasets that already use
+      dense storage. Also check whether adding to libhdf5-written dense
+      attribute heaps overwrites objects, as adding links did before
+      go-hdf5#6's review fixes.
+- [ ] **P1.1m. Non-ASCII string attributes as ASCII character set.**
+      go-hdf5 marks strings with non-ASCII bytes as UTF-8
+      (`attribute_write.go` `inferString`). libmysofa's dense attribute reader
+      rejects that, so resaves of `SimpleFreeFieldHRIR_1.0.sofa` and
+      `SimpleHeadphoneIR_0.2.sofa` (`RoomDescription` contains "×") fail with
+      `load err 10001`. netCDF-C writes text attributes as ASCII and keeps the
+      UTF-8 bytes; so do the originals. Neither file is fetched in CI and
+      `internal/interop/gen` writes only ASCII values, so add a generated
+      file with a non-ASCII global attribute (e.g. `RoomDescription` with
+      "×") that P1.3a's libmysofa gate loads.
 
 ### P1.2 — go-sofa: correct position variable dimensions
 
