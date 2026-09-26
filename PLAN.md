@@ -204,6 +204,9 @@ Tasks:
     header and B-tree and decompresses each overlapping chunk, so go-sofa
     reads the whole chunk row along M (chunk size parsed from
     `Dataset.Info()`, see E4) and caches it (see E9).
+  - (2026-09-26) — go-hdf5#5 now caches the header, chunk index and
+    recently used chunks per dataset (E9); go-sofa's chunk-row cache is
+    gone and every read is one whole-measurement `ReadSlice`.
 - [x] **C2. Lazy `File` mode.** Add
       `OpenLazy(path string) (*File, error)` that parses metadata but
       leaves audio datasets unloaded. Existing `Open` keeps eager
@@ -291,33 +294,42 @@ Tasks:
 #### Performance baseline
 
 `go test -tags largefiles -run '^$' -bench . -benchtime 5x -count 3`
-(2026-09-26, Go 1.25.0, linux/amd64, 4 × Intel Xeon @ 2.10 GHz, shared
-machine, so expect ±30 % noise). File: 6400 × 2 × 1024 float64 = 104.9 MB
-of `Data.IR`, contiguous (as `Save` writes it); MB/s is over that size,
-median of three runs.
+(2026-09-26, go-hdf5 `34395b7`, Go 1.25.0, linux/amd64, 4 × Intel Xeon @
+2.10 GHz, shared machine, so expect ±30 % noise). File: 6400 × 2 × 1024
+float64 = 104.9 MB of `Data.IR`, contiguous (as `Save` writes it); MB/s is
+over that size, median of three runs.
 
 | Benchmark                        |       ns/op | MB/s |    B/op | allocs/op |
 | -------------------------------- | ----------: | ---: | ------: | --------: |
-| `BenchmarkReadLarge` (`Open`)    | 110,818,978 |  946 | 210.9 M |    11,874 |
-| `BenchmarkWriteLarge` (`Save`)   | 407,468,371 |  257 | 210.3 M |     3,352 |
-| `StreamVsEager/eager` (`Open`)   | 115,907,052 |  905 | 210.9 M |    11,877 |
-| `StreamVsEager/stream` (all `M`) | 278,359,448 |  377 | 227.0 M |   345,141 |
-| `StreamVsEager/stream-one`       |      31,727 |  516 |  35,313 |        53 |
+| `BenchmarkReadLarge` (`Open`)    | 112,922,830 |  929 | 210.9 M |    11,794 |
+| `BenchmarkWriteLarge` (`Save`)   | 352,037,968 |  298 | 210.3 M |     3,288 |
+| `StreamVsEager/eager` (`Open`)   | 115,980,542 |  904 | 210.9 M |    11,794 |
+| `StreamVsEager/stream` (all `M`) | 110,991,560 |  945 | 211.6 M |    56,614 |
+| `StreamVsEager/stream-one`       |      18,404 |  890 |  33,248 |        15 |
 
 `stream` reads all 6400 measurements through `OpenLazy` +
-`RangeMeasurements`: about 2.4 × slower than `Open` in total, since each
-`ReadSlice` call re-parses the dataset's object header and issues its own
-read, and the 16 KB of each measurement is allocated twice (raw bytes, then
-`[]float64`). The live heap stays at a few MB instead of 210 MB, which is
-the point. `stream-one` is one random `ReadMeasurement` (R × N × 8 = 16 KB;
-MB/s counts that) on an open lazy file.
+`RangeMeasurements` and now takes about as long as `Open` (0.96 ×; it was
+2.4 × with go-hdf5 `29f7b17`, 278 ms, when every `ReadSlice` re-parsed the
+object header), while the live heap stays at a few MB instead of 210 MB.
+`stream-one` is one random `ReadMeasurement` (R × N × 8 = 16 KB; MB/s
+counts that) on an open lazy file.
+
+`BenchmarkStreamChunked` (default build, same run) streams every
+measurement of the chunked, deflate-compressed CI fixtures, `OpenLazy`
+included:
+
+| Fixture (`Data.IR` shape, chunks)          | ns/op      | B/op   | allocs/op |
+| ------------------------------------------ | ---------- | ------ | --------: |
+| CIPIC (1250 × 2 × 200, 1250 × 1 × 200)     | 45,913,542 | 21.4 M |    37,807 |
+| MIT_KEMAR (710 × 2 × 512, 355 × 1 × 256)   | 47,086,432 | 26.6 M |    35,553 |
+| Mesh2HRTF (1850 × 2 × 320, 1850 × 1 × 320) | 68,215,675 | 49.5 M |    56,201 |
 
 ### Phase E — Cross-repo follow-ups in go-hdf5 (non-blocking)
 
 These are upstream tasks; tracked here so go-sofa users can see why
 certain features are absent.
 
-- [ ] **E1. Dense storage for dataset attributes.** `WithAttribute`
+- [x] **E1. Dense storage for dataset attributes.** `WithAttribute`
       (go-hdf5 v0.15.0) caps at 8 attributes per dataset using compact
       storage. SOFA dimension scales never need more than 3, so this
       is fine today; extend the dense-storage path that already exists
@@ -325,7 +337,19 @@ certain features are absent.
   - Acceptance: upstream PR merged, version bumped in
     [go.mod](go.mod), and a regression test in this repo writes a
     dataset with 9+ attributes successfully.
-- [ ] **E2. `DIMENSION_LIST` attribute on data datasets.** For full
+  - (2026-09-26) — `Save` failed with "WithAttribute supports at most 8
+    attributes per dataset" for any variable given more than eight
+    attributes through `VariableAttributes` or `Variables`. Fixed in
+    [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
+    (`b73a53b`, `34395b7`): `CreateDataset` moves the attributes to dense
+    storage, and attributes moved from compact to dense storage keep
+    scalar dataspaces (strings stayed NC_CHAR only up to eight).
+    `TestRoundTripManyVariableAttributes` saves `Data.IR` (12 + DIMENSION_LIST),
+    `SourcePosition` (10 + Type/Units) and an extra `SourceView` (11) and
+    reads them with `Open`/`OpenLazy`; `just interop` writes `Data.IR` and
+    `SourceView` with 11 and 10 attributes in `extras.sofa` and checks
+    them with h5py and netCDF4 (`ncdump -h` lists them as text).
+- [x] **E2. `DIMENSION_LIST` attribute on data datasets.** For full
       netCDF-4 parity, `Data.IR` / `Data.Real` etc. should carry a
       `DIMENSION_LIST` attribute (variable-length array of object
       references to dimension-scale datasets). Requires VLA + object
@@ -335,6 +359,9 @@ certain features are absent.
     (or `ncdump -h` shows attached dimension names) for `Data.IR`.
   - (2026-09-25) — covered by R1c: `ncdump -h` shows
     `Data.IR(M, R, N)`; the DIMENSION_LIST support is in the merged go-hdf5#1.
+  - (2026-09-26) — still so on go-hdf5#5 (`34395b7`), also with
+    `Data.IR` in dense attribute storage (E1); `scripts/interop_check.py`
+    requires named netCDF dimensions for every variable.
 - [x] **E3. go-hdf5 encoder/test defects found during R1c.** Not needed by
       go-sofa, but wrong for other users: `EncodeCompoundDatatypeV3` /
       `parseCompoundV3` put the member count in the properties (spec: class
@@ -364,7 +391,9 @@ certain features are absent.
     `REFERENCE_LIST` decoder are gone. The chunk dimensions for the C1
     chunk-row cache come from `ChunkIterator().ChunkDims()` (the only
     public accessor; it also walks the chunk index once per audio variable
-    at `OpenLazy`, no measurable cost in `BenchmarkStreamVsEager`).
+    at `OpenLazy`, no measurable cost in `BenchmarkStreamVsEager`). Both
+    went away with that cache in E9; go-hdf5 now also has
+    `Dataset.ChunkShape()`.
 - [x] **E5. `Dataset.ReadSlice` returns zeros for 3-D+ contiguous
       hyperslabs that start inside a row.** Found in R8d (go-hdf5 v0.16.1):
       on a contiguous `[3,2,8]` dataset, `ReadSlice([0,0,5], [1,1,3])` or
@@ -424,7 +453,7 @@ certain features are absent.
     (generated and re-saved files) shows no `string` attributes, and
     `scripts/interop_check.py` now fails on any string attribute that is
     not scalar fixed-length. `char_attributes.py` is deleted; see D2.
-- [ ] **E9. Per-call overhead of `Dataset.ReadSlice`.** Found in C1
+- [x] **E9. Per-call overhead of `Dataset.ReadSlice`.** Found in C1
       (go-hdf5 v0.16.1): every call re-reads and re-parses the object
       header and, for chunked data, the whole chunk B-tree, and
       decompresses every overlapping chunk with no cache.
@@ -434,6 +463,20 @@ certain features are absent.
     per `Dataset` (and optionally recently used chunks);
     `BenchmarkStreamVsEager/stream` gets within 1.5 × of `eager`, and
     go-sofa can drop its chunk-row cache.
+  - (2026-09-26) — fixed in
+    [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
+    (`5bc273f`, `24aa32a`): a `Dataset` parses its header once, builds the
+    chunk index once, keeps up to 8 chunks / 16 MiB decompressed
+    (`SetChunkCacheSize`), copies chunk data in runs, and deflate decodes
+    into a presized buffer. `stream` now takes 0.96 × the time of `eager`
+    (was 2.4 ×; see [Performance baseline](#performance-baseline)).
+    `lazyVariable`'s chunk-row cache is gone; the new
+    `BenchmarkStreamChunked` (every measurement of CIPIC, MIT_KEMAR and
+    Mesh2HRTF, chunked + deflate) went from 68 / 79 / 117 ms (go-hdf5
+    `29f7b17` with the go-sofa cache) to 46 / 47 / 68 ms. Keeping the
+    go-sofa cache on the new go-hdf5 would save up to ~10 % (one
+    `ReadSlice` per chunk row instead of per measurement), not worth a
+    second cache.
 
 ---
 

@@ -276,25 +276,45 @@ func buildExtras() (*sofa.File, map[string]dataset) {
 	f, data := buildFIR()
 	f.Title = "go-sofa interop extras"
 	f.Attributes = []sofa.Attribute{{Name: "DatabaseName", Value: "go-sofa interop"}}
-	f.VariableAttributes = map[string][]sofa.Attribute{
-		"Data.IR": {{Name: "ChannelOrdering", Value: "left, right"}},
-	}
+	// Data.IR and SourceView get more than eight attributes, which go-hdf5
+	// keeps in dense storage (PLAN.md E1).
+	irAttrs := append([]sofa.Attribute{{Name: "ChannelOrdering", Value: "left, right"}}, notes("IR", 10)...)
+	viewAttrs := append([]sofa.Attribute{{Name: "Type", Value: "cartesian"}, {Name: "Units", Value: "metre"}}, notes("view", 8)...)
+	f.VariableAttributes = map[string][]sofa.Attribute{"Data.IR": irAttrs}
 	f.Variables = []sofa.Variable{
 		{
 			Name: "SourceView", Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: []float64{1, 0, 0},
-			Attributes: []sofa.Attribute{{Name: "Type", Value: "cartesian"}, {Name: "Units", Value: "metre"}},
+			Attributes: viewAttrs,
 		},
 		{Name: "ReceiverDescriptions", Dims: []string{"R", "S"}, Shape: []int{numR, 5}, Chars: []byte("left\x00right")},
 	}
 	ir := data["Data.IR"]
-	ir.Attrs = map[string]string{"ChannelOrdering": "left, right"}
+	ir.Attrs = stringAttrs(irAttrs)
 	data["Data.IR"] = ir
 	data["SourceView"] = dataset{
 		Shape: []int{1, 3}, Dims: []string{"I", "C"}, Values: []float64{1, 0, 0},
-		Attrs: map[string]string{"Type": "cartesian", "Units": "metre"},
+		Attrs: stringAttrs(viewAttrs),
 	}
 	data["ReceiverDescriptions"] = dataset{Shape: []int{numR, 5}, Dims: []string{"R", "S"}, Chars: "left\x00right"}
 	return f, data
+}
+
+// notes returns n string attributes Note00, Note01, … with distinct values.
+func notes(prefix string, n int) []sofa.Attribute {
+	attrs := make([]sofa.Attribute, n)
+	for i := range attrs {
+		attrs[i] = sofa.Attribute{Name: fmt.Sprintf("Note%02d", i), Value: fmt.Sprintf("%s note %d", prefix, i)}
+	}
+	return attrs
+}
+
+// stringAttrs returns attrs, all strings, as a name → value map.
+func stringAttrs(attrs []sofa.Attribute) map[string]string {
+	m := make(map[string]string, len(attrs))
+	for _, a := range attrs {
+		m[a.Name] = fmt.Sprint(a.Value)
+	}
+	return m
 }
 
 func buildTF() (*sofa.File, map[string]dataset) {

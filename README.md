@@ -123,9 +123,9 @@ another DataType with `ErrUnsupportedDataType`.
 
 Each read is one HDF5 hyperslab covering a whole measurement. For chunked
 files whose chunks span several measurements (common in files written by
-the SOFA Toolbox), the chunk row around the requested measurement is read
-once and kept until a measurement outside it is requested, so sequential
-reads stay fast.
+the SOFA Toolbox), go-hdf5 keeps recently used chunks decompressed (8
+chunks or 16 MiB per variable), so sequential reads decompress each chunk
+once.
 
 ### Reading spatial data
 

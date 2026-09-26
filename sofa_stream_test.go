@@ -8,8 +8,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-
-	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 // streamFIRFile is an FIR file with M measurements whose samples are
@@ -479,7 +477,9 @@ func TestOpenLazyDoesNotAllocateAudio(t *testing.T) {
 }
 
 // TestReadMeasurementChunkCache reads a chunked fixture (chunks of 355
-// measurements) out of order, across and back over chunk boundaries.
+// measurements) out of order, across and back over chunk boundaries, and
+// checks that a caller writing to a result cannot corrupt go-hdf5's chunk
+// cache.
 func TestReadMeasurementChunkCache(t *testing.T) {
 	t.Parallel()
 	path := testdataPath(t, "MIT_KEMAR_normal_pinna.sofa")
@@ -488,9 +488,6 @@ func TestReadMeasurementChunkCache(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	lazy := openLazy(t, path)
-	if v := lazy.lazy.vars[varIR]; v.block != 355 {
-		t.Errorf("Data.IR read block = %d, want the chunk size 355", v.block)
-	}
 	for _, m := range []int{709, 0, 354, 355, 354, 709} {
 		ir, err := lazy.ReadMeasurement(m)
 		if err != nil {
@@ -507,43 +504,35 @@ func TestReadMeasurementChunkCache(t *testing.T) {
 	}
 }
 
-// TestDatasetChunkShape checks the chunk dimensions of a chunked dataset
-// and that a contiguous one reports none.
-func TestDatasetChunkShape(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "chunks.h5")
-	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate)
-	if err != nil {
-		t.Fatalf("CreateForWrite: %v", err)
-	}
-	for name, opts := range map[string][]hdf5.DatasetOption{
-		"/chunked":    {hdf5.WithChunkDims([]uint64{2, 1, 4})},
-		"/contiguous": nil,
+// BenchmarkStreamChunked streams every measurement of the chunked,
+// deflate-compressed CI fixtures through OpenLazy and RangeMeasurements.
+func BenchmarkStreamChunked(b *testing.B) {
+	for _, name := range []string{
+		"CIPIC_subject_003_hrir_final.sofa",
+		"MIT_KEMAR_normal_pinna.sofa",
+		"Mesh2HRTF.sofa",
 	} {
-		ds, err := fw.CreateDataset(name, hdf5.Float64, []uint64{4, 2, 8}, opts...)
-		if err != nil {
-			t.Fatalf("create %s: %v", name, err)
-		}
-		if err := ds.Write(make([]float64, 64)); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-	if err := fw.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	h, err := hdf5.Open(path)
-	if err != nil {
-		t.Fatalf("hdf5.Open: %v", err)
-	}
-	defer h.Close()
-	want := map[string][]uint64{"chunked": {2, 1, 4}, "contiguous": nil}
-	for _, child := range h.Root().Children() {
-		ds, ok := child.(*hdf5.Dataset)
-		if !ok {
-			continue
-		}
-		got, ok := datasetChunkShape(ds)
-		if w := want[ds.Name()]; ok != (w != nil) || fmt.Sprint(got) != fmt.Sprint(w) {
-			t.Errorf("datasetChunkShape(%s) = %v, %v; want %v", ds.Name(), got, ok, w)
-		}
+		path := testdataPath(b, name)
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			var sink float64
+			for b.Loop() {
+				f, err := OpenLazy(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				err = f.RangeMeasurements(func(_ int, ir [][]float64) error {
+					sink += ir[0][0]
+					return nil
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+				if err := f.Close(); err != nil {
+					b.Fatal(err)
+				}
+			}
+			_ = sink
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -125,6 +126,76 @@ func TestRoundTripSyntheticExtras(t *testing.T) {
 	if !reflect.DeepEqual(back.Variables, wantVars) {
 		t.Errorf("Variables:\n got %+v\nwant %+v", back.Variables, wantVars)
 	}
+}
+
+// TestRoundTripManyVariableAttributes saves variables with more than eight
+// attributes, which go-hdf5 keeps in dense storage (PLAN.md E1), and reads
+// them back with Open and OpenLazy. `just interop` checks the same with
+// h5py and netCDF4 (internal/interop/gen, extras.sofa).
+func TestRoundTripManyVariableAttributes(t *testing.T) {
+	notes := func(prefix string, n int) []Attribute {
+		attrs := make([]Attribute, n)
+		for i := range attrs {
+			attrs[i] = Attribute{fmt.Sprintf("Note%02d", i), fmt.Sprintf("%s %d", prefix, i)}
+		}
+		return attrs
+	}
+	f := minimalFIRFile()
+	f.VariableAttributes = map[string][]Attribute{
+		"Data.IR":        notes("ir", 12),
+		"SourcePosition": append(notes("source", 9), Attribute{"Scale", 2.5}),
+	}
+	f.Variables = []Variable{{
+		Name: "SourceView", Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: []float64{1, 0, 0},
+		Attributes: append([]Attribute{{"Type", "cartesian"}, {"Units", "metre"}}, notes("view", 9)...),
+	}}
+	path := saveTemp(t, f, "many_attributes.sofa")
+
+	back, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	for name, want := range f.VariableAttributes {
+		if got := back.VariableAttributes[name]; !sameAttributes(got, want) {
+			t.Errorf("VariableAttributes[%s] = %v, want %v", name, got, want)
+		}
+	}
+	if len(back.Variables) != 1 || !sameAttributes(back.Variables[0].Attributes, f.Variables[0].Attributes) {
+		t.Errorf("Variables = %+v, want the attributes %v", back.Variables, f.Variables[0].Attributes)
+	}
+	if len(back.Dropped) > 0 {
+		t.Errorf("Dropped = %q", back.Dropped)
+	}
+
+	lazy := openLazy(t, path)
+	for m := range f.M {
+		ir, err := lazy.ReadMeasurement(m)
+		if err != nil {
+			t.Fatalf("ReadMeasurement(%d): %v", m, err)
+		}
+		if !reflect.DeepEqual(ir, f.ImpulseResponses[m]) {
+			t.Errorf("measurement %d = %v, want %v", m, ir, f.ImpulseResponses[m])
+		}
+	}
+}
+
+// sameAttributes reports whether a and b hold the same attributes in any
+// order (Open sorts them by name).
+func sameAttributes(a, b []Attribute) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	byName := make(map[string]any, len(a))
+	for _, x := range a {
+		byName[x.Name] = x.Value
+	}
+	for _, x := range b {
+		v, ok := byName[x.Name]
+		if !ok || !reflect.DeepEqual(v, x.Value) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestRoundTripDimensionAttributes checks that further attributes of the

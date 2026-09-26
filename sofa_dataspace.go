@@ -4,27 +4,6 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-// datasetChunkShape returns the chunk dimensions of a chunked dataset; ok
-// is false for other layouts or when the layout cannot be read.
-// go-hdf5 exposes the chunk dimensions only through its chunk iterator,
-// which also reads the chunk index once.
-func datasetChunkShape(ds *hdf5.Dataset) (shape []uint64, ok bool) {
-	it, err := ds.ChunkIterator()
-	if err != nil {
-		return nil, false
-	}
-	shape = it.ChunkDims()
-	if len(shape) == 0 {
-		return nil, false
-	}
-	for _, d := range shape {
-		if d == 0 {
-			return nil, false
-		}
-	}
-	return shape, true
-}
-
 // datasetElementCount returns the number of elements in ds from its
 // dataspace, without reading the data. ok is false when the shape cannot be
 // determined; callers then fall back to reading the dataset. Counts above

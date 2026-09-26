@@ -11,9 +11,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - go-hdf5 is upgraded to the commit of
   [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
-  (`29f7b17`). Dataset shapes, chunk dimensions and dimension-scale
-  `REFERENCE_LIST`s now come from its public API instead of parsing
-  `Dataset.Info()` text and attribute bytes; files read the same.
+  (`34395b7`). Dataset shapes and dimension-scale `REFERENCE_LIST`s now
+  come from its public API instead of parsing `Dataset.Info()` text and
+  attribute bytes; files read the same.
+- Streaming reads rely on go-hdf5's per-dataset cache (parsed header, chunk
+  index, recently used decompressed chunks) instead of go-sofa's own
+  chunk-row cache, which is gone. Streaming every measurement of a lazy
+  file now takes about as long as `Open` (105 MB contiguous file: 1.0×,
+  was 2.4×), and of the chunked CI fixtures 33–42 % less time than before.
 - `sofaprobe` reads only the three previewed values at each end of the
   audio data instead of whole rows, and shows the decoded `DIMENSION_LIST`
   and `REFERENCE_LIST` attributes instead of `(unreadable: …)`.
@@ -168,6 +173,10 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   reads root attributes kept in a v2 B-tree of depth 1 or more (such as the
   34 root attributes sofar writes for SingleRoomSRIR). Errors in dense link or attribute storage are returned instead of
   skipped.
+- `Save` writes variables with more than eight attributes (through
+  `VariableAttributes` or `Variables`); it failed with "WithAttribute
+  supports at most 8 attributes per dataset". go-hdf5 keeps them in dense
+  storage, which h5py and netCDF-C read.
 - String attributes are written as scalar fixed-length strings, which
   netCDF-C reads as text (NC_CHAR) instead of NC_STRING, so the SOFA Toolbox
   under Octave loads go-sofa files without conversion.

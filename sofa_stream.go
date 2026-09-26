@@ -70,19 +70,15 @@ type lazyAudio struct {
 // lazyVariable is one audio variable left in the file: its dataset, the
 // layout (dimension names) resolved for it and the matching shape.
 //
-// A chunked dataset whose chunks span several measurements would have
-// every chunk decompressed again for each measurement read. For those,
-// block is the chunk size along M, and reads fetch the whole block of
-// measurements around m once and keep it in cache until a measurement
-// outside it is read.
+// Each read is one ReadSlice of a whole measurement. go-hdf5 caches the
+// dataset's parsed header and chunk index and keeps recently used chunks
+// decompressed (8 chunks / 16 MiB per dataset by default), so sequential
+// reads of a chunked file decompress each chunk once as long as the chunks
+// one measurement spans fit in that cache.
 type lazyVariable struct {
 	ds     *hdf5.Dataset
 	layout []string
 	shape  []uint64
-
-	block      int       // measurements per read: 1, or the chunk size along M
-	cacheStart int       // first measurement held in cache
-	cache      []float64 // measurements [cacheStart, cacheStart+len(cache)/rowSize)
 }
 
 // Names of the audio variables.
@@ -130,11 +126,7 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 		for i, d := range layout {
 			shape[i] = f.axisSize(d)
 		}
-		block := 1
-		if chunk, ok := datasetChunkShape(ds); ok && len(chunk) == len(shape) && chunk[0] > 1 {
-			block = int(min(chunk[0], shape[0])) //nolint:gosec // bounded by M
-		}
-		vars[name] = &lazyVariable{ds: ds, layout: layout, shape: shape, block: block}
+		vars[name] = &lazyVariable{ds: ds, layout: layout, shape: shape}
 	}
 
 	switch f.DataType {
@@ -176,9 +168,6 @@ func (l *lazyAudio) close() error {
 	}
 	err := l.h.Close()
 	l.h = nil
-	for _, v := range l.vars {
-		v.cache = nil
-	}
 	if err != nil {
 		return fmt.Errorf("close HDF5: %w", err)
 	}
@@ -186,8 +175,7 @@ func (l *lazyAudio) close() error {
 }
 
 // readMeasurement reads measurement m of an audio variable in its stored
-// layout into a new slice; see lazyVariable for the caching of chunked
-// datasets.
+// layout into a new slice.
 func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariable, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -199,42 +187,27 @@ func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariabl
 	for _, n := range v.shape[1:] {
 		row *= int(n) //nolint:gosec // bounded by dimProduct
 	}
-	if v.block == 1 {
-		flat, err := v.readRows(m, 1, row)
-		return flat, v, err
-	}
-	if m < v.cacheStart || (m-v.cacheStart+1)*row > len(v.cache) {
-		start := m - m%v.block
-		count := min(v.block, int(v.shape[0])-start) //nolint:gosec // bounded by dimProduct
-		flat, err := v.readRows(start, count, row)
-		if err != nil {
-			return nil, v, err
-		}
-		v.cacheStart, v.cache = start, flat
-	}
-	off := (m - v.cacheStart) * row
-	return slices.Clone(v.cache[off : off+row]), v, nil
+	flat, err := v.read(m, row)
+	return flat, v, err
 }
 
-// readRows reads measurements [start, start+count) of the variable, each
-// row values long, as the hyperslab [start:start+count, 0:…, 0:…] that
-// spans every trailing axis in full. On a contiguous dataset that is a
-// single linear run (count is 1 there; chunked datasets are read chunk by
-// chunk), which is why whole measurements are read even when the caller
-// needs only part of one.
-func (v *lazyVariable) readRows(start, count, row int) ([]float64, error) {
+// read reads measurement m of the variable, row values long, as the
+// hyperslab [m:m+1, 0:…, 0:…] that spans every trailing axis in full. On a
+// contiguous dataset that is a single linear run, which is why whole
+// measurements are read even when the caller needs only part of one.
+func (v *lazyVariable) read(m, row int) ([]float64, error) {
 	name := v.ds.Name()
 	first := make([]uint64, len(v.shape))
 	counts := slices.Clone(v.shape)
-	first[0], counts[0] = uint64(start), uint64(count) //nolint:gosec // checked against M by the caller
+	first[0], counts[0] = uint64(m), 1 //nolint:gosec // checked against M by the caller
 	raw, err := v.ds.ReadSlice(first, counts)
 	if err != nil {
-		return nil, fmt.Errorf("read %s measurements [%d, %d): %w", name, start, start+count, err)
+		return nil, fmt.Errorf("read %s measurement %d: %w", name, m, err)
 	}
 	flat, ok := raw.([]float64)
-	if !ok || len(flat) != count*row {
-		return nil, fmt.Errorf("read %s measurements [%d, %d): got %T of %d values, want %d float64",
-			name, start, start+count, raw, len(flat), count*row)
+	if !ok || len(flat) != row {
+		return nil, fmt.Errorf("read %s measurement %d: got %T of %d values, want %d float64",
+			name, m, raw, len(flat), row)
 	}
 	return flat, nil
 }
