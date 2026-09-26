@@ -189,7 +189,7 @@ func (f *File) writtenVariables() map[string][]string {
 func (f *File) readExtras(datasets map[string]*hdf5.Dataset) {
 	var scales []string
 	for name, ds := range datasets {
-		if slices.Contains(sofaDimensions, name) || isDimensionScale(ds) {
+		if slices.Contains(sofaDimensions, name) || ds.IsDimensionScale() {
 			scales = append(scales, name)
 		}
 	}
@@ -228,27 +228,17 @@ func (f *File) readExtras(datasets map[string]*hdf5.Dataset) {
 	}
 }
 
-// isDimensionScale reports whether ds is an HDF5 dimension scale.
-func isDimensionScale(ds *hdf5.Dataset) bool {
-	class, err := readStringAttribute(ds, "CLASS")
-	return err == nil && class == "DIMENSION_SCALE"
-}
-
 // readVariable reads a variable go-sofa does not interpret: a numeric one
 // as float64 values, a char array (1-byte strings) as bytes.
 func readVariable(name string, ds *hdf5.Dataset, dims []string) (Variable, error) {
-	info, err := ds.Info()
-	if err != nil {
-		return Variable{}, err
-	}
-	shape, ok := parseDataspaceShape(info)
+	shape, ok := datasetShape(ds)
 	if !ok {
 		return Variable{}, fmt.Errorf("cannot determine the shape")
 	}
 	if len(shape) == 0 {
 		return Variable{}, fmt.Errorf("scalar variables are not supported")
 	}
-	if n, _ := parseDataspaceElements(info); n > maxDataElements {
+	if elementCount(shape) > maxDataElements {
 		return Variable{}, fmt.Errorf("element count exceeds limit %d", maxDataElements)
 	}
 	v := Variable{Name: name, Shape: make([]int, len(shape))}
@@ -263,8 +253,12 @@ func readVariable(name string, ds *hdf5.Dataset, dims []string) (Variable, error
 		return Variable{}, err
 	}
 
-	if strings.HasPrefix(info, "Dataset: string") {
-		if !strings.HasPrefix(info, "Dataset: string (size=1 bytes)") {
+	dt, err := ds.Datatype()
+	if err != nil {
+		return Variable{}, err
+	}
+	if dt.IsString() {
+		if dt.Size != 1 {
 			return Variable{}, fmt.Errorf("only 1-byte (char) strings are supported")
 		}
 		strs, err := ds.ReadStrings()

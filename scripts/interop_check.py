@@ -4,7 +4,9 @@
 Reads every file listed in DIR/expected.json (written by
 `go run ./internal/interop/gen DIR`) with both h5py and netCDF4 (netCDF-C),
 and compares global attributes, dataset shapes and values against the
-expected values. Exits non-zero on any mismatch or open/read error.
+expected values, and requires every string attribute to be a scalar
+fixed-length string (netCDF NC_CHAR text, not NC_STRING). Exits non-zero on
+any mismatch or open/read error.
 
     python3 scripts/interop_check.py DIR
 
@@ -13,6 +15,11 @@ in the same layout as the generator's expectations, then check them:
 
     python3 scripts/interop_check.py --write-reference DIR   # DIR has expected.json
     python3 scripts/interop_check.py DIR
+
+When DIR/resaved/ exists (the generator re-saves testdata/sofar/, files
+written by sofar through netCDF-C), each re-saved file is also compared with
+its original: same global attributes and, per variable, the same values,
+read with both h5py and netCDF4.
 """
 
 from __future__ import annotations
@@ -73,9 +80,30 @@ def _compare_attrs(errors: list[str], where: str, name: str, attrs, spec: dict) 
             errors.append(f"{where}: {name}: attribute {key} = {_as_str(attrs[key])!r}, want {want!r}")
 
 
+def _check_text_attrs(errors: list[str], where: str, f: h5py.File) -> None:
+    """Require every string attribute to be a scalar fixed-length string.
+
+    netCDF-C reads those as NC_CHAR text; a variable-length string or a
+    one-element array becomes NC_STRING (`ncdump -h` prints `string :Title`),
+    which the SOFA Toolbox under Octave cannot load (PLAN.md E8).
+    """
+    prefix = f"{where}: " if where else ""
+    objects = [("/", f)] + [(name, f[name]) for name in f]
+    for name, obj in objects:
+        for key in obj.attrs:
+            attr = h5py.h5a.open(obj.id, key.encode())
+            tid = attr.get_type()
+            if not isinstance(tid, h5py.h5t.TypeStringID):
+                continue
+            if tid.is_variable_str() or attr.shape != ():
+                kind = "variable-length" if tid.is_variable_str() else "fixed-length"
+                errors.append(f"{prefix}{name}: attribute {key} is a {kind} string of shape {attr.shape}, want scalar fixed-length (NC_CHAR)")
+
+
 def check_h5py(path: str, exp: dict, errors: list[str]) -> None:
     where = f"h5py    {os.path.basename(path)}"
     with h5py.File(path, "r") as f:
+        _check_text_attrs(errors, where, f)
         for key, want in exp["attributes"].items():
             if key not in f.attrs:
                 errors.append(f"{where}: missing global attribute {key}")
@@ -116,6 +144,79 @@ def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
             var = nc.variables[name]
             _compare(errors, where, name, var[:], spec)
             _compare_attrs(errors, where, name, {k: var.getncattr(k) for k in var.ncattrs()}, spec)
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SOFAR_DIR = os.path.join(REPO, "testdata", "sofar")
+
+
+def _read_all(path: str, label: str) -> tuple[dict, dict]:
+    """Global attributes and variables of path, read with h5py or netCDF4."""
+    attrs, variables = {}, {}
+    if label == "h5py":
+        with h5py.File(path, "r") as f:
+            attrs = {k: _as_str(v) for k, v in f.attrs.items()}
+            for name, ds in f.items():
+                if "NAME" in ds.attrs and b"not a netCDF variable" in bytes(ds.attrs["NAME"]):
+                    continue  # placeholder dimension scale
+                variables[name] = ds[()]
+    else:
+        with netCDF4.Dataset(path, "r") as nc:
+            nc.set_auto_mask(False)
+            nc.set_auto_chartostring(False)
+            attrs = {k: _as_str(nc.getncattr(k)) for k in nc.ncattrs()}
+            variables = {name: var[:] for name, var in nc.variables.items()}
+    attrs.pop("_NCProperties", None)
+    return attrs, variables
+
+
+def _same_values(orig, got) -> bool:
+    orig, got = np.asarray(orig), np.asarray(got)
+    if orig.dtype.kind in "SU" or got.dtype.kind in "SU":
+        return _chars(orig).rstrip("\0") == _chars(got).rstrip("\0")
+    orig, got = np.squeeze(orig.astype(np.float64)), np.squeeze(got.astype(np.float64))
+    if orig.shape != got.shape:
+        try:
+            orig = np.broadcast_to(orig, got.shape)
+        except ValueError:
+            return False
+    return bool(np.array_equal(orig, got))
+
+
+def check_resaved(directory: str) -> bool:
+    """Compare DIR/resaved/*.sofa with the originals in testdata/sofar/."""
+    with open(os.path.join(directory, "resaved", "resaved.json"), encoding="utf-8") as fh:
+        resaved = json.load(fh)
+    failed = False
+    for fname in sorted(resaved):
+        for label in ("h5py", "netCDF4"):
+            errors: list[str] = []
+            try:
+                want_attrs, want_vars = _read_all(os.path.join(SOFAR_DIR, fname), label)
+                got_path = os.path.join(directory, "resaved", fname)
+                got_attrs, got_vars = _read_all(got_path, label)
+                if label == "h5py":
+                    with h5py.File(got_path, "r") as f:
+                        _check_text_attrs(errors, "", f)
+                for key, want in want_attrs.items():
+                    # Save does not write empty optional attributes.
+                    if got_attrs.get(key, "") != want:
+                        errors.append(f"attribute {key} = {got_attrs.get(key)!r}, want {want!r}")
+                for name, want in want_vars.items():
+                    if name not in got_vars:
+                        errors.append(f"missing variable {name}")
+                    elif not _same_values(want, got_vars[name]):
+                        errors.append(f"{name}: values differ from the original")
+            except Exception as exc:  # noqa: BLE001 - report every reader failure
+                errors.append("cannot read: " + traceback.format_exception_only(type(exc), exc)[-1].strip())
+            if errors:
+                failed = True
+                print(f"FAIL {label:7} resaved/{fname}")
+                for e in errors:
+                    print(f"     {e}")
+            else:
+                print(f"ok   {label:7} resaved/{fname} (same as the sofar original)")
+    return failed
 
 
 def write_reference(directory: str) -> None:
@@ -189,6 +290,9 @@ def main() -> int:
             else:
                 n = len(expected[fname]["datasets"])
                 print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
+
+    if os.path.isdir(os.path.join(args.dir, "resaved")):
+        failed = check_resaved(args.dir) or failed
 
     if failed:
         print("interop check FAILED", file=sys.stderr)

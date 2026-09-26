@@ -13,8 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -73,8 +71,9 @@ type Vector3 struct {
 }
 
 // File holds the contents of a SOFA file: its AES69 attributes, positions
-// and audio data. Open fills it completely (nothing is read lazily), and
-// Save writes one built or modified in memory.
+// and audio data. Open fills it completely, OpenLazy fills everything but
+// the audio data (read it with ReadMeasurement and its siblings), and Save
+// writes one built or modified in memory.
 type File struct {
 	// Dimensions (M=measurements, R=receivers, E=emitters, N=samples)
 	M int // number of measurements
@@ -194,33 +193,35 @@ type File struct {
 	Dropped            []string
 
 	// Internal
-	delayLayout []string // Data.Delay dimensions as resolved by Open; see delayAxes
-
-	// Set by OpenLazy: the open file and its audio datasets by name, both
-	// nil again after Close.
-	lazy  bool
-	h5    *hdf5.File
-	audio map[string]lazyAudio
+	delayLayout []string   // Data.Delay dimensions as resolved by Open; see delayAxes
+	lazy        *lazyAudio // audio variables left in the file by OpenLazy; nil for Open
 }
 
 // Open reads a SOFA file. It checks that the file is a SOFA file, reads all
 // data and metadata into the returned File and closes the file again before
 // it returns, so the File holds no open handle. A failure to close the file
-// is returned too, joined with any read error, and yields no File.
+// is returned too, joined with any read error, and yields no File. Use
+// OpenLazy to leave the audio data in the file and read it one measurement
+// at a time, and OpenReader to read a file held in memory.
 func Open(path string) (*File, error) {
 	return open(path, false)
 }
 
-// open implements Open and, with lazy set, OpenLazy: the audio datasets are
-// then checked but not read, and the file stays open on success.
-func open(path string, lazy bool) (f *File, err error) {
+// open reads the SOFA file at path; see read for lazy.
+func open(path string, lazy bool) (*File, error) {
 	h, err := hdf5.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
+	return read(h, lazy)
+}
+
+// read reads the SOFA file h and closes it. When lazy is set, the audio
+// variables are checked but not read, and h stays open for them unless
+// read fails.
+func read(h *hdf5.File, lazy bool) (f *File, err error) {
 	defer func() {
 		if lazy && err == nil {
-			f.h5 = h
 			return
 		}
 		if cerr := h.Close(); cerr != nil {
@@ -228,7 +229,7 @@ func open(path string, lazy bool) (f *File, err error) {
 		}
 	}()
 
-	f = &File{lazy: lazy}
+	f = &File{}
 	root := h.Root()
 
 	// Read global attributes from root group.
@@ -257,9 +258,14 @@ func open(path string, lazy bool) (f *File, err error) {
 		return nil, fmt.Errorf("read dimensions: %w", err)
 	}
 
-	// Read audio data.
+	// Read audio data, or only check its layout for a lazy File.
 	labels := dimensionLabels(datasets, sofaDimensions)
-	if err := f.readAudioData(datasets, labels); err != nil {
+	if lazy {
+		err = f.prepareLazyAudio(h, datasets, labels)
+	} else {
+		err = f.readAudioData(datasets, labels)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
@@ -540,12 +546,6 @@ func (f *File) readFIRAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if _, err := f.resolveLayout("Data.IR", irDS, labels["Data.IR"], layoutMRN); err != nil {
 		return err
 	}
-	if f.lazy {
-		if err := f.keepLazy("Data.IR", irDS, layoutMRN); err != nil {
-			return err
-		}
-		return f.readRateAndDelay(datasets, labels)
-	}
 	irFlat, err := irDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.IR: %w", err)
@@ -609,16 +609,6 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 	if _, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMRN); err != nil {
 		return err
 	}
-	imagDS, ok := datasets["Data.Imag"]
-	if !ok {
-		return fmt.Errorf("Data.Imag dataset not found")
-	}
-	if _, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRN); err != nil {
-		return err
-	}
-	if f.lazy {
-		return errors.Join(f.keepLazy("Data.Real", realDS, layoutMRN), f.keepLazy("Data.Imag", imagDS, layoutMRN))
-	}
 	realFlat, err := realDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Real: %w", err)
@@ -629,6 +619,13 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 	}
 	f.TFReal = reshapeIR(realFlat, f.M, f.R, f.N)
 
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	if _, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRN); err != nil {
+		return err
+	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Imag: %w", err)
@@ -661,17 +658,6 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if err != nil {
 		return err
 	}
-	imagDS, ok := datasets["Data.Imag"]
-	if !ok {
-		return fmt.Errorf("Data.Imag dataset not found")
-	}
-	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
-	if err != nil {
-		return err
-	}
-	if f.lazy {
-		return errors.Join(f.keepLazy("Data.Real", realDS, realLayout), f.keepLazy("Data.Imag", imagDS, imagLayout))
-	}
 	realFlat, err := realDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Real: %w", err)
@@ -685,6 +671,14 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	}
 	f.TFRealE = reshape4D(realFlat, f.M, f.R, f.E, f.N)
 
+	imagDS, ok := datasets["Data.Imag"]
+	if !ok {
+		return fmt.Errorf("Data.Imag dataset not found")
+	}
+	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
+	if err != nil {
+		return err
+	}
 	imagFlat, err := imagDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.Imag: %w", err)
@@ -711,15 +705,6 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if _, err := f.resolveLayout("Data.SOS", sosDS, labels["Data.SOS"], layoutMRN); err != nil {
 		return err
 	}
-	if f.N%6 != 0 {
-		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
-	}
-	if f.lazy {
-		if err := f.keepLazy("Data.SOS", sosDS, layoutMRN); err != nil {
-			return err
-		}
-		return f.readRateAndDelay(datasets, labels)
-	}
 	flat, err := sosDS.Read()
 	if err != nil {
 		return fmt.Errorf("read Data.SOS: %w", err)
@@ -728,6 +713,9 @@ func (f *File) readSOSAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if len(flat) != expected {
 		return fmt.Errorf("Data.SOS size %d, want %d (M=%d R=%d N=%d)",
 			len(flat), expected, f.M, f.R, f.N)
+	}
+	if f.N%6 != 0 {
+		return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
 	}
 	f.SOSCoefficients = reshapeIR(flat, f.M, f.R, f.N)
 
@@ -760,94 +748,42 @@ func (f *File) readFrequencyVector(datasets map[string]*hdf5.Dataset, labels map
 	return nil
 }
 
-// Save writes the SOFA file to the specified path.
-// It validates the File struct before writing and creates a fully compliant
-// SOFA file with netCDF-4/HDF5 dimension scales.
-//
-// Save is atomic: the file is written to a temporary file in the same
-// directory, flushed and fsynced, and then renamed over path. A failed
-// Save leaves any existing file at path untouched and removes the
-// temporary file. If path already exists its permission bits are kept;
-// otherwise the new file gets mode 0644. Output is deterministic: saving
-// the same File twice produces byte-identical files, provided DateCreated
-// and DateModified are set. Save stamps empty dates with the current time
-// (as the SOFA Toolbox does) without changing the File, so set them for
-// reproducible output.
-//
-// All required SOFA attributes and datasets are written, along with optional
-// fields if present in the File struct.
-//
-// Returns an error if:
-//   - Validation fails (missing required fields, invalid dimensions, etc.)
-//   - HDF5 file creation fails
-//   - Any write, flush, close, sync or rename operation fails
-func (f *File) Save(path string) (err error) {
-	// Validate the File struct before writing
-	if err := f.validate(); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
-	mode := os.FileMode(0o644)
-	if fi, statErr := os.Stat(path); statErr == nil {
-		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("save %s: not a regular file", path)
+// reshapeIR reshapes a flat float64 slice into [M][R][N].
+func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
+	result := make([][][]float64, m)
+	for i := range m {
+		result[i] = make([][]float64, r)
+		for j := range r {
+			start := (i*r + j) * n
+			result[i][j] = flat[start : start+n : start+n]
 		}
-		mode = fi.Mode().Perm()
 	}
-
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temporary file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("create temporary file: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if err := f.writeHDF5(tmpName); err != nil {
-		return err
-	}
-	if err := syncFile(tmpName); err != nil {
-		return fmt.Errorf("sync %s: %w", tmpName, err)
-	}
-	if err := os.Chmod(tmpName, mode); err != nil {
-		return fmt.Errorf("chmod %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("rename %s to %s: %w", tmpName, path, err)
-	}
-	// Persist the directory entry. Platforms and filesystems that cannot
-	// fsync a directory are tolerated; real I/O errors are returned.
-	if err := syncFile(dir); err != nil && !syncUnsupported(err) {
-		return fmt.Errorf("sync directory %s: %w", dir, err)
-	}
-	return nil
+	return result
 }
 
-// saveTestHook, when non-nil, is called by writeHDF5 after all datasets
-// have been written and before the writer is closed. Tests use it to
-// inject a failure late in Save.
-var saveTestHook func() error
-
-// syncFile opens name and fsyncs it.
-func syncFile(name string) error {
-	fd, err := os.Open(name) //nolint:gosec // path chosen by Save
-	if err != nil {
-		return err
+// reshape4D converts a flat row-major buffer of length m*r*e*n into a
+// nested [m][r][e][n]float64 view. Used for TF-E audio data.
+func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
+	result := make([][][][]float64, m)
+	for i := range m {
+		result[i] = make([][][]float64, r)
+		for j := range r {
+			result[i][j] = make([][]float64, e)
+			for k := range e {
+				start := ((i*r+j)*e + k) * n
+				result[i][j][k] = flat[start : start+n : start+n]
+			}
+		}
 	}
-	return errors.Join(fd.Sync(), fd.Close())
+	return result
 }
 
-// writeHDF5 writes the SOFA structure to path (truncating it). The
-// writer's Close error is returned, joined with any earlier error.
-func (f *File) writeHDF5(path string) (err error) {
+// writeHDF5 writes the SOFA structure to the HDF5 writer that create
+// returns for the given root-attribute options. Once everything is
+// written without error, commit (if non-nil) is called just before the
+// writer is closed. The writer's Close error is returned, joined with any
+// earlier error.
+func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, error), commit func()) (err error) {
 	rootAttrs := f.collectRootAttributes()
 
 	// Global attributes go into the root object header at creation;
@@ -861,11 +797,14 @@ func (f *File) writeHDF5(path string) (err error) {
 	}
 	opts = append(opts, hdf5.WithRootAttribute("_NCProperties", ncProperties()))
 
-	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate, opts...)
+	fw, err := create(opts)
 	if err != nil {
 		return fmt.Errorf("create HDF5 file: %w", err)
 	}
 	defer func() {
+		if err == nil && commit != nil {
+			commit()
+		}
 		if cerr := fw.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close HDF5 file: %w", cerr))
 		}

@@ -1,7 +1,6 @@
 package sofa
 
 import (
-	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,26 +31,21 @@ func dimensionLabels(datasets map[string]*hdf5.Dataset, scales []string) map[str
 		if !ok {
 			continue
 		}
-		attrs, err := ds.Attributes()
+		refs, err := ds.ReferenceList()
 		if err != nil {
-			continue
+			continue // malformed: the labels only disambiguate layouts
 		}
-		for _, a := range attrs {
-			if a.Name != "REFERENCE_LIST" || a.Datatype == nil {
+		for _, ref := range refs {
+			name, ok := byAddr[uint64(ref.Dataset)]
+			if !ok || ref.Index < 0 || ref.Index >= maxRank {
 				continue
 			}
-			for _, ref := range decodeReferenceList(a.Data, int(a.Datatype.Size)) {
-				name, ok := byAddr[ref.addr]
-				if !ok {
-					continue
-				}
-				l := labels[name]
-				for len(l) <= ref.dim {
-					l = append(l, "")
-				}
-				l[ref.dim] = scale
-				labels[name] = l
+			l := labels[name]
+			for len(l) <= int(ref.Index) {
+				l = append(l, "")
 			}
+			l[ref.Index] = scale
+			labels[name] = l
 		}
 	}
 	for name, l := range labels {
@@ -60,31 +54,6 @@ func dimensionLabels(datasets map[string]*hdf5.Dataset, scales []string) map[str
 		}
 	}
 	return labels
-}
-
-type dimensionRef struct {
-	addr uint64 // object header address of the attached variable
-	dim  int    // axis of that variable the scale is attached to
-}
-
-// decodeReferenceList decodes the entries of an H5DS REFERENCE_LIST
-// attribute: a compound of an object reference (offset 0) and the
-// dimension index as a 32-bit integer (offset 8), entrySize bytes each.
-// Malformed data yields no entries rather than an error: the labels only
-// disambiguate layouts that sizes cannot.
-func decodeReferenceList(data []byte, entrySize int) []dimensionRef {
-	if entrySize < 12 || len(data)%entrySize != 0 {
-		return nil
-	}
-	refs := make([]dimensionRef, 0, len(data)/entrySize)
-	for off := 0; off < len(data); off += entrySize {
-		dim := binary.LittleEndian.Uint32(data[off+8:])
-		if dim >= maxRank {
-			continue
-		}
-		refs = append(refs, dimensionRef{addr: binary.LittleEndian.Uint64(data[off:]), dim: int(dim)})
-	}
-	return refs
 }
 
 // axisSize returns the size of a SOFA dimension.
@@ -161,34 +130,4 @@ func swapLastAxes(flat []float64, outer, a, b int) []float64 {
 		}
 	}
 	return out
-}
-
-// reshapeIR reshapes a flat float64 slice into [M][R][N].
-func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
-	result := make([][][]float64, m)
-	for i := range m {
-		result[i] = make([][]float64, r)
-		for j := range r {
-			start := (i*r + j) * n
-			result[i][j] = flat[start : start+n : start+n]
-		}
-	}
-	return result
-}
-
-// reshape4D converts a flat row-major buffer of length m*r*e*n into a
-// nested [m][r][e][n]float64 view. Used for TF-E audio data.
-func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
-	result := make([][][][]float64, m)
-	for i := range m {
-		result[i] = make([][][]float64, r)
-		for j := range r {
-			result[i][j] = make([][]float64, e)
-			for k := range e {
-				start := ((i*r+j)*e + k) * n
-				result[i][j][k] = flat[start : start+n : start+n]
-			}
-		}
-	}
-	return result
 }

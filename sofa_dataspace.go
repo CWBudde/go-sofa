@@ -1,99 +1,42 @@
 package sofa
 
 import (
-	"regexp"
-	"strconv"
-	"strings"
-
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-// dataspaceArrayRE matches the dataspace part of go-hdf5's Dataset.Info
-// output: "1D array [5]", "2D array [3 x 4]" or "3D array [2 3 4]".
-var dataspaceArrayRE = regexp.MustCompile(`\b\d+D array \[([0-9 x]*)\]`)
-
 // datasetElementCount returns the number of elements in ds from its
 // dataspace, without reading the data. ok is false when the shape cannot be
-// determined; callers then fall back to reading the dataset.
+// determined; callers then fall back to reading the dataset. Counts above
+// maxDataElements are clamped to maxDataElements+1, so the result cannot
+// overflow and still compares as too large.
 func datasetElementCount(ds *hdf5.Dataset) (n uint64, ok bool) {
-	info, err := ds.Info()
-	if err != nil {
+	shape, ok := datasetShape(ds)
+	if !ok {
 		return 0, false
 	}
-	return parseDataspaceElements(info)
+	return elementCount(shape), true
+}
+
+// elementCount returns the product of shape, clamped to maxDataElements+1.
+func elementCount(shape []uint64) uint64 {
+	const limit = uint64(maxDataElements) + 1
+	n := uint64(1)
+	for _, d := range shape {
+		if d != 0 && n > limit/d {
+			return limit
+		}
+		n = min(n*d, limit)
+	}
+	return n
 }
 
 // datasetShape returns the dimensions of ds from its dataspace, without
 // reading the data; a scalar dataspace yields an empty shape. ok is false
-// when the shape cannot be determined.
+// when the shape cannot be determined or the dataspace is null.
 func datasetShape(ds *hdf5.Dataset) (shape []uint64, ok bool) {
-	info, err := ds.Info()
-	if err != nil {
+	shape, err := ds.Shape()
+	if err != nil || shape == nil {
 		return nil, false
-	}
-	return parseDataspaceShape(info)
-}
-
-// parseDataspaceShape extracts the dimensions from a Dataset.Info string.
-func parseDataspaceShape(info string) (shape []uint64, ok bool) {
-	m := dataspaceArrayRE.FindStringSubmatch(info)
-	if m == nil {
-		if strings.Contains(info, ", scalar,") {
-			return []uint64{}, true
-		}
-		return nil, false
-	}
-	for _, field := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ' ' || r == 'x' }) {
-		d, err := strconv.ParseUint(field, 10, 64)
-		if err != nil {
-			return nil, false
-		}
-		shape = append(shape, d)
 	}
 	return shape, true
-}
-
-// parseDataspaceElements extracts the element count from a Dataset.Info
-// string. Counts above maxDataElements are clamped to maxDataElements+1, so
-// the result cannot overflow and still compares as too large.
-func parseDataspaceElements(info string) (n uint64, ok bool) {
-	shape, ok := parseDataspaceShape(info)
-	if !ok {
-		return 0, false
-	}
-	const limit = uint64(maxDataElements) + 1
-	n = 1
-	for _, d := range shape {
-		if d != 0 && n > limit/d {
-			return limit, true
-		}
-		n = min(n*d, limit)
-	}
-	return n, true
-}
-
-// datatypeRE matches the datatype part of go-hdf5's Dataset.Info output:
-// "float (size=8 bytes)", "integer (size=4 bytes)", "string (size=4 bytes)".
-var datatypeRE = regexp.MustCompile(`^Dataset: (\w+) \(size=(\d+) bytes\)`)
-
-// datasetIsNumeric reports whether ds holds values Dataset.Read and
-// Dataset.ReadSlice convert to float64 (4- or 8-byte floats and integers),
-// without reading the data. It is false when the datatype cannot be
-// determined.
-func datasetIsNumeric(ds *hdf5.Dataset) bool {
-	info, err := ds.Info()
-	if err != nil {
-		return false
-	}
-	return parseNumericDatatype(info)
-}
-
-// parseNumericDatatype reports whether a Dataset.Info string names a 4- or
-// 8-byte float or integer datatype.
-func parseNumericDatatype(info string) bool {
-	m := datatypeRE.FindStringSubmatch(info)
-	if m == nil || (m[1] != "float" && m[1] != "integer") {
-		return false
-	}
-	return m[2] == "4" || m[2] == "8"
 }

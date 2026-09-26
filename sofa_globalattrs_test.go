@@ -1,16 +1,18 @@
 package sofa
 
 import (
+	"bytes"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
+
+	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
 // TestOpenReadsEveryGlobalField writes a file with a distinct value for
 // every global attribute globalFields maps to a File field and checks
-// that Open reads each one back into its field.
+// that OpenReader reads each one back into its field.
 //
 // RoomVolume and RoomTemperature are written as root attributes rather
 // than variables (some writers do so, and Save rejects them in
@@ -72,13 +74,16 @@ func TestOpenReadsEveryGlobalField(t *testing.T) {
 		{Name: datasetRoomTemperature, Value: want[datasetRoomTemperature]},
 	}
 
-	path := filepath.Join(t.TempDir(), "globals.sofa")
-	if err := f.writeHDF5(path); err != nil {
+	var buf bytes.Buffer
+	create := func(opts []interface{}) (*hdf5.FileWriter, error) {
+		return hdf5.CreateForWriteTo(&buf, opts...)
+	}
+	if err := f.writeHDF5(create, nil); err != nil {
 		t.Fatalf("writeHDF5: %v", err)
 	}
-	g, err := Open(path)
+	g, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenReader: %v", err)
 	}
 	defer g.Close()
 

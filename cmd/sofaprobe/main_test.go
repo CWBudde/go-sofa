@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -78,13 +78,17 @@ func TestDataPreview(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 			}
-			// Undecodable REFERENCE_LIST / DIMENSION_LIST values are shown
-			// inline, not reported as failures.
 			if stderr != "" {
 				t.Errorf("stderr = %q, want empty", stderr)
 			}
-			if !strings.Contains(stdout, "REFERENCE_LIST = (unreadable: ") {
-				t.Errorf("stdout lacks the inline unreadable attribute:\n%s", stdout)
+			// go-hdf5 decodes the dimension-scale references.
+			if strings.Contains(stdout, "(unreadable: ") {
+				t.Errorf("stdout has an unreadable attribute:\n%s", stdout)
+			}
+			for _, want := range []string{"REFERENCE_LIST = ", "DIMENSION_LIST = "} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q:\n%s", want, stdout)
+				}
 			}
 			for _, want := range append(tc.want, "=== SOFA Probe: "+path+" ===", "[Dataset] ") {
 				if !strings.Contains(stdout, want) {
@@ -149,18 +153,31 @@ func TestUnreadableDataSetsExitCode(t *testing.T) {
 	}
 }
 
-func TestParseShape(t *testing.T) {
-	for _, tc := range []struct {
-		info string
-		want []uint64
-	}{
-		{"Dataset: Data.IR, 3D array [3 x 2 x 8], float64", []uint64{3, 2, 8}},
-		{"1D array [5]", []uint64{5}},
-		{"scalar", nil},
-		{"garbage", nil},
-	} {
-		if got := parseShape(tc.info); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("parseShape(%q) = %v, want %v", tc.info, got, tc.want)
-		}
+// TestDataPreviewMatchesOpen checks the previewed values of reference
+// files (contiguous and chunked) against the library's full read.
+func TestDataPreviewMatchesOpen(t *testing.T) {
+	for _, name := range []string{"CIPIC_subject_003_hrir_final.sofa", "MIT_KEMAR_normal_pinna.sofa"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("..", "..", "testdata", name)
+			f, err := sofa.Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v (run scripts/fetch-testdata.sh)", err)
+			}
+			code, stdout, stderr := runCLI(t, path)
+			if code != 0 {
+				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
+			}
+			first := f.ImpulseResponses[0][0][:3]
+			lastRow := f.ImpulseResponses[f.M-1][f.R-1]
+			last := lastRow[len(lastRow)-3:]
+			for _, want := range []string{
+				fmt.Sprintf("first 3: %v", first),
+				fmt.Sprintf("last 3:  %v", last),
+			} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q", want)
+				}
+			}
+		})
 	}
 }

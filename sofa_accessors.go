@@ -169,14 +169,8 @@ var ErrIndexOutOfRange = errors.New("index out of range")
 // requireFIR returns an ErrUnsupportedDataType-wrapping error unless the
 // file holds impulse responses.
 func (f *File) requireFIR(what string) error {
-	return f.requireDataType(what, DataTypeFIR)
-}
-
-// requireDataType fails with ErrUnsupportedDataType unless f has the given
-// DataType.
-func (f *File) requireDataType(what, dataType string) error {
-	if f.DataType != dataType {
-		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, dataType)
+	if f.DataType != DataTypeFIR {
+		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, DataTypeFIR)
 	}
 	return nil
 }
@@ -205,13 +199,18 @@ func (f *File) Duration() (float64, error) {
 // IRAt returns the impulse response for measurement m, receiver r. It
 // fails with ErrUnsupportedDataType for non-FIR files and with
 // ErrIndexOutOfRange when m or r is outside [0,M)×[0,R) or no complete
-// response (N samples) is stored there.
+// response (N samples) is stored there. On a File returned by OpenLazy,
+// whose responses stay in the file, it fails with ErrNotLoaded (use
+// ReadMeasurement there) unless the caller has filled ImpulseResponses.
 func (f *File) IRAt(m, r int) ([]float64, error) {
 	if err := f.requireFIR("IRAt"); err != nil {
 		return nil, err
 	}
 	if m < 0 || m >= f.M || r < 0 || r >= f.R {
 		return nil, fmt.Errorf("IRAt(%d, %d) with M=%d R=%d: %w", m, r, f.M, f.R, ErrIndexOutOfRange)
+	}
+	if f.lazy != nil && len(f.ImpulseResponses) == 0 {
+		return nil, fmt.Errorf("IRAt(%d, %d): %w; use ReadMeasurement", m, r, ErrNotLoaded)
 	}
 	if m >= len(f.ImpulseResponses) || r >= len(f.ImpulseResponses[m]) {
 		return nil, fmt.Errorf("IRAt(%d, %d): no impulse response stored: %w", m, r, ErrIndexOutOfRange)
