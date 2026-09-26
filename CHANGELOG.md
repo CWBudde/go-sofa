@@ -144,6 +144,11 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
 
 ## [v0.1.0]
 
+> **Note:** `v0.1.0` was tagged at 24eebca, before the Phase R review fixes
+> (unreadable HDF5 output, crashes on crafted input, non-atomic `Save`). It
+> stays tagged for reproducibility; use the next release (`v0.2.0`), which
+> contains everything under _Unreleased_ above.
+
 First tagged release. Everything below was already on `main`; this entry records
 what that amounts to for a consumer.
 

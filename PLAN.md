@@ -95,9 +95,12 @@ R1–R4 are release blockers.
   - (2026-09-26) — `Vector3` names the units per coordinate Type, `File`
     describes eagerly loaded contents, and `Delay` lists its 1/M/R/M×R
     layouts.
-- [ ] **R7f.** Consider replacing parallel per-DataType fields (`TFReal` vs
+- [x] **R7f.** Consider replacing parallel per-DataType fields (`TFReal` vs
       `TFRealE`, …) with a `Data` interface / tagged union before v1 to
       avoid API churn.
+  - (2026-09-26) — decided against: the fields stay. The typed accessors,
+    `DataType` constants and the per-measurement readers (Phase C) cover
+    the ergonomics without a breaking change for every caller.
 
 #### R8 — CLIs — ✅ done (2026-09-26)
 
@@ -132,11 +135,11 @@ Real/Imag/SOS via `ReadSlice` (whole rows, see E5); smoke tests via
     are pinned; shellcheck is installed with apt; `just coverage-check`
     (root package ≥ 85 %, 89.4 % with the CI fixtures) runs in test-unit,
     which covers the go.mod Go version and `stable`.
-- [ ] **R9d.** Tag `v0.1.0` only after R1–R4 (CHANGELOG documents a
+- [x] **R9d.** Tag `v0.1.0` only after R1–R4 (CHANGELOG documents a
       release that has no tag).
-  - (2026-09-26) — open: `v0.1.0` is tagged and pushed, but at 24eebca
-    (2026-08-16), before R1–R4 landed. Decide whether to keep it or tag
-    the next release after Phase R.
+  - (2026-09-26) — `v0.1.0` stays tagged at 24eebca (pre-Phase R); the
+    CHANGELOG entry now says so and points to `v0.2.0` as the first
+    release with the Phase R fixes, to be tagged once this round is merged.
 - [x] **R9e.** Coverage gaps: `readGlobalAttributes` 50 % (15 of 20
       attributes never read in tests), `Save` error branches,
       `write*AudioDatasets` 66–71 %.
@@ -155,7 +158,7 @@ on top of TF-E I/O; no separate SH DataType (see design notes).
 
 ### Phase B — Convention-specific behaviour ✅ done (2026-09-25)
 
-Convention registry (`sofa_conventions.go`) with BRIR, SRIR, SimpleFreeField*,
+Convention registry (`sofa_conventions.go`) with BRIR, SRIR, SimpleFreeField\*,
 FreeFieldHRTF and Directivity rules, `ConventionWarnings()`, `IsBRIR`,
 `IsSRIR`/`AmbisonicsOrder`, `IsDirectivity`, `RoomVolume`/`RoomTemperature`
 (see README "Conventions"). A Directivity validator needs an example file.
