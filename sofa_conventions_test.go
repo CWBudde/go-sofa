@@ -119,3 +119,35 @@ func TestConventionWarnings(t *testing.T) {
 		})
 	}
 }
+
+// TestSaveConventionMandatoryGlobals checks that Save writes the global
+// attributes a convention's CSV table makes mandatory, as the empty default
+// the table gives them when the File has none, and keeps a value the File
+// sets. The File is not changed.
+func TestSaveConventionMandatoryGlobals(t *testing.T) {
+	for _, tc := range []struct {
+		convention string
+		set        []Attribute
+		want       []Attribute
+	}{
+		{"SimpleFreeFieldHRIR", nil, []Attribute{{"DatabaseName", ""}, {"ListenerShortName", ""}}},
+		{"SimpleFreeFieldHRIR", []Attribute{{"DatabaseName", "ARI"}}, []Attribute{{"DatabaseName", "ARI"}, {"ListenerShortName", ""}}},
+		{"SimpleHeadphoneIR", nil, []Attribute{
+			{"DatabaseName", ""}, {"EmitterDescription", ""}, {"ListenerShortName", ""}, {"ReceiverDescription", ""},
+		}},
+		{"GeneralFIR", nil, nil},
+	} {
+		t.Run(tc.convention, func(t *testing.T) {
+			f := minimalFIRFile()
+			f.SOFAConventions = tc.convention
+			f.Attributes = tc.set
+			back := roundTrip(t, f)
+			if !reflect.DeepEqual(back.Attributes, tc.want) {
+				t.Errorf("Attributes = %q, want %q", back.Attributes, tc.want)
+			}
+			if !reflect.DeepEqual(f.Attributes, tc.set) {
+				t.Errorf("Save changed the File's Attributes to %q", f.Attributes)
+			}
+		})
+	}
+}

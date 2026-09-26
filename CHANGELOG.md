@@ -9,6 +9,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `Save` writes the global attributes a convention's SOFA Toolbox table
+  makes mandatory beyond the generic ones, as the empty default the table
+  gives them, when `Attributes` lacks them: `DatabaseName` and
+  `ListenerShortName` (SimpleFreeFieldHRIR/HRTF/HRSOS, FreeFieldHRTF),
+  `DatabaseName`, `SourceType` and `SourceManufacturer`
+  (FreeFieldDirectivityTF), `DatabaseName`, `ListenerShortName`,
+  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR), and
+  `DatabaseName` (SingleRoomSRIR). The `File` is not modified.
+
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
   and loads every generated file and every re-saved reference file with it.

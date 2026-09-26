@@ -46,7 +46,11 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 // fields if present in the File struct. ReceiverPositions and
 // SourcePositions are required; an empty ListenerPositions or
 // EmitterPositions is written as the conventions' default, [0 0 0]
-// cartesian in metres, again without changing the File.
+// cartesian in metres, again without changing the File. So are global
+// attributes the file's SOFAConventions makes mandatory beyond the generic
+// ones (DatabaseName and ListenerShortName for SimpleFreeFieldHRIR, …):
+// Save writes the empty default the SOFA convention tables give them when
+// Attributes lacks one.
 //
 // Returns an error if:
 //   - Validation fails (missing required fields, invalid dimensions, etc.)

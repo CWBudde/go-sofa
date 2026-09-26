@@ -114,8 +114,9 @@ func TestRoundTripSyntheticExtras(t *testing.T) {
 		{Name: "Unlabelled", Shape: []int{2, 2}, Values: []float64{1, 2, 3, 4}},
 	}
 	back := roundTrip(t, f)
-	// Open returns both lists sorted by name.
-	wantAttrs := []Attribute{f.Attributes[1], f.Attributes[0]}
+	// Open returns both lists sorted by name. Save adds the empty
+	// ListenerShortName SimpleFreeFieldHRIR makes mandatory.
+	wantAttrs := []Attribute{f.Attributes[1], f.Attributes[0], {"ListenerShortName", ""}}
 	wantVars := []Variable{f.Variables[1], f.Variables[0], f.Variables[2]}
 	if !reflect.DeepEqual(back.Attributes, wantAttrs) {
 		t.Errorf("Attributes = %v, want %v", back.Attributes, wantAttrs)

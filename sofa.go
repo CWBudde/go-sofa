@@ -802,7 +802,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	for _, a := range rootAttrs {
 		opts = append(opts, hdf5.WithRootAttribute(a.name, a.value))
 	}
-	for _, a := range f.Attributes {
+	for _, a := range append(slices.Clip(f.Attributes), f.missingMandatoryGlobals()...) {
 		opts = append(opts, hdf5.WithRootAttribute(a.Name, a.Value))
 	}
 	opts = append(opts, hdf5.WithRootAttribute("_NCProperties", ncProperties()))

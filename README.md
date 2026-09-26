@@ -558,7 +558,12 @@ default, `[0 0 0]` cartesian in metres. Every position needs a `Type`; empty
 `Units` are written as the default for it, `metre` for cartesian and
 `degree, degree, metre` otherwise. `Units` may name only `metre` and `degree`
 (also `meter`, `metres`, `meters`, `degrees`; any case), so radians are
-rejected. The destination is created from scratch on
+rejected. Global attributes a convention makes mandatory beyond the generic
+ones (`DatabaseName` and `ListenerShortName` for the SimpleFreeField and
+FreeFieldHRTF conventions; also `SourceType`/`SourceManufacturer`,
+`ReceiverDescription`/`EmitterDescription` for FreeFieldDirectivityTF and
+SimpleHeadphoneIR) are written empty when `Attributes` lacks them. The
+destination is created from scratch on
 each call; an existing file is overwritten only after validation
 succeeds. Works for every supported `DataType` (FIR, TF, TF-E, SOS).
 
