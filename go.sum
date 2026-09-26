@@ -1,5 +1,5 @@
-github.com/cwbudde/go-hdf5 v0.16.2-0.20260926015107-34395b7bd06c h1:VS8f9G62GMUyQI8YXc63hHRnRE03Zy8BwGwzAtdhfA4=
-github.com/cwbudde/go-hdf5 v0.16.2-0.20260926015107-34395b7bd06c/go.mod h1:0raz6R+Vee4c9Xc1EHtu1wvBWMD32hPO+55CdISBLcw=
+github.com/cwbudde/go-hdf5 v0.16.2-0.20260926092432-5753c09040cc h1:6tQLOCx4KXvKDqrCtjMLf3TaI58Oteb+I2yFvJS+KBw=
+github.com/cwbudde/go-hdf5 v0.16.2-0.20260926092432-5753c09040cc/go.mod h1:0raz6R+Vee4c9Xc1EHtu1wvBWMD32hPO+55CdISBLcw=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

@@ -9,9 +9,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- go-hdf5 is upgraded to the commit of
-  [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5)
-  (`34395b7`). Dataset shapes and dimension-scale `REFERENCE_LIST`s now
+- go-hdf5 is upgraded to v0.17.0 (merged
+  [CWBudde/go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5),
+  `5753c09`). Dataset shapes and dimension-scale `REFERENCE_LIST`s now
   come from its public API instead of parsing `Dataset.Info()` text and
   attribute bytes; files read the same.
 - Streaming reads rely on go-hdf5's per-dataset cache (parsed header, chunk
