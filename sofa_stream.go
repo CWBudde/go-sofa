@@ -1,0 +1,392 @@
+package sofa
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"sync"
+
+	hdf5 "github.com/cwbudde/go-hdf5"
+)
+
+// ErrClosed reports a read of audio data from a File returned by OpenLazy
+// after Close. Test for it with errors.Is.
+var ErrClosed = errors.New("file already closed")
+
+// ErrNotLoaded reports an accessor such as IRAt that needs the whole audio
+// array in memory, called on a File returned by OpenLazy. Read such a File
+// with ReadMeasurement and its siblings, or open it with Open. Test for it
+// with errors.Is.
+var ErrNotLoaded = errors.New("audio data not loaded (file opened with OpenLazy)")
+
+// OpenLazy reads a SOFA file like Open, except for the audio variables
+// (Data.IR, Data.Real and Data.Imag, Data.SOS): it checks their shapes but
+// leaves their values in the file, so the returned File's ImpulseResponses,
+// TFReal, TFImag, TFRealE, TFImagE and SOSCoefficients are nil. Dimensions,
+// positions, attributes, SamplingRate, Delay, Frequencies and the extra
+// variables are loaded as by Open.
+//
+// Read the audio data one measurement at a time with ReadMeasurement,
+// ReadTFMeasurement, ReadTFEMeasurement, ReadSOSMeasurement or the Range
+// methods. Accessors that need the whole array in memory (IRAt, IRPeakdB)
+// fail with ErrNotLoaded, and so does Save while the audio fields are
+// empty.
+//
+// The File keeps the file open until Close, which the caller must call;
+// after it, reading audio data fails with ErrClosed. Reads on one File are
+// serialised, so it may be shared between goroutines.
+func OpenLazy(path string) (*File, error) {
+	return open(path, true)
+}
+
+// Close releases the file handle of a File returned by OpenLazy; after it,
+// the File's metadata stays usable but reading audio data fails with
+// ErrClosed. Closing again does nothing and returns nil. For any other
+// File, Close does nothing and returns nil: Open already closes the file it
+// reads, and the File holds all data in memory.
+func (f *File) Close() error {
+	if f.lazy == nil {
+		return nil
+	}
+	return f.lazy.close()
+}
+
+// lazyAudio holds the audio variables of a File returned by OpenLazy.
+type lazyAudio struct {
+	mu   sync.Mutex
+	h    *hdf5.File // nil after Close
+	vars map[string]*lazyVariable
+}
+
+// lazyVariable is one audio variable left in the file: its dataset, the
+// layout (dimension names) resolved for it and the matching shape.
+//
+// A chunked dataset whose chunks span several measurements would have
+// every chunk decompressed again for each measurement read. For those,
+// block is the chunk size along M, and reads fetch the whole block of
+// measurements around m once and keep it in cache until a measurement
+// outside it is read.
+type lazyVariable struct {
+	ds     *hdf5.Dataset
+	layout []string
+	shape  []uint64
+
+	block      int       // measurements per read: 1, or the chunk size along M
+	cacheStart int       // first measurement held in cache
+	cache      []float64 // measurements [cacheStart, cacheStart+len(cache)/rowSize)
+}
+
+// Names of the audio variables.
+const (
+	varIR   = "Data.IR"
+	varReal = "Data.Real"
+	varImag = "Data.Imag"
+	varSOS  = "Data.SOS"
+)
+
+// prepareLazyAudio resolves the layout of each audio variable of the
+// file's DataType without reading it, reads the small per-measurement
+// variables (SamplingRate, Delay, Frequencies) as Open does, and keeps h
+// open for later reads.
+func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
+	var names []string
+	var layouts [][]string
+	switch f.DataType {
+	case DataTypeFIR:
+		names, layouts = []string{varIR}, [][]string{layoutMRN}
+	case DataTypeTF:
+		names, layouts = []string{varReal, varImag}, [][]string{layoutMRN}
+	case DataTypeTFE:
+		names, layouts = []string{varReal, varImag}, [][]string{layoutMREN, layoutMRNE}
+	case DataTypeSOS:
+		if f.N%6 != 0 {
+			return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
+		}
+		names, layouts = []string{varSOS}, [][]string{layoutMRN}
+	default:
+		return invalid("DataType", "%w", checkDataType(f.DataType))
+	}
+
+	vars := make(map[string]*lazyVariable, len(names))
+	for _, name := range names {
+		ds, ok := datasets[name]
+		if !ok {
+			return fmt.Errorf("%s dataset not found", name)
+		}
+		layout, err := f.resolveLayout(name, ds, labels[name], layouts...)
+		if err != nil {
+			return err
+		}
+		shape := make([]uint64, len(layout))
+		for i, d := range layout {
+			shape[i] = f.axisSize(d)
+		}
+		block := 1
+		if chunk, ok := datasetChunkShape(ds); ok && len(chunk) == len(shape) && chunk[0] > 1 {
+			block = int(min(chunk[0], shape[0])) //nolint:gosec // bounded by M
+		}
+		vars[name] = &lazyVariable{ds: ds, layout: layout, shape: shape, block: block}
+	}
+
+	switch f.DataType {
+	case DataTypeFIR, DataTypeSOS:
+		if err := f.readRateAndDelay(datasets, labels); err != nil {
+			return err
+		}
+	default:
+		if err := f.readFrequencyVector(datasets, labels); err != nil {
+			return err
+		}
+	}
+	f.lazy = &lazyAudio{h: h, vars: vars}
+	return nil
+}
+
+// hasAudio reports whether the audio field of the file's DataType holds
+// any data.
+func (f *File) hasAudio() bool {
+	switch f.DataType {
+	case DataTypeFIR:
+		return len(f.ImpulseResponses) > 0
+	case DataTypeTF:
+		return len(f.TFReal) > 0 || len(f.TFImag) > 0
+	case DataTypeTFE:
+		return len(f.TFRealE) > 0 || len(f.TFImagE) > 0
+	case DataTypeSOS:
+		return len(f.SOSCoefficients) > 0
+	}
+	return false
+}
+
+// close closes the HDF5 file once.
+func (l *lazyAudio) close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.h == nil {
+		return nil
+	}
+	err := l.h.Close()
+	l.h = nil
+	for _, v := range l.vars {
+		v.cache = nil
+	}
+	if err != nil {
+		return fmt.Errorf("close HDF5: %w", err)
+	}
+	return nil
+}
+
+// readMeasurement reads measurement m of an audio variable in its stored
+// layout into a new slice; see lazyVariable for the caching of chunked
+// datasets.
+func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariable, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v := l.vars[name]
+	if l.h == nil {
+		return nil, v, fmt.Errorf("read %s: %w", name, ErrClosed)
+	}
+	row := 1
+	for _, n := range v.shape[1:] {
+		row *= int(n) //nolint:gosec // bounded by dimProduct
+	}
+	if v.block == 1 {
+		flat, err := v.readRows(m, 1, row)
+		return flat, v, err
+	}
+	if m < v.cacheStart || (m-v.cacheStart+1)*row > len(v.cache) {
+		start := m - m%v.block
+		count := min(v.block, int(v.shape[0])-start) //nolint:gosec // bounded by dimProduct
+		flat, err := v.readRows(start, count, row)
+		if err != nil {
+			return nil, v, err
+		}
+		v.cacheStart, v.cache = start, flat
+	}
+	off := (m - v.cacheStart) * row
+	return slices.Clone(v.cache[off : off+row]), v, nil
+}
+
+// readRows reads measurements [start, start+count) of the variable, each
+// row values long, as the hyperslab [start:start+count, 0:…, 0:…] that
+// spans every trailing axis in full. Only such selections are used:
+// go-hdf5 v0.16.1 misreads contiguous 3-D hyperslabs that start inside a
+// row (PLAN.md E5), and on a contiguous dataset this one is a single
+// linear run (count is 1 there; chunked datasets are read chunk by chunk).
+func (v *lazyVariable) readRows(start, count, row int) ([]float64, error) {
+	name := v.ds.Name()
+	first := make([]uint64, len(v.shape))
+	counts := slices.Clone(v.shape)
+	first[0], counts[0] = uint64(start), uint64(count) //nolint:gosec // checked against M by the caller
+	raw, err := v.ds.ReadSlice(first, counts)
+	if err != nil {
+		return nil, fmt.Errorf("read %s measurements [%d, %d): %w", name, start, start+count, err)
+	}
+	flat, ok := raw.([]float64)
+	if !ok || len(flat) != count*row {
+		return nil, fmt.Errorf("read %s measurements [%d, %d): got %T of %d values, want %d float64",
+			name, start, start+count, raw, len(flat), count*row)
+	}
+	return flat, nil
+}
+
+// checkMeasurement returns an ErrIndexOutOfRange-wrapping error unless m
+// is in [0,M).
+func (f *File) checkMeasurement(what string, m int) error {
+	if m < 0 || m >= f.M {
+		return fmt.Errorf("%s(%d) with M=%d: %w", what, m, f.M, ErrIndexOutOfRange)
+	}
+	return nil
+}
+
+// requireDataType returns an ErrUnsupportedDataType-wrapping error unless
+// the file's DataType is dt.
+func (f *File) requireDataType(what, dt string) error {
+	if f.DataType != dt {
+		return fmt.Errorf("%s: %w %q (needs %q)", what, ErrUnsupportedDataType, f.DataType, dt)
+	}
+	return nil
+}
+
+// readMRN returns measurement m of an [M][R][N] audio variable: from
+// loaded for a File read by Open or built in memory, from the file for one
+// returned by OpenLazy.
+func (f *File) readMRN(what, name string, loaded [][][]float64, m int) ([][]float64, error) {
+	if err := f.checkMeasurement(what, m); err != nil {
+		return nil, err
+	}
+	if f.lazy == nil {
+		if m >= len(loaded) {
+			return nil, fmt.Errorf("%s(%d): no data stored: %w", what, m, ErrIndexOutOfRange)
+		}
+		return loaded[m], nil
+	}
+	flat, _, err := f.lazy.readMeasurement(name, m)
+	if err != nil {
+		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
+	}
+	return reshapeIR(flat, 1, f.R, f.N)[0], nil
+}
+
+// readMREN returns measurement m of a TF-E [M][R][E][N] audio variable,
+// transposing the AES69 [M,R,N,E] storage order; see readMRN.
+func (f *File) readMREN(what, name string, loaded [][][][]float64, m int) ([][][]float64, error) {
+	if err := f.checkMeasurement(what, m); err != nil {
+		return nil, err
+	}
+	if f.lazy == nil {
+		if m >= len(loaded) {
+			return nil, fmt.Errorf("%s(%d): no data stored: %w", what, m, ErrIndexOutOfRange)
+		}
+		return loaded[m], nil
+	}
+	flat, v, err := f.lazy.readMeasurement(name, m)
+	if err != nil {
+		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
+	}
+	if slices.Equal(v.layout, layoutMRNE) {
+		flat = swapLastAxes(flat, f.R, f.N, f.E)
+	}
+	return reshape4D(flat, 1, f.R, f.E, f.N)[0], nil
+}
+
+// ReadMeasurement returns the impulse responses of measurement m, shaped
+// [R][N]. For a File returned by OpenLazy it reads just that measurement
+// from the file into new slices; otherwise it returns
+// ImpulseResponses[m], which shares memory with the File. It fails with
+// ErrUnsupportedDataType for non-FIR files, with ErrIndexOutOfRange when
+// m is outside [0,M) or no data is stored there, and with ErrClosed after
+// Close of a lazy File.
+func (f *File) ReadMeasurement(m int) ([][]float64, error) {
+	if err := f.requireDataType("ReadMeasurement", DataTypeFIR); err != nil {
+		return nil, err
+	}
+	return f.readMRN("ReadMeasurement", varIR, f.ImpulseResponses, m)
+}
+
+// ReadTFMeasurement returns the real and imaginary parts of the transfer
+// functions of measurement m of a TF file, each shaped [R][N]. It reads
+// and fails like ReadMeasurement, with ErrUnsupportedDataType for files
+// other than TF.
+func (f *File) ReadTFMeasurement(m int) (re, im [][]float64, err error) {
+	const what = "ReadTFMeasurement"
+	if err := f.requireDataType(what, DataTypeTF); err != nil {
+		return nil, nil, err
+	}
+	if re, err = f.readMRN(what, varReal, f.TFReal, m); err != nil {
+		return nil, nil, err
+	}
+	if im, err = f.readMRN(what, varImag, f.TFImag, m); err != nil {
+		return nil, nil, err
+	}
+	return re, im, nil
+}
+
+// ReadTFEMeasurement returns the real and imaginary parts of the transfer
+// functions of measurement m of a TF-E file, each shaped [R][E][N] like
+// TFRealE[m]. It reads and fails like ReadMeasurement, with
+// ErrUnsupportedDataType for files other than TF-E.
+func (f *File) ReadTFEMeasurement(m int) (re, im [][][]float64, err error) {
+	const what = "ReadTFEMeasurement"
+	if err := f.requireDataType(what, DataTypeTFE); err != nil {
+		return nil, nil, err
+	}
+	if re, err = f.readMREN(what, varReal, f.TFRealE, m); err != nil {
+		return nil, nil, err
+	}
+	if im, err = f.readMREN(what, varImag, f.TFImagE, m); err != nil {
+		return nil, nil, err
+	}
+	return re, im, nil
+}
+
+// ReadSOSMeasurement returns the second-order-section coefficients of
+// measurement m of an SOS file, shaped [R][N] like SOSCoefficients[m]. It
+// reads and fails like ReadMeasurement, with ErrUnsupportedDataType for
+// files other than SOS.
+func (f *File) ReadSOSMeasurement(m int) ([][]float64, error) {
+	if err := f.requireDataType("ReadSOSMeasurement", DataTypeSOS); err != nil {
+		return nil, err
+	}
+	return f.readMRN("ReadSOSMeasurement", varSOS, f.SOSCoefficients, m)
+}
+
+// RangeMeasurements calls fn with the impulse responses ([R][N], as from
+// ReadMeasurement) of each measurement in order. It stops at the first
+// error, from reading or from fn, and returns it; an error of fn is
+// returned unwrapped. For a File returned by OpenLazy only one measurement
+// is held in memory at a time, unless fn keeps it.
+func (f *File) RangeMeasurements(fn func(m int, ir [][]float64) error) error {
+	if err := f.requireDataType("RangeMeasurements", DataTypeFIR); err != nil {
+		return err
+	}
+	for m := range f.M {
+		ir, err := f.ReadMeasurement(m)
+		if err != nil {
+			return err
+		}
+		if err := fn(m, ir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RangeTFMeasurements calls fn with the real and imaginary parts ([R][N],
+// as from ReadTFMeasurement) of each measurement of a TF file in order. It
+// stops like RangeMeasurements.
+func (f *File) RangeTFMeasurements(fn func(m int, re, im [][]float64) error) error {
+	if err := f.requireDataType("RangeTFMeasurements", DataTypeTF); err != nil {
+		return err
+	}
+	for m := range f.M {
+		re, im, err := f.ReadTFMeasurement(m)
+		if err != nil {
+			return err
+		}
+		if err := fn(m, re, im); err != nil {
+			return err
+		}
+	}
+	return nil
+}

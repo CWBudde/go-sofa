@@ -86,31 +86,46 @@ for m := 0; m < f.M; m++ {
 }
 ```
 
-### Reading large files measurement by measurement
+### Streaming large files
 
-`OpenLazy` reads everything except the audio data and keeps the file open
-until `Close`. `ReadMeasurement` and `RangeMeasurements` then read one FIR
-measurement (`[R][N]`) at a time; `ReadMeasurementTF` (real and imaginary
-parts, `[R][N]` each), `ReadMeasurementTFE` (`[R][E][N]` each, whichever axis
-order the file stores) and `ReadMeasurementSOS` (`[R][N]`) do the same for
-the other DataTypes:
+`Open` loads every audio array into memory. For large databases, `OpenLazy`
+reads the metadata, dimensions, positions and small per-measurement
+variables (`SamplingRate`, `Delay`, `Frequencies`) but leaves the audio data
+in the file, so it can be read one measurement at a time. A lazy `File`
+keeps the file open until `Close`:
 
 ```go
 f, err := sofa.OpenLazy("large.sofa")
 if err != nil {
     log.Fatal(err)
 }
-defer f.Close()
+defer f.Close() // releases the file handle; later reads fail with ErrClosed
 
+// One measurement: [R][N] impulse responses.
+ir, err := f.ReadMeasurement(42)
+
+// Every measurement in order; a non-nil error from the callback stops the
+// loop and is returned unchanged.
 err = f.RangeMeasurements(func(m int, ir [][]float64) error {
-    // ir[r] holds the N samples of receiver r
-    return nil // a non-nil error stops the iteration and is returned
+    // process ir[0] (left), ir[1] (right) ...
+    return nil
 })
 ```
 
-Each lazy read decompresses the HDF5 chunks the measurement touches. Files
-written by the SOFA Toolbox chunk their audio data across all measurements,
-so for them `Open` is faster whenever most measurements are needed.
+The siblings `ReadTFMeasurement` / `RangeTFMeasurements` (TF: real and
+imaginary parts, `[R][N]` each), `ReadTFEMeasurement` (TF-E: `[R][E][N]`)
+and `ReadSOSMeasurement` (SOS: `[R][N]`) cover the other DataTypes. All of
+them also work on files read with `Open`, where they return the loaded
+slices. On a lazy `File` the audio fields (`ImpulseResponses`, `TFReal`, …)
+stay nil, so `IRAt`, `IRPeakdB` and `Save` fail with `ErrNotLoaded`.
+Indices outside `[0, M)` fail with `ErrIndexOutOfRange`, and a method for
+another DataType with `ErrUnsupportedDataType`.
+
+Each read is one HDF5 hyperslab covering a whole measurement. For chunked
+files whose chunks span several measurements (common in files written by
+the SOFA Toolbox), the chunk row around the requested measurement is read
+once and kept until a measurement outside it is requested, so sequential
+reads stay fast.
 
 ### Reading spatial data
 
@@ -407,7 +422,9 @@ sofaprobe myfile.sofa
 
 Holds the contents of a SOFA file — attributes, positions and audio data —
 fully loaded by `Open` (which closes the file before returning) or built in
-memory for `Save`. It holds no open file handle.
+memory for `Save`; such a `File` holds no open file handle. A `File` from
+`OpenLazy` leaves the audio arrays in the file and holds it open until
+`Close`.
 
 **Fields:**
 
@@ -432,8 +449,10 @@ memory for `Save`. It holds no open file handle.
 **Methods:**
 
 - `Open(path string) (*File, error)` — Reads a SOFA file completely and closes it again
-- `OpenLazy(path string) (*File, error)` — Like `Open`, but leaves the audio data in the file and keeps it open until `Close`
-- `Close() error` — Closes the file a `File` from `OpenLazy` holds open (idempotent); on a `File` from `Open` it does nothing and returns nil
+- `OpenLazy(path string) (*File, error)` — Reads everything but the audio arrays and keeps the file open for `ReadMeasurement` and friends
+- `Close() error` — Releases the file handle of a `File` from `OpenLazy` (idempotent); does nothing and returns nil for any other `File`
+- `ReadMeasurement(m int) ([][]float64, error)` — FIR impulse responses `[R][N]` of measurement m; `ReadTFMeasurement` (TF), `ReadTFEMeasurement` (TF-E, `[R][E][N]`) and `ReadSOSMeasurement` (SOS) are the siblings for the other DataTypes
+- `RangeMeasurements(fn func(m int, ir [][]float64) error) error` — Calls fn for every measurement in order, stopping at the first error; `RangeTFMeasurements` for TF
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
   `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
@@ -505,13 +524,10 @@ defer f.Close()
 
 #### `OpenLazy(path string) (*File, error)`
 
-Like `Open`, but leaves the audio data (`ImpulseResponses`, `TFReal`, …) in
-the file and keeps it open until `Close`. Read FIR measurements with
-`ReadMeasurement(m)` or `RangeMeasurements(fn)`, and TF, TF-E and SOS
-measurements with `ReadMeasurementTF(m)`, `ReadMeasurementTFE(m)` and
-`ReadMeasurementSOS(m)`; `IRAt` and `Save` need the data in memory and fail
-on a lazy `File`. Like `Open`, it rejects audio datasets whose datatype is
-not a 4- or 8-byte float or integer.
+Like `Open`, but leaves the audio arrays in the file and keeps it open
+until `Close`. Read audio data with `ReadMeasurement`, `ReadTFMeasurement`,
+`ReadTFEMeasurement`, `ReadSOSMeasurement`, `RangeMeasurements` or
+`RangeTFMeasurements`; see [Streaming large files](#streaming-large-files).
 
 #### `(*File).Save(path string) error`
 
@@ -649,51 +665,6 @@ just test-coverage
 # Build CLI tools
 just build
 ```
-
-### Cross-validation
-
-go-sofa's output is checked against independent SOFA implementations:
-
-- **h5py and netCDF4 (netCDF-C):** `just interop` (also run in CI) writes
-  one file per DataType with `Save` and compares what h5py and netCDF4 read
-  with the expected values. It also re-saves every file in
-  `testdata/sofar/` with go-sofa and checks that h5py and netCDF4 read the
-  same attributes and values as in the original.
-- **sofar (pyfar):** `testdata/sofar/` holds small synthetic files written by
-  [sofar](https://github.com/pyfar/sofar) through netCDF-C, one per
-  convention that CI cannot otherwise fetch (GeneralTF 2.0, GeneralTF-E,
-  FreeFieldHRTF with and without spherical harmonics, SimpleFreeFieldHRSOS,
-  SingleRoomSRIR, SingleRoomDRIR). `sofa_sofar_fixtures_test.go` pins their
-  values and round-trips them through `Save`. Regenerate them with
-  `pip install sofar==1.3.0 && python3 scripts/make_sofar_fixtures.py`.
-- **SOFA Toolbox (MATLAB / GNU Octave):** `scripts/matlab/roundtrip.m`
-  loads a go-sofa-written file with `SOFAload`, writes it back with
-  `SOFAsave`, and writes a second file from scratch with the toolbox;
-  `internal/interop/toolbox` then checks that `Data.IR`, `SourcePosition`
-  and `ListenerPosition` are bit-for-bit identical in both directions:
-
-  ```bash
-  # GNU Octave (Ubuntu): apt-get install octave octave-netcdf
-  git clone --depth 1 https://github.com/sofacoustics/SOFAtoolbox /tmp/SOFAtoolbox
-  export SOFATOOLBOX=/tmp/SOFAtoolbox/SOFAtoolbox
-  d=$(mktemp -d)
-
-  go run ./internal/interop/toolbox write "$d/gosofa.sofa"
-  # Until go-hdf5 writes scalar string attributes (PLAN.md E8), the toolbox
-  # cannot load go-sofa's attributes; rewrite them as netCDF text first.
-  python3 scripts/matlab/char_attributes.py "$d/gosofa.sofa" "$d/gosofa-text.sofa"
-  octave --no-gui --quiet --path scripts/matlab \
-    --eval "roundtrip('$d/gosofa-text.sofa', '$d/toolbox.sofa', '$d/created.sofa')"
-
-  # go-sofa -> toolbox -> go-sofa, and toolbox -> go-sofa
-  go run ./internal/interop/toolbox compare "$d/gosofa.sofa" "$d/toolbox.sofa"
-  go run ./internal/interop/toolbox check-created "$d/created.sofa"
-  ```
-
-  In MATLAB, run `roundtrip(...)` from `scripts/matlab` with the toolbox on
-  the path (or `SOFATOOLBOX` set) instead of the `octave` line. Last run
-  2026-09-26 with GNU Octave 8.4.0 and SOFA Toolbox 2.6.0 (`d2a83b3`): both
-  comparisons bit-exact.
 
 ## License
 

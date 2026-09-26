@@ -4,16 +4,11 @@
 // drive the interoperability check in scripts/interop_check.py (h5py and
 // netCDF4); it is internal and not a supported tool.
 //
-// It also re-saves every file in testdata/sofar/ (written by sofar through
-// netCDF-C) into <outdir>/resaved/, so that the check can compare go-sofa's
-// output with the original writer's. Run it from the repository root.
-//
 // Usage: go run ./internal/interop/gen <outdir>
 package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,55 +106,7 @@ func run(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "expected.json"), append(out, '\n'), 0o600); err != nil { //nolint:gosec // output dir from CLI arg (dev tool)
-		return err
-	}
-	return resaveSofar(filepath.Join("testdata", "sofar"), filepath.Join(dir, "resaved"))
-}
-
-// resaveSofar opens every .sofa file in src and saves it into dst. It writes
-// dst/resaved.json mapping each file name to the variables that had to be
-// left out: go-hdf5 cannot yet write a root group with as many links as
-// sofar's SingleRoomSRIR (PLAN.md E6), so on a failed Save the file is saved
-// again without the variables go-sofa does not model.
-func resaveSofar(src, dst string) error {
-	names, err := filepath.Glob(filepath.Join(src, "*.sofa"))
-	if err != nil {
-		return err
-	}
-	if len(names) == 0 {
-		return fmt.Errorf("no .sofa files in %s (run from the repository root)", src)
-	}
-	if err := os.MkdirAll(dst, 0o750); err != nil { //nolint:gosec // output dir from CLI arg (dev tool)
-		return err
-	}
-	omitted := make(map[string][]string, len(names))
-	for _, p := range names {
-		name := filepath.Base(p)
-		f, err := sofa.Open(p)
-		if err != nil {
-			return fmt.Errorf("open %s: %w", p, err)
-		}
-		out := filepath.Join(dst, name)
-		omitted[name] = []string{}
-		if err := f.Save(out); err != nil {
-			for _, v := range f.Variables {
-				omitted[name] = append(omitted[name], v.Name)
-			}
-			f.Variables = nil
-			if err2 := f.Save(out); err2 != nil {
-				return fmt.Errorf("save %s: %w", out, errors.Join(err, err2))
-			}
-			fmt.Printf("resaved %s without %v (%v)\n", out, omitted[name], err)
-			continue
-		}
-		fmt.Println("resaved", out)
-	}
-	data, err := json.MarshalIndent(omitted, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dst, "resaved.json"), append(data, '\n'), 0o600) //nolint:gosec // output dir from CLI arg (dev tool)
+	return os.WriteFile(filepath.Join(dir, "expected.json"), append(out, '\n'), 0o600) //nolint:gosec // output dir from CLI arg (dev tool)
 }
 
 // base returns a file with metadata and positions common to all DataTypes.

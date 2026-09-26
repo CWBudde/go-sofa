@@ -12,6 +12,42 @@ import (
 // output: "1D array [5]", "2D array [3 x 4]" or "3D array [2 3 4]".
 var dataspaceArrayRE = regexp.MustCompile(`\b\d+D array \[([0-9 x]*)\]`)
 
+// chunkShapeRE matches the layout part of Dataset.Info output for a
+// chunked dataset: "chunked (chunks=[355 1 256 8])", whose last entry is
+// the element size.
+var chunkShapeRE = regexp.MustCompile(`\bchunked \(chunks=\[([0-9 ]*)\]\)`)
+
+// datasetChunkShape returns the chunk dimensions of a chunked dataset (without
+// the trailing element size); ok is false for other layouts or when the
+// Info text cannot be parsed.
+func datasetChunkShape(ds *hdf5.Dataset) (shape []uint64, ok bool) {
+	info, err := ds.Info()
+	if err != nil {
+		return nil, false
+	}
+	return parseChunkShape(info)
+}
+
+// parseChunkShape extracts the chunk dimensions from a Dataset.Info string.
+func parseChunkShape(info string) (shape []uint64, ok bool) {
+	m := chunkShapeRE.FindStringSubmatch(info)
+	if m == nil {
+		return nil, false
+	}
+	fields := strings.Fields(m[1])
+	if len(fields) < 2 {
+		return nil, false
+	}
+	for _, field := range fields[:len(fields)-1] {
+		d, err := strconv.ParseUint(field, 10, 64)
+		if err != nil || d == 0 {
+			return nil, false
+		}
+		shape = append(shape, d)
+	}
+	return shape, true
+}
+
 // datasetElementCount returns the number of elements in ds from its
 // dataspace, without reading the data. ok is false when the shape cannot be
 // determined; callers then fall back to reading the dataset.
@@ -70,30 +106,4 @@ func parseDataspaceElements(info string) (n uint64, ok bool) {
 		n = min(n*d, limit)
 	}
 	return n, true
-}
-
-// datatypeRE matches the datatype part of go-hdf5's Dataset.Info output:
-// "float (size=8 bytes)", "integer (size=4 bytes)", "string (size=4 bytes)".
-var datatypeRE = regexp.MustCompile(`^Dataset: (\w+) \(size=(\d+) bytes\)`)
-
-// datasetIsNumeric reports whether ds holds values Dataset.Read and
-// Dataset.ReadSlice convert to float64 (4- or 8-byte floats and integers),
-// without reading the data. It is false when the datatype cannot be
-// determined.
-func datasetIsNumeric(ds *hdf5.Dataset) bool {
-	info, err := ds.Info()
-	if err != nil {
-		return false
-	}
-	return parseNumericDatatype(info)
-}
-
-// parseNumericDatatype reports whether a Dataset.Info string names a 4- or
-// 8-byte float or integer datatype.
-func parseNumericDatatype(info string) bool {
-	m := datatypeRE.FindStringSubmatch(info)
-	if m == nil || (m[1] != "float" && m[1] != "integer") {
-		return false
-	}
-	return m[2] == "4" || m[2] == "8"
 }

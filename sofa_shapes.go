@@ -162,33 +162,3 @@ func swapLastAxes(flat []float64, outer, a, b int) []float64 {
 	}
 	return out
 }
-
-// reshapeIR reshapes a flat float64 slice into [M][R][N].
-func reshapeIR(flat []float64, m, r, n int) [][][]float64 {
-	result := make([][][]float64, m)
-	for i := range m {
-		result[i] = make([][]float64, r)
-		for j := range r {
-			start := (i*r + j) * n
-			result[i][j] = flat[start : start+n : start+n]
-		}
-	}
-	return result
-}
-
-// reshape4D converts a flat row-major buffer of length m*r*e*n into a
-// nested [m][r][e][n]float64 view. Used for TF-E audio data.
-func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
-	result := make([][][][]float64, m)
-	for i := range m {
-		result[i] = make([][][]float64, r)
-		for j := range r {
-			result[i][j] = make([][]float64, e)
-			for k := range e {
-				start := ((i*r+j)*e + k) * n
-				result[i][j][k] = flat[start : start+n : start+n]
-			}
-		}
-	}
-	return result
-}
