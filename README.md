@@ -9,7 +9,7 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 - **Pure Go implementation** — No C dependencies
 - **Full AES69 support** — Reads and writes all standard SOFA metadata and data arrays
 - **DataTypes** — `FIR`, `TF`, `TF-E` (including spherical-harmonics HRTFs) and `SOS`
-- **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`
+- **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`; FIR and SOS files also load in libmysofa, which does not read TF/TF-E ([details](#interoperability))
 - **Built on go-hdf5** — Leverages [cwbudde/go-hdf5](https://github.com/cwbudde/go-hdf5), our maintained fork of [scigolib/hdf5](https://github.com/scigolib/hdf5), for HDF5 file access
 - **Command-line tools** — Includes `sofainfo`, `sofa2json` and `sofaprobe` utilities
 - **Well-tested** — Validated against reference SOFA files from sofaconventions.org
@@ -637,6 +637,27 @@ a convention such as `FreeFieldHRTF`, and `E = (Lmax+1)²` SH
 coefficients per (measurement, receiver, frequency) tuple, then call
 `Save`.
 
+## Interoperability
+
+Files written by `Save` are netCDF-4/HDF5 and open in h5py, netCDF4
+(netCDF-C), `ncdump` and the SOFA Toolbox.
+[libmysofa](https://github.com/hoene/libmysofa), the C reader used by ffmpeg's
+`sofalizer` filter, loads the FIR and SOS files go-sofa writes but no
+transfer-function (TF, TF-E) files, and its check passes only
+`SimpleFreeFieldHRIR` FIR files. Results with libmysofa 3f4cb66, checked in CI
+for every DataType go-sofa writes and for re-saved reference files:
+
+| Written file                                                      | `mysofa_load`                                               | `mysofa_check`                                                              |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `SimpleFreeFieldHRIR`, DataType `FIR`                             | OK                                                          | OK                                                                          |
+| Other FIR and SOS files (e.g. SRIR, DRIR, `SimpleFreeFieldHRSOS`) | OK                                                          | `MYSOFA_INVALID_ATTRIBUTES`: it accepts only `SimpleFreeFieldHRIR` with FIR |
+| `TF` and `TF-E` files                                             | `MYSOFA_INVALID_FORMAT`: it has no transfer-function reader | —                                                                           |
+
+The last two rows are not go-sofa limitations: libmysofa gives the same
+result for the originals written by netCDF-C, and CI requires every re-saved
+file to match its original's result. See [Cross-validation](#cross-validation)
+for how the check runs.
+
 ## Related Projects
 
 - [go-hdf5](https://github.com/cwbudde/go-hdf5) — Pure Go HDF5 library (fork)
@@ -704,6 +725,15 @@ go-sofa's output is checked against independent SOFA implementations:
   with the expected values. It also re-saves every file in
   `testdata/sofar/` with go-sofa and checks that h5py and netCDF4 read the
   same attributes and values as in the original.
+- **libmysofa:** `just interop` then loads all these files, plus a re-save
+  of `testdata/MIT_KEMAR_normal_pinna.sofa`, with libmysofa's `mysofa_load`
+  and `mysofa_check` (`internal/interop/mysofa`). Generated
+  `SimpleFreeFieldHRIR` files must pass both, TF and TF-E files must get
+  exactly `MYSOFA_INVALID_FORMAT`, everything else must load, and every
+  re-saved file must get the same result as its original. `just libmysofa`
+  builds the loader (`scripts/libmysofa`) at a pinned commit and caches it
+  in `~/.cache/go-sofa`; it needs git, a C compiler and zlib, and
+  `just fetch-testdata` for the KEMAR file.
 - **sofar (pyfar):** `testdata/sofar/` holds small synthetic files written by
   [sofar](https://github.com/pyfar/sofar) through netCDF-C, one per
   convention that CI cannot otherwise fetch (GeneralTF 2.0, GeneralTF-E,
