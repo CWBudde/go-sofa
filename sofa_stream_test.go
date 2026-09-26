@@ -3,6 +3,7 @@ package sofa
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"path/filepath"
 	"runtime"
@@ -120,23 +121,23 @@ func checkLazyMatchesEager(t *testing.T, path string) {
 			}
 		case DataTypeSOS:
 			var got, want [][]float64
-			if got, err = lazy.ReadSOSMeasurement(m); err == nil {
-				if want, err = eager.ReadSOSMeasurement(m); err == nil {
+			if got, err = lazy.ReadMeasurementSOS(m); err == nil {
+				if want, err = eager.ReadMeasurementSOS(m); err == nil {
 					err = errors.Join(sameBits(got, want), sameBits(want, eager.SOSCoefficients[m]))
 				}
 			}
 		case DataTypeTF:
 			var re, im, wantRe, wantIm [][]float64
-			if re, im, err = lazy.ReadTFMeasurement(m); err == nil {
-				if wantRe, wantIm, err = eager.ReadTFMeasurement(m); err == nil {
+			if re, im, err = lazy.ReadMeasurementTF(m); err == nil {
+				if wantRe, wantIm, err = eager.ReadMeasurementTF(m); err == nil {
 					err = errors.Join(sameBits(re, wantRe), sameBits(im, wantIm),
 						sameBits(wantRe, eager.TFReal[m]), sameBits(wantIm, eager.TFImag[m]))
 				}
 			}
 		case DataTypeTFE:
 			var re, im, wantRe, wantIm [][][]float64
-			if re, im, err = lazy.ReadTFEMeasurement(m); err == nil {
-				if wantRe, wantIm, err = eager.ReadTFEMeasurement(m); err == nil {
+			if re, im, err = lazy.ReadMeasurementTFE(m); err == nil {
+				if wantRe, wantIm, err = eager.ReadMeasurementTFE(m); err == nil {
 					err = errors.Join(sameBits3(re, wantRe), sameBits3(im, wantIm),
 						sameBits3(wantRe, eager.TFRealE[m]), sameBits3(wantIm, eager.TFImagE[m]))
 				}
@@ -214,8 +215,8 @@ func TestReadMeasurementRejectsRaggedInMemory(t *testing.T) {
 	e := &File{DataType: DataTypeTFE, M: 1, R: 2, E: 2, N: 3}
 	e.TFRealE = [][][][]float64{{{{1, 2, 3}, {4, 5, 6}}, {{7, 8, 9}, {1, 2}}}}
 	e.TFImagE = e.TFRealE
-	if _, _, err := e.ReadTFEMeasurement(0); !errors.Is(err, ErrIndexOutOfRange) {
-		t.Errorf("ReadTFEMeasurement: %v, want ErrIndexOutOfRange", err)
+	if _, _, err := e.ReadMeasurementTFE(0); !errors.Is(err, ErrIndexOutOfRange) {
+		t.Errorf("ReadMeasurementTFE: %v, want ErrIndexOutOfRange", err)
 	}
 }
 
@@ -236,17 +237,17 @@ func TestReadMeasurementErrors(t *testing.T) {
 					t.Errorf("ReadMeasurement(%d): %v, want ErrIndexOutOfRange", m, err)
 				}
 			}
-			if _, _, err := f.ReadTFMeasurement(0); !errors.Is(err, ErrUnsupportedDataType) {
-				t.Errorf("ReadTFMeasurement on FIR: %v, want ErrUnsupportedDataType", err)
+			if _, _, err := f.ReadMeasurementTF(0); !errors.Is(err, ErrUnsupportedDataType) {
+				t.Errorf("ReadMeasurementTF on FIR: %v, want ErrUnsupportedDataType", err)
 			}
-			if _, _, err := f.ReadTFEMeasurement(0); !errors.Is(err, ErrUnsupportedDataType) {
-				t.Errorf("ReadTFEMeasurement on FIR: %v, want ErrUnsupportedDataType", err)
+			if _, _, err := f.ReadMeasurementTFE(0); !errors.Is(err, ErrUnsupportedDataType) {
+				t.Errorf("ReadMeasurementTFE on FIR: %v, want ErrUnsupportedDataType", err)
 			}
-			if _, err := f.ReadSOSMeasurement(0); !errors.Is(err, ErrUnsupportedDataType) {
-				t.Errorf("ReadSOSMeasurement on FIR: %v, want ErrUnsupportedDataType", err)
+			if _, err := f.ReadMeasurementSOS(0); !errors.Is(err, ErrUnsupportedDataType) {
+				t.Errorf("ReadMeasurementSOS on FIR: %v, want ErrUnsupportedDataType", err)
 			}
-			if err := f.RangeTFMeasurements(func(int, [][]float64, [][]float64) error { return nil }); !errors.Is(err, ErrUnsupportedDataType) {
-				t.Errorf("RangeTFMeasurements on FIR: %v, want ErrUnsupportedDataType", err)
+			if err := f.RangeMeasurementsTF(func(int, [][]float64, [][]float64) error { return nil }); !errors.Is(err, ErrUnsupportedDataType) {
+				t.Errorf("RangeMeasurementsTF on FIR: %v, want ErrUnsupportedDataType", err)
 			}
 		})
 	}
@@ -259,8 +260,8 @@ func TestReadMeasurementErrors(t *testing.T) {
 	if err := f.RangeMeasurements(func(int, [][]float64) error { return nil }); !errors.Is(err, ErrUnsupportedDataType) {
 		t.Errorf("RangeMeasurements on TF: %v, want ErrUnsupportedDataType", err)
 	}
-	if _, _, err := f.ReadTFMeasurement(2); !errors.Is(err, ErrIndexOutOfRange) {
-		t.Errorf("ReadTFMeasurement(2) with M=2: %v, want ErrIndexOutOfRange", err)
+	if _, _, err := f.ReadMeasurementTF(2); !errors.Is(err, ErrIndexOutOfRange) {
+		t.Errorf("ReadMeasurementTF(2) with M=2: %v, want ErrIndexOutOfRange", err)
 	}
 
 	// A File built in memory without data for every measurement.
@@ -271,8 +272,8 @@ func TestReadMeasurementErrors(t *testing.T) {
 	}
 	tfe := robustTFEFile()
 	tfe.TFRealE = nil
-	if _, _, err := tfe.ReadTFEMeasurement(0); !errors.Is(err, ErrIndexOutOfRange) {
-		t.Errorf("ReadTFEMeasurement without data: %v, want ErrIndexOutOfRange", err)
+	if _, _, err := tfe.ReadMeasurementTFE(0); !errors.Is(err, ErrIndexOutOfRange) {
+		t.Errorf("ReadMeasurementTFE without data: %v, want ErrIndexOutOfRange", err)
 	}
 }
 
@@ -340,11 +341,11 @@ func TestOpenLazyClose(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Errorf("second Close: %v", err)
 	}
-	if _, err := f.ReadMeasurement(1); !errors.Is(err, ErrClosed) {
-		t.Errorf("ReadMeasurement after Close: %v, want ErrClosed", err)
+	if _, err := f.ReadMeasurement(1); !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("ReadMeasurement after Close: %v, want fs.ErrClosed", err)
 	}
-	if err := f.RangeMeasurements(func(int, [][]float64) error { return nil }); !errors.Is(err, ErrClosed) {
-		t.Errorf("RangeMeasurements after Close: %v, want ErrClosed", err)
+	if err := f.RangeMeasurements(func(int, [][]float64) error { return nil }); !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("RangeMeasurements after Close: %v, want fs.ErrClosed", err)
 	}
 	// Metadata stays usable.
 	if sr, err := f.SamplingRateScalar(); err != nil || sr != 48000 {
@@ -418,7 +419,7 @@ func TestRangeMeasurementsAbort(t *testing.T) {
 
 	tf := openLazy(t, saveTemp(t, robustTFFile(), "tf.sofa"))
 	calls := 0
-	err := tf.RangeTFMeasurements(func(m int, re, im [][]float64) error {
+	err := tf.RangeMeasurementsTF(func(m int, re, im [][]float64) error {
 		calls++
 		if re[0][1] != 0.5*float64(100*m+1) || im[0][1] != -0.25*float64(100*m+1) {
 			t.Errorf("measurement %d: re %v im %v", m, re[0][1], im[0][1])
@@ -426,17 +427,17 @@ func TestRangeMeasurementsAbort(t *testing.T) {
 		return stop
 	})
 	if !errors.Is(err, stop) || calls != 1 {
-		t.Errorf("RangeTFMeasurements = %v after %d calls, want stop after 1", err, calls)
+		t.Errorf("RangeMeasurementsTF = %v after %d calls, want stop after 1", err, calls)
 	}
 	calls = 0
-	if err := tf.RangeTFMeasurements(func(int, [][]float64, [][]float64) error { calls++; return nil }); err != nil || calls != tf.M {
+	if err := tf.RangeMeasurementsTF(func(int, [][]float64, [][]float64) error { calls++; return nil }); err != nil || calls != tf.M {
 		t.Errorf("full TF range: %v after %d calls", err, calls)
 	}
 	if err := tf.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := tf.RangeTFMeasurements(func(int, [][]float64, [][]float64) error { return nil }); !errors.Is(err, ErrClosed) {
-		t.Errorf("RangeTFMeasurements after Close: %v, want ErrClosed", err)
+	if err := tf.RangeMeasurementsTF(func(int, [][]float64, [][]float64) error { return nil }); !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("RangeMeasurementsTF after Close: %v, want fs.ErrClosed", err)
 	}
 }
 

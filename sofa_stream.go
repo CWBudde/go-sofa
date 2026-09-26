@@ -4,15 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"slices"
 	"sync"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
-
-// ErrClosed reports a read of audio data from a File returned by OpenLazy
-// after Close. Test for it with errors.Is.
-var ErrClosed = errors.New("file already closed")
 
 // ErrNotLoaded reports an accessor such as IRAt that needs the whole audio
 // array in memory, called on a File returned by OpenLazy. Read such a File
@@ -28,13 +25,13 @@ var ErrNotLoaded = errors.New("audio data not loaded (file opened with OpenLazy)
 // variables are loaded as by Open.
 //
 // Read the audio data one measurement at a time with ReadMeasurement,
-// ReadTFMeasurement, ReadTFEMeasurement, ReadSOSMeasurement or the Range
+// ReadMeasurementTF, ReadMeasurementTFE, ReadMeasurementSOS or the Range
 // methods. Accessors that need the whole array in memory (IRAt, IRPeakdB)
 // fail with ErrNotLoaded, and so does Save while the audio fields are
 // empty.
 //
 // The File keeps the file open until Close, which the caller must call;
-// after it, reading audio data fails with ErrClosed. Reads on one File are
+// after it, reading audio data fails with fs.ErrClosed. Reads on one File are
 // serialised, so it may be shared between goroutines.
 func OpenLazy(path string) (*File, error) {
 	return open(path, true)
@@ -50,7 +47,7 @@ func OpenLazyReader(r io.ReaderAt, size int64) (*File, error) {
 
 // Close releases the file handle of a File returned by OpenLazy; after it,
 // the File's metadata stays usable but reading audio data fails with
-// ErrClosed. Closing again does nothing and returns nil. For any other
+// fs.ErrClosed. Closing again does nothing and returns nil. For any other
 // File, Close does nothing and returns nil: Open already closes the file it
 // reads, and the File holds all data in memory.
 func (f *File) Close() error {
@@ -122,6 +119,15 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 		if err != nil {
 			return err
 		}
+		// Open's Dataset.Read rejects every other datatype, so OpenLazy
+		// must too: a file OpenLazy accepts is one Open accepts.
+		dt, err := ds.Datatype()
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if !dt.IsFloat64() && !dt.IsFloat32() && !dt.IsInt64() && !dt.IsInt32() {
+			return fmt.Errorf("read %s: datatype %s is not a 4- or 8-byte float or integer", name, dt)
+		}
 		shape := make([]uint64, len(layout))
 		for i, d := range layout {
 			shape[i] = f.axisSize(d)
@@ -181,7 +187,7 @@ func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariabl
 	defer l.mu.Unlock()
 	v := l.vars[name]
 	if l.h == nil {
-		return nil, v, fmt.Errorf("read %s: %w", name, ErrClosed)
+		return nil, v, fmt.Errorf("read %s: %w", name, fs.ErrClosed)
 	}
 	row := 1
 	for _, n := range v.shape[1:] {
@@ -303,7 +309,7 @@ func (f *File) readMREN(what, name string, loaded [][][][]float64, m int) ([][][
 // from the file into new slices; otherwise it returns
 // ImpulseResponses[m], which shares memory with the File. It fails with
 // ErrUnsupportedDataType for non-FIR files, with ErrIndexOutOfRange when
-// m is outside [0,M) or no data is stored there, and with ErrClosed after
+// m is outside [0,M) or no data is stored there, and with fs.ErrClosed after
 // Close of a lazy File.
 func (f *File) ReadMeasurement(m int) ([][]float64, error) {
 	if err := f.requireDataType("ReadMeasurement", DataTypeFIR); err != nil {
@@ -312,12 +318,12 @@ func (f *File) ReadMeasurement(m int) ([][]float64, error) {
 	return f.readMRN("ReadMeasurement", varIR, f.ImpulseResponses, m)
 }
 
-// ReadTFMeasurement returns the real and imaginary parts of the transfer
+// ReadMeasurementTF returns the real and imaginary parts of the transfer
 // functions of measurement m of a TF file, each shaped [R][N]. It reads
 // and fails like ReadMeasurement, with ErrUnsupportedDataType for files
 // other than TF.
-func (f *File) ReadTFMeasurement(m int) (re, im [][]float64, err error) {
-	const what = "ReadTFMeasurement"
+func (f *File) ReadMeasurementTF(m int) (re, im [][]float64, err error) {
+	const what = "ReadMeasurementTF"
 	if err := f.requireDataType(what, DataTypeTF); err != nil {
 		return nil, nil, err
 	}
@@ -330,12 +336,12 @@ func (f *File) ReadTFMeasurement(m int) (re, im [][]float64, err error) {
 	return re, im, nil
 }
 
-// ReadTFEMeasurement returns the real and imaginary parts of the transfer
+// ReadMeasurementTFE returns the real and imaginary parts of the transfer
 // functions of measurement m of a TF-E file, each shaped [R][E][N] like
 // TFRealE[m]. It reads and fails like ReadMeasurement, with
 // ErrUnsupportedDataType for files other than TF-E.
-func (f *File) ReadTFEMeasurement(m int) (re, im [][][]float64, err error) {
-	const what = "ReadTFEMeasurement"
+func (f *File) ReadMeasurementTFE(m int) (re, im [][][]float64, err error) {
+	const what = "ReadMeasurementTFE"
 	if err := f.requireDataType(what, DataTypeTFE); err != nil {
 		return nil, nil, err
 	}
@@ -348,15 +354,15 @@ func (f *File) ReadTFEMeasurement(m int) (re, im [][][]float64, err error) {
 	return re, im, nil
 }
 
-// ReadSOSMeasurement returns the second-order-section coefficients of
+// ReadMeasurementSOS returns the second-order-section coefficients of
 // measurement m of an SOS file, shaped [R][N] like SOSCoefficients[m]. It
 // reads and fails like ReadMeasurement, with ErrUnsupportedDataType for
 // files other than SOS.
-func (f *File) ReadSOSMeasurement(m int) ([][]float64, error) {
-	if err := f.requireDataType("ReadSOSMeasurement", DataTypeSOS); err != nil {
+func (f *File) ReadMeasurementSOS(m int) ([][]float64, error) {
+	if err := f.requireDataType("ReadMeasurementSOS", DataTypeSOS); err != nil {
 		return nil, err
 	}
-	return f.readMRN("ReadSOSMeasurement", varSOS, f.SOSCoefficients, m)
+	return f.readMRN("ReadMeasurementSOS", varSOS, f.SOSCoefficients, m)
 }
 
 // RangeMeasurements calls fn with the impulse responses ([R][N], as from
@@ -380,15 +386,15 @@ func (f *File) RangeMeasurements(fn func(m int, ir [][]float64) error) error {
 	return nil
 }
 
-// RangeTFMeasurements calls fn with the real and imaginary parts ([R][N],
-// as from ReadTFMeasurement) of each measurement of a TF file in order. It
+// RangeMeasurementsTF calls fn with the real and imaginary parts ([R][N],
+// as from ReadMeasurementTF) of each measurement of a TF file in order. It
 // stops like RangeMeasurements.
-func (f *File) RangeTFMeasurements(fn func(m int, re, im [][]float64) error) error {
-	if err := f.requireDataType("RangeTFMeasurements", DataTypeTF); err != nil {
+func (f *File) RangeMeasurementsTF(fn func(m int, re, im [][]float64) error) error {
+	if err := f.requireDataType("RangeMeasurementsTF", DataTypeTF); err != nil {
 		return err
 	}
 	for m := range f.M {
-		re, im, err := f.ReadTFMeasurement(m)
+		re, im, err := f.ReadMeasurementTF(m)
 		if err != nil {
 			return err
 		}

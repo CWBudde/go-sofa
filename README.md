@@ -99,7 +99,7 @@ f, err := sofa.OpenLazy("large.sofa")
 if err != nil {
     log.Fatal(err)
 }
-defer f.Close() // releases the file handle; later reads fail with ErrClosed
+defer f.Close() // releases the file handle; later reads fail with fs.ErrClosed
 
 // One measurement: [R][N] impulse responses.
 ir, err := f.ReadMeasurement(42)
@@ -112,9 +112,9 @@ err = f.RangeMeasurements(func(m int, ir [][]float64) error {
 })
 ```
 
-The siblings `ReadTFMeasurement` / `RangeTFMeasurements` (TF: real and
-imaginary parts, `[R][N]` each), `ReadTFEMeasurement` (TF-E: `[R][E][N]`)
-and `ReadSOSMeasurement` (SOS: `[R][N]`) cover the other DataTypes. All of
+The siblings `ReadMeasurementTF` / `RangeMeasurementsTF` (TF: real and
+imaginary parts, `[R][N]` each), `ReadMeasurementTFE` (TF-E: `[R][E][N]`)
+and `ReadMeasurementSOS` (SOS: `[R][N]`) cover the other DataTypes. All of
 them also work on files read with `Open`, where they return the loaded
 slices. On a lazy `File` the audio fields (`ImpulseResponses`, `TFReal`, …)
 stay nil, so `IRAt`, `IRPeakdB` and `Save` fail with `ErrNotLoaded`.
@@ -452,8 +452,8 @@ memory for `Save`; such a `File` holds no open file handle. A `File` from
 - `OpenLazy(path string) (*File, error)` — Reads everything but the audio arrays and keeps the file open for `ReadMeasurement` and friends
 - `OpenReader(r io.ReaderAt, size int64) (*File, error)`, `OpenLazyReader(r io.ReaderAt, size int64) (*File, error)` — `Open` and `OpenLazy` for a file in memory or any other `io.ReaderAt`
 - `Close() error` — Releases the file handle of a `File` from `OpenLazy` (idempotent); does nothing and returns nil for any other `File`
-- `ReadMeasurement(m int) ([][]float64, error)` — FIR impulse responses `[R][N]` of measurement m; `ReadTFMeasurement` (TF), `ReadTFEMeasurement` (TF-E, `[R][E][N]`) and `ReadSOSMeasurement` (SOS) are the siblings for the other DataTypes
-- `RangeMeasurements(fn func(m int, ir [][]float64) error) error` — Calls fn for every measurement in order, stopping at the first error; `RangeTFMeasurements` for TF
+- `ReadMeasurement(m int) ([][]float64, error)` — FIR impulse responses `[R][N]` of measurement m; `ReadMeasurementTF` (TF), `ReadMeasurementTFE` (TF-E, `[R][E][N]`) and `ReadMeasurementSOS` (SOS) are the siblings for the other DataTypes
+- `RangeMeasurements(fn func(m int, ir [][]float64) error) error` — Calls fn for every measurement in order, stopping at the first error; `RangeMeasurementsTF` for TF
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `WriteTo(w io.Writer) (int64, error)` — Validates the `File` and writes the bytes `Save` would write to `w` (`io.WriterTo`)
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
@@ -527,9 +527,10 @@ defer f.Close()
 #### `OpenLazy(path string) (*File, error)`
 
 Like `Open`, but leaves the audio arrays in the file and keeps it open
-until `Close`. Read audio data with `ReadMeasurement`, `ReadTFMeasurement`,
-`ReadTFEMeasurement`, `ReadSOSMeasurement`, `RangeMeasurements` or
-`RangeTFMeasurements`; see [Streaming large files](#streaming-large-files).
+until `Close`. It checks the shape and datatype of the audio arrays, so it
+rejects the files `Open` rejects. Read audio data with `ReadMeasurement`, `ReadMeasurementTF`,
+`ReadMeasurementTFE`, `ReadMeasurementSOS`, `RangeMeasurements` or
+`RangeMeasurementsTF`; see [Streaming large files](#streaming-large-files).
 
 #### `OpenReader(r io.ReaderAt, size int64) (*File, error)`
 

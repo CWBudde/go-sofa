@@ -3,6 +3,7 @@ package sofa
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,8 +98,8 @@ func TestOpenLazyReader(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, err := f.ReadMeasurement(0); !errors.Is(err, ErrClosed) {
-		t.Errorf("ReadMeasurement after Close: %v, want ErrClosed", err)
+	if _, err := f.ReadMeasurement(0); !errors.Is(err, fs.ErrClosed) {
+		t.Errorf("ReadMeasurement after Close: %v, want fs.ErrClosed", err)
 	}
 	if _, err := OpenLazyReader(bytes.NewReader(buf.Bytes()[:100]), 100); err == nil {
 		t.Error("OpenLazyReader of a truncated file succeeded")

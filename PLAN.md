@@ -217,7 +217,7 @@ Tasks:
   - (2026-09-26) — `OpenLazy` shares `open` with `Open`, resolves the audio
     variables' layouts without reading them and keeps the HDF5 file open;
     `Close` releases it (idempotent), later audio reads fail with the new
-    `ErrClosed`, and `IRAt`/`IRPeakdB`/`Save` fail with `ErrNotLoaded` while
+    `fs.ErrClosed`, and `IRAt`/`IRPeakdB`/`Save` fail with `ErrNotLoaded` while
     the audio fields are empty. `Open` still closes the file before
     returning. On an 11.5 MB file `Open` allocates 23.4 MB and `OpenLazy`
     0.35 MB (`TestOpenLazyDoesNotAllocateAudio`); `TestOpenLazyClose` and
@@ -228,9 +228,9 @@ Tasks:
   - Acceptance: `TestReadMeasurementMatchesEager` loads the same file
     eagerly and via `ReadMeasurement` for every `m`, asserts deep
     equality.
-  - (2026-09-26) — `ReadMeasurement` (FIR), `ReadTFMeasurement` (TF, re/im
-    `[R][N]`), `ReadTFEMeasurement` (TF-E, `[R][E][N]`, transposing the
-    AES69 `[M,R,N,E]` order) and `ReadSOSMeasurement` work on eager files
+  - (2026-09-26) — `ReadMeasurement` (FIR), `ReadMeasurementTF` (TF, re/im
+    `[R][N]`), `ReadMeasurementTFE` (TF-E, `[R][E][N]`, transposing the
+    AES69 `[M,R,N,E]` order) and `ReadMeasurementSOS` work on eager files
     (returning the loaded slices) and lazy ones. The test compares every
     measurement bit for bit for synthetic FIR/TF/TF-E (both axis orders)/
     SOS files and the CI fixtures CIPIC, MIT_KEMAR, tester and
@@ -241,7 +241,7 @@ Tasks:
       for ergonomic iteration.
   - Acceptance: callback returning a non-nil error short-circuits and
     propagates; covered by `TestRangeMeasurementsAbort`.
-  - (2026-09-26) — plus `RangeTFMeasurements`; the callback's error is
+  - (2026-09-26) — plus `RangeMeasurementsTF`; the callback's error is
     returned unwrapped, eager and lazy.
 - [x] **C5. Benchmark.** `go test -bench BenchmarkStreamVs Eager` over
       a synthetic ≥ 100 MB file generated in `TestMain`.

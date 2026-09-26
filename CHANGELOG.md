@@ -151,14 +151,15 @@ or 1`, `ImpulseResponses[0] length 1 does not match R=2`).
   the README's "Cross-validation" section.
 - Streaming reads: `OpenLazy(path)` reads everything but the audio arrays
   and keeps the file open until `Close` (now meaningful for such a `File`;
-  it is idempotent, and later audio reads fail with `ErrClosed`).
-  `ReadMeasurement(m)` (FIR, `[R][N]`), `ReadTFMeasurement`,
-  `ReadTFEMeasurement` (`[R][E][N]`) and `ReadSOSMeasurement` read one
+  it is idempotent, and later audio reads fail with `fs.ErrClosed`).
+  `ReadMeasurement(m)` (FIR, `[R][N]`), `ReadMeasurementTF`,
+  `ReadMeasurementTFE` (`[R][E][N]`) and `ReadMeasurementSOS` read one
   measurement as a single HDF5 hyperslab, and `RangeMeasurements` /
-  `RangeTFMeasurements` iterate over all of them, stopping at the first
+  `RangeMeasurementsTF` iterate over all of them, stopping at the first
   error. They also work on files read with `Open`. `IRAt`, `IRPeakdB` and
   `Save` fail with the new `ErrNotLoaded` on a lazy `File` whose audio
-  fields are empty.
+  fields are empty. `OpenLazy` checks the datatype of every audio dataset,
+  so it rejects the files `Open` rejects.
 - Large-file suite behind the `largefiles` build tag (a synthetic 105 MB FIR
   file; `BenchmarkStreamVsEager`, `BenchmarkWriteLarge`,
   `BenchmarkReadLarge`), run weekly by `.github/workflows/largefiles.yml`.
