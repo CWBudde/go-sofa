@@ -247,16 +247,16 @@ hit by P1.1m.
       message; go-hdf5 reads them, libhdf5 ignores them
       (`TestDenseAttributeRMW_BasicFlow` fails wherever h5dump is installed).
       With go-hdf5#7 datasets no longer switch to dense storage, so that test
-      passes. The bug remains for groups and for datasets that already use
+      passes. Groups are not affected (they re-read their object header on
+      every write); the bug remains for datasets opened with `OpenDataset`,
+      which cached the Attribute Info message and missed a later move to
       dense storage. Also check whether adding to libhdf5-written dense
       attribute heaps overwrites objects, as adding links did before
       go-hdf5#6's review fixes.
       (2026-09-26) — partial: done in cwbudde/go-hdf5#11, awaiting merge.
-      Groups were not affected (they re-read their header on every
-      write). The cause was the Attribute Info message `DatasetWriter`
-      cached at `OpenDataset`, stale after a move to dense storage (since
-      go-hdf5#7 only an attribute too large for the object header
-      triggers it); it is gone. Adding to a libhdf5 heap with a single
+      The cached Attribute Info message is gone (since go-hdf5#7 only an
+      attribute too large for the object header moved a dataset to dense
+      storage). Adding to a libhdf5 heap with a single
       direct block did overwrite attributes, and larger libhdf5 heaps were
       refused: such storage is now rewritten with the change, as dense
       links are. Attribute name index records keep their 8th heap ID byte
