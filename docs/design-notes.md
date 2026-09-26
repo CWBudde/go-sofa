@@ -121,8 +121,7 @@ fork. v0.16.0 made the output readable by libhdf5/netCDF-C (root header past
 the EOA), added `DatasetWriter.AttachDimensionScale`, dataset headers over 255
 bytes and libhdf5-readable VLEN data; v0.16.1 fixed dense attributes with
 12-byte names (`DateModified`, `Organization`). go-sofa uses v0.17.0
-(merged [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5), `5753c09`;
-`go.mod` pins that commit as a pseudo-version until the tag exists) for
+(merged [go-hdf5#5](https://github.com/CWBudde/go-hdf5/pull/5), `5753c09`) for
 reader/writer entry points (`OpenReader`, `CreateForWriteTo`), dataset
 shapes, dimension-scale readers, correct hyperslab reads at any offset, the
 per-dataset read cache, dense storage for more than eight dataset
