@@ -140,23 +140,23 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       `TestRootGroupSuperblockV0KeepsSymbolTable` pass on go-hdf5 `main`.
       Linking now reads the root header, so `OpenForWrite` +
       `CreateDataset` at a v2 root works too (it failed before).
-- [ ] **P1.1b. Track attribute creation order** (Attribute Info message
+- [x] **P1.1b. Track attribute creation order** (Attribute Info message
       flags, `attribute_write.go`) so `ncdump` lists globals in write order
       (`Conventions` first). Cosmetic but cheap once P1.1a touches the OHDR.
       Also needed to modify netCDF-C files: go-hdf5 refuses to rewrite object
       headers that track attribute creation order, so `OpenForWrite` cannot
       add links to a netCDF-C (or h5py `track_order=True`) root yet.
-      (2026-09-26) — partial: done in cwbudde/go-hdf5#10, awaiting merge.
-      New groups and datasets track attribute creation order (not
+      (2026-09-26) — done in cwbudde/go-hdf5#10 (merged, unreleased until
+      P1.1d). New groups and datasets track attribute creation order (not
       indexed), so `ncdump -h` of a go-sofa file lists `Conventions`
       first. `OpenForWrite` adds datasets and attributes to netCDF-C and
       h5py `track_order=True` files. Writing to dense attribute storage
       that indexes creation order returns
       `ErrCreationOrderIndexNotSupported` (see P1.1n).
       `TestAttributeCreationOrderTracked`, `TestOpenForWriteNetCDFRoot`
-      and `TestOpenForWriteH5pyTrackOrder` pass on the branch and fail on
-      `main`. libmysofa results for the go-sofa interop files are
-      unchanged.
+      and `TestOpenForWriteH5pyTrackOrder` pass on go-hdf5 `main`
+      (d0396ac) with h5dump, ncdump and h5py installed. libmysofa results
+      for the go-sofa interop files are unchanged.
 - [x] **P1.1c. Tests in go-hdf5:** read back with h5py (`c_compat_h5py_test.go`
       pattern) and with `h5dump`; assert the root OHDR contains no 0x11
       message; add a libmysofa-load test if the harness is available (skip
@@ -169,8 +169,9 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       minimal SimpleFreeFieldHRIR file.
 - [ ] **P1.1d. Include the P3.1a dataspace fix**, release go-hdf5 **v0.18.0**,
       bump go-sofa's `go.mod`. (2026-09-26) — gated: v0.18.0 also waits for
-      P1.1b, P1.1k and P1.1l (decided 2026-09-26). P1.1b is in
-      cwbudde/go-hdf5#10 (awaiting merge).
+      P1.1b, P1.1k and P1.1l (decided 2026-09-26). P1.1b is merged
+      (cwbudde/go-hdf5#10); P1.1k and P1.1l are in cwbudde/go-hdf5#11
+      (awaiting merge).
 
 Found while doing P1.1a/c: libmysofa does not read HDF5 generically, it
 matches netCDF-C's byte layout (`src/hdf/fractalhead.c`). A new-style root
@@ -231,6 +232,15 @@ hit by P1.1m.
       separate object header hard-linked into the group (non-conformant, as
       before); write them as Link messages in the parent and use the
       standard external-link value format.
+      (2026-09-26) — partial: done in cwbudde/go-hdf5#11, awaiting merge.
+      Under a new-style root, soft and external links are Link messages in
+      the root (compact or dense, with creation order), and external link
+      values use the spec format; the core parser rejected that format, so
+      `OpenForWrite` could not add links next to an external link written
+      by libhdf5. `TestNewStyleRootSoftAndExternalLinks` (h5dump resolves
+      the external link; h5py reads both) and
+      `TestOpenForWriteKeepsLibhdf5Links` pass on the branch and fail on
+      `main`. Symbol table groups are unchanged (see P1.1o).
 - [ ] **P1.1l. go-hdf5 dense attribute RMW** (pre-existing): after the
       compact → dense transition in an `OpenForWrite` session, later
       attributes are written as compact messages next to the Attribute Info
@@ -241,6 +251,19 @@ hit by P1.1m.
       dense storage. Also check whether adding to libhdf5-written dense
       attribute heaps overwrites objects, as adding links did before
       go-hdf5#6's review fixes.
+      (2026-09-26) — partial: done in cwbudde/go-hdf5#11, awaiting merge.
+      Groups were not affected (they re-read their header on every
+      write). The cause was the Attribute Info message `DatasetWriter`
+      cached at `OpenDataset`, stale after a move to dense storage (since
+      go-hdf5#7 only an attribute too large for the object header
+      triggers it); it is gone. Adding to a libhdf5 heap with a single
+      direct block did overwrite attributes, and larger libhdf5 heaps were
+      refused: such storage is now rewritten with the change, as dense
+      links are. Attribute name index records keep their 8th heap ID byte
+      (the length of a 64 KiB attribute). `TestOpenForWriteLibhdf5DenseAttributes`
+      (new fixture `testdata/dense/h5py_attrs_small.h5`, h5dump and h5py
+      checks) and `TestOpenDatasetAttributesAfterDenseTransition` pass on
+      the branch and fail on `main`.
 - [ ] **P1.1m. Non-ASCII string attributes as ASCII character set.**
       go-hdf5 marks strings with non-ASCII bytes as UTF-8
       (`attribute_write.go` `inferString`). libmysofa's dense attribute reader
@@ -266,6 +289,18 @@ hit by P1.1m.
       flags (1) + creation order (4); the insert can follow the type 6
       link creation order index. Test with `testdata/dense/netcdf4_many.nc`
       (300 indexed globals) and h5dump/ncdump.
+- [ ] **P1.1o. go-hdf5: conformant soft/external links in symbol table
+      groups.** Found while doing P1.1k: in old-style groups (every
+      non-root group, and the root of superblock v0 files) soft and
+      external links are still an entry for a separate object header
+      holding the Link message, which libhdf5 does not read as a link.
+      Soft links need a symbol table entry with cache type 2 (link value
+      offset in the scratch pad); external links need the group converted
+      to a new-style group, as libhdf5 does. Also: adding an entry to such
+      a group turns existing soft links written by libhdf5 into hard links
+      to an undefined address, because the node reader drops the scratch
+      pad and `linkToParent` resets every entry's cache type
+      (`internal/structures/symboltable_node.go`, `group_write.go`).
 
 ### P1.2 — go-sofa: correct position variable dimensions
 
