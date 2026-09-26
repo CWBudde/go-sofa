@@ -13,6 +13,11 @@ in the same layout as the generator's expectations, then check them:
 
     python3 scripts/interop_check.py --write-reference DIR   # DIR has expected.json
     python3 scripts/interop_check.py DIR
+
+When DIR/resaved/ exists (the generator re-saves testdata/sofar/, files
+written by sofar through netCDF-C), each re-saved file is also compared with
+its original: same global attributes and, per variable, the same values,
+read with both h5py and netCDF4.
 """
 
 from __future__ import annotations
@@ -118,6 +123,89 @@ def check_netcdf(path: str, exp: dict, errors: list[str]) -> None:
             _compare_attrs(errors, where, name, {k: var.getncattr(k) for k in var.ncattrs()}, spec)
 
 
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SOFAR_DIR = os.path.join(REPO, "testdata", "sofar")
+
+
+def _read_all(path: str, label: str) -> tuple[dict, dict]:
+    """Global attributes and variables of path, read with h5py or netCDF4."""
+    attrs, variables = {}, {}
+    if label == "h5py":
+        with h5py.File(path, "r") as f:
+            attrs = {k: _as_str(v) for k, v in f.attrs.items()}
+            for name, ds in f.items():
+                if "NAME" in ds.attrs and b"not a netCDF variable" in bytes(ds.attrs["NAME"]):
+                    continue  # placeholder dimension scale
+                variables[name] = ds[()]
+    else:
+        with netCDF4.Dataset(path, "r") as nc:
+            nc.set_auto_mask(False)
+            nc.set_auto_chartostring(False)
+            attrs = {k: _as_str(nc.getncattr(k)) for k in nc.ncattrs()}
+            variables = {name: var[:] for name, var in nc.variables.items()}
+    attrs.pop("_NCProperties", None)
+    return attrs, variables
+
+
+def _same_values(orig, got) -> bool:
+    orig, got = np.asarray(orig), np.asarray(got)
+    if orig.dtype.kind in "SU" or got.dtype.kind in "SU":
+        return _chars(orig).rstrip("\0") == _chars(got).rstrip("\0")
+    orig, got = np.squeeze(orig.astype(np.float64)), np.squeeze(got.astype(np.float64))
+    if orig.shape != got.shape:
+        try:
+            orig = np.broadcast_to(orig, got.shape)
+        except ValueError:
+            return False
+    return bool(np.array_equal(orig, got))
+
+
+# Variables go-sofa loses today, per original file. go-hdf5 does not list
+# ReceiverUp among the 30 root links of the sofar SingleRoomSRIR file, so
+# Open never sees it (PLAN.md E7). A listed variable that does come back
+# fails the check, so that the entry is removed once go-hdf5 is fixed.
+KNOWN_LOST = {"SingleRoomSRIR_1.0.sofa": {"ReceiverUp"}}
+
+
+def check_resaved(directory: str) -> bool:
+    """Compare DIR/resaved/*.sofa with the originals in testdata/sofar/."""
+    with open(os.path.join(directory, "resaved", "resaved.json"), encoding="utf-8") as fh:
+        omitted = json.load(fh)
+    failed = False
+    for fname in sorted(omitted):
+        for label in ("h5py", "netCDF4"):
+            errors: list[str] = []
+            try:
+                want_attrs, want_vars = _read_all(os.path.join(SOFAR_DIR, fname), label)
+                got_attrs, got_vars = _read_all(os.path.join(directory, "resaved", fname), label)
+                for key, want in want_attrs.items():
+                    # Save does not write empty optional attributes.
+                    if got_attrs.get(key, "") != want:
+                        errors.append(f"attribute {key} = {got_attrs.get(key)!r}, want {want!r}")
+                known = KNOWN_LOST.get(fname, set())
+                for name, want in want_vars.items():
+                    if name in known:
+                        if name in got_vars:
+                            errors.append(f"{name} is no longer lost: remove it from KNOWN_LOST")
+                    elif name not in got_vars:
+                        if name not in omitted[fname]:
+                            errors.append(f"missing variable {name}")
+                    elif not _same_values(want, got_vars[name]):
+                        errors.append(f"{name}: values differ from the original")
+            except Exception as exc:  # noqa: BLE001 - report every reader failure
+                errors.append("cannot read: " + traceback.format_exception_only(type(exc), exc)[-1].strip())
+            if errors:
+                failed = True
+                print(f"FAIL {label:7} resaved/{fname}")
+                for e in errors:
+                    print(f"     {e}")
+            else:
+                lost = len(omitted[fname]) + len(KNOWN_LOST.get(fname, ()))
+                note = f", without {lost} variables (PLAN.md E6/E7)" if lost else ""
+                print(f"ok   {label:7} resaved/{fname} (same as the sofar original{note})")
+    return failed
+
+
 def write_reference(directory: str) -> None:
     """Write each expected file with h5py, in the layout the generator uses."""
     with open(os.path.join(directory, "expected.json"), encoding="utf-8") as fh:
@@ -189,6 +277,9 @@ def main() -> int:
             else:
                 n = len(expected[fname]["datasets"])
                 print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
+
+    if os.path.isdir(os.path.join(args.dir, "resaved")):
+        failed = check_resaved(args.dir) or failed
 
     if failed:
         print("interop check FAILED", file=sys.stderr)

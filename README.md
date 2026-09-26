@@ -650,6 +650,51 @@ just test-coverage
 just build
 ```
 
+### Cross-validation
+
+go-sofa's output is checked against independent SOFA implementations:
+
+- **h5py and netCDF4 (netCDF-C):** `just interop` (also run in CI) writes
+  one file per DataType with `Save` and compares what h5py and netCDF4 read
+  with the expected values. It also re-saves every file in
+  `testdata/sofar/` with go-sofa and checks that h5py and netCDF4 read the
+  same attributes and values as in the original.
+- **sofar (pyfar):** `testdata/sofar/` holds small synthetic files written by
+  [sofar](https://github.com/pyfar/sofar) through netCDF-C, one per
+  convention that CI cannot otherwise fetch (GeneralTF 2.0, GeneralTF-E,
+  FreeFieldHRTF with and without spherical harmonics, SimpleFreeFieldHRSOS,
+  SingleRoomSRIR, SingleRoomDRIR). `sofa_sofar_fixtures_test.go` pins their
+  values and round-trips them through `Save`. Regenerate them with
+  `pip install sofar==1.3.0 && python3 scripts/make_sofar_fixtures.py`.
+- **SOFA Toolbox (MATLAB / GNU Octave):** `scripts/matlab/roundtrip.m`
+  loads a go-sofa-written file with `SOFAload`, writes it back with
+  `SOFAsave`, and writes a second file from scratch with the toolbox;
+  `internal/interop/toolbox` then checks that `Data.IR`, `SourcePosition`
+  and `ListenerPosition` are bit-for-bit identical in both directions:
+
+  ```bash
+  # GNU Octave (Ubuntu): apt-get install octave octave-netcdf
+  git clone --depth 1 https://github.com/sofacoustics/SOFAtoolbox /tmp/SOFAtoolbox
+  export SOFATOOLBOX=/tmp/SOFAtoolbox/SOFAtoolbox
+  d=$(mktemp -d)
+
+  go run ./internal/interop/toolbox write "$d/gosofa.sofa"
+  # Until go-hdf5 writes scalar string attributes (PLAN.md E8), the toolbox
+  # cannot load go-sofa's attributes; rewrite them as netCDF text first.
+  python3 scripts/matlab/char_attributes.py "$d/gosofa.sofa" "$d/gosofa-text.sofa"
+  octave --no-gui --quiet --path scripts/matlab \
+    --eval "roundtrip('$d/gosofa-text.sofa', '$d/toolbox.sofa', '$d/created.sofa')"
+
+  # go-sofa -> toolbox -> go-sofa, and toolbox -> go-sofa
+  go run ./internal/interop/toolbox compare "$d/gosofa.sofa" "$d/toolbox.sofa"
+  go run ./internal/interop/toolbox check-created "$d/created.sofa"
+  ```
+
+  In MATLAB, run `roundtrip(...)` from `scripts/matlab` with the toolbox on
+  the path (or `SOFATOOLBOX` set) instead of the `octave` line. Last run
+  2026-09-26 with GNU Octave 8.4.0 and SOFA Toolbox 2.6.0 (`d2a83b3`): both
+  comparisons bit-exact.
+
 ## License
 
 See [LICENSE](LICENSE) file for details.

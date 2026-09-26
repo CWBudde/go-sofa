@@ -25,8 +25,18 @@ Working notes for contributors and coding agents. Usage docs are in
   `optionalTestdata` (`testhelpers_test.go`) skip when absent. Any other local
   file (e.g. `sofa20_sh_test.sofa`) hard-fails in CI, so check a fixture is
   in one of those two lists before using it in a test.
+- `testdata/sofar/*.sofa` are the exception: synthetic MIT files written by
+  sofar (netCDF-C) with `scripts/make_sofar_fixtures.py`, committed so CI
+  covers GeneralTF 2.0, GeneralTF-E, FreeFieldHRTF (plain and SH),
+  SimpleFreeFieldHRSOS, SingleRoomSRIR and SingleRoomDRIR. Their tests
+  (`sofa_sofar_fixtures_test.go`) never skip. If you regenerate them
+  (`pip install sofar==1.3.0`), the output is byte-stable for the same
+  sofar/netCDF-C/HDF5 versions; update the hashes in `PROVENANCE.md`, and
+  the pinned values only if you changed the generator on purpose.
 - Prefer synthetic files built with `Save` into `t.TempDir()` where possible.
   CLI tests do this via `internal/clitest`.
+- SOFA Toolbox cross-validation (MATLAB/Octave) is manual: README
+  "Cross-validation". Octave 8.4 + `octave-netcdf` from apt works.
 
 ## Conventions
 

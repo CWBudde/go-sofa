@@ -72,6 +72,9 @@ that contradicts a set Type.
 - `SimpleFreeFieldSOS_1.0.sofa` (local only, `RoomVolume` as a root
   attribute) cannot be opened: go-hdf5 supports only depth-0 B-trees. The
   attribute fallback for `RoomVolume`/`RoomTemperature` is unit-tested only.
+  sofar writes 34 root attributes for SingleRoomSRIR, which netCDF-C stores
+  in such a depth-1 B-tree, so `scripts/make_sofar_fixtures.py` drops the
+  empty optional ones from `testdata/sofar/SingleRoomSRIR_1.0.sofa`.
 - Survey an unknown file with `go run ./cmd/sofaprobe <file>` or
   `h5dump -A -H <file>`.
 
