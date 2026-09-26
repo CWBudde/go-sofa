@@ -1,15 +1,17 @@
 # go-sofa
 
-A pure-Go library for reading SOFA files (Spatially Oriented Format for Acoustics, AES69-2015).
+A pure-Go library for reading and writing SOFA files (Spatially Oriented Format for Acoustics, AES69-2015).
 
 SOFA is a file format for storing spatially oriented acoustic data like head-related transfer functions (HRTFs), binaural room impulse responses (BRIRs), and directional room impulse responses (DRIRs). The format is based on HDF5 and follows the netCDF-4 conventions.
 
 ## Features
 
 - **Pure Go implementation** — No C dependencies
-- **Full AES69 support** — Reads all standard SOFA metadata and data arrays
-- **Built on go-hdf5** — Leverages [MeKo-Christian/go-hdf5](https://github.com/MeKo-Christian/go-hdf5) for HDF5 file access
-- **Command-line tools** — Includes `sofainfo` and `sofa2json` utilities
+- **Full AES69 support** — Reads and writes all standard SOFA metadata and data arrays
+- **DataTypes** — `FIR`, `TF`, `TF-E` (including spherical-harmonics HRTFs) and `SOS`
+- **Interoperable output** — Written files are netCDF-4 with named dimensions and open in h5py, netCDF4 and `ncdump`
+- **Built on go-hdf5** — Leverages [cwbudde/go-hdf5](https://github.com/cwbudde/go-hdf5) for HDF5 file access
+- **Command-line tools** — Includes `sofainfo`, `sofa2json` and `sofaprobe` utilities
 - **Well-tested** — Validated against reference SOFA files from sofaconventions.org
 
 ## Installation
@@ -17,14 +19,15 @@ SOFA is a file format for storing spatially oriented acoustic data like head-rel
 ### Library
 
 ```bash
-go get github.com/MeKo-Christian/go-sofa
+go get github.com/cwbudde/go-sofa
 ```
 
 ### Command-line tools
 
 ```bash
-go install github.com/MeKo-Christian/go-sofa/cmd/sofainfo@latest
-go install github.com/MeKo-Christian/go-sofa/cmd/sofa2json@latest
+go install github.com/cwbudde/go-sofa/cmd/sofainfo@latest
+go install github.com/cwbudde/go-sofa/cmd/sofa2json@latest
+go install github.com/cwbudde/go-sofa/cmd/sofaprobe@latest
 ```
 
 ## Library Usage
@@ -38,7 +41,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/MeKo-Christian/go-sofa"
+    "github.com/cwbudde/go-sofa"
 )
 
 func main() {
@@ -181,7 +184,7 @@ package main
 import (
     "log"
 
-    "github.com/MeKo-Christian/go-sofa"
+    "github.com/cwbudde/go-sofa"
 )
 
 func main() {
@@ -263,13 +266,6 @@ if len(f.Dropped) > 0 {
     log.Printf("not preserved: %v", f.Dropped) // unsupported data or attribute types
 }
 ```
-
-#### Known limitations
-
-- Dataset attributes (`CLASS`, `NAME`) are not yet emitted, so written
-  files are valid HDF5/SOFA for go-sofa but not fully netCDF-4
-  compliant. Some third-party tools (e.g. the MATLAB SOFA Toolbox)
-  may flag the missing dimension-scale metadata.
 
 ## Command-line Tools
 
@@ -561,7 +557,7 @@ coefficients per (measurement, receiver, frequency) tuple, then call
 
 ## Related Projects
 
-- [go-hdf5](https://github.com/MeKo-Christian/go-hdf5) — Pure Go HDF5 library (fork)
+- [go-hdf5](https://github.com/cwbudde/go-hdf5) — Pure Go HDF5 library (fork)
 - [PasSofa](../PasSofa) — Pascal SOFA reader (reference implementation)
 - [SOFA Conventions](https://www.sofaconventions.org/) — Official SOFA specifications
 - [libmysofa](https://github.com/hoene/libmysofa) — Lightweight C SOFA reader

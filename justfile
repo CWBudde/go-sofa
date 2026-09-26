@@ -9,9 +9,10 @@ default:
 
 # Note: Install dependencies manually or use the GitHub Actions workflow
 # treefmt: Download from https://github.com/numtide/treefmt/releases
-# Go tools: go install mvdan.cc/gofumpt@latest && go install github.com/daixiang0/gci@latest && go install mvdan.cc/sh/v3/cmd/shfmt@latest
-# golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-# prettier: npm install -g prettier
+# Go tools (versions pinned as in CI): go install mvdan.cc/gofumpt@v0.12.0 && go install github.com/daixiang0/gci@v0.14.0 && go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1
+# golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+# prettier: npm install -g prettier@3
+# shellcheck: brew install shellcheck / apt-get install shellcheck
 
 # Format all code using treefmt
 fmt:
@@ -52,6 +53,17 @@ interop DIR="":
     go run ./internal/interop/gen "$dir"
     python3 scripts/interop_check.py "$dir"
 
+# Fail when the root package's statement coverage is below MIN percent
+coverage-check MIN="85":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    profile="$(mktemp)"
+    trap 'rm -f "$profile"' EXIT
+    go test -timeout 300s -coverprofile="$profile" . >/dev/null
+    total="$(go tool cover -func="$profile" | awk '/^total:/ { sub("%", "", $3); print $3 }')"
+    echo "root package coverage: ${total}% (floor {{ MIN }}%)"
+    awk -v t="$total" -v m="{{ MIN }}" 'BEGIN { exit !(t >= m) }'
+
 # Run tests with coverage
 test-coverage:
     go test -v -timeout 120s -coverprofile=coverage.out ./...
@@ -60,25 +72,22 @@ test-coverage:
 # Run all checks (formatting, linting, tests, tidiness)
 check: check-formatted lint test check-tidy
 
-# Build sofaprobe CLI tool
-build-sofaprobe:
-    go build -o bin/sofaprobe ./cmd/sofaprobe
+# Command-line tools under cmd/
+tools := "sofainfo sofa2json sofaprobe"
 
-# Build all CLI tools
-build: build-sofaprobe
+# Build all CLI tools into bin/
+build:
+    for t in {{ tools }}; do go build -o "bin/$t" "./cmd/$t" || exit; done
 
-# Install sofaprobe to $GOPATH/bin
-install-sofaprobe:
-    go install ./cmd/sofaprobe
-
-# Install all CLI tools
-install: install-sofaprobe
+# Install all CLI tools to $GOPATH/bin
+install:
+    for t in {{ tools }}; do go install "./cmd/$t" || exit; done
 
 # Clean build artifacts
 clean:
     rm -rf bin/
     rm -f coverage.out coverage.html
-    rm -f sofaprobe
+    rm -f sofainfo sofa2json sofaprobe
 
 # Run sofaprobe on sample files
 test-sample FILE="testdata/tester.sofa":

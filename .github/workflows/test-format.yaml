@@ -23,16 +23,18 @@ jobs:
 
       - name: Install Go formatters
         run: |
-          go install mvdan.cc/gofumpt@latest
-          go install github.com/daixiang0/gci@latest
+          go install mvdan.cc/gofumpt@v0.12.0
+          go install github.com/daixiang0/gci@v0.14.0
 
-      - name: Install shell formatters
+      - name: Install shell formatter and checker
         run: |
-          go install mvdan.cc/sh/v3/cmd/shfmt@latest
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
 
       - name: Install Prettier
         run: |
-          npm install -g prettier
+          npm install -g prettier@3
 
       - name: Run treefmt check
         uses: isbecker/treefmt-action@v2
