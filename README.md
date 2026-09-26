@@ -551,7 +551,10 @@ finite, sampling rates above zero, frequencies ascending from zero or above,
 all for the active `DataType` only; per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
 new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
 the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
-`(0, 90, 1)`, elevation π/2 when `ListenerViewUnits` is in radians). The destination is created from scratch on
+`(0, 90, 1)`, elevation π/2 when `ListenerViewUnits` is in radians).
+`ReceiverPositions` and `SourcePositions` are required; an empty
+`ListenerPositions` or `EmitterPositions` is written as the conventions'
+default, `[0 0 0]` cartesian in metres. The destination is created from scratch on
 each call; an existing file is overwritten only after validation
 succeeds. Works for every supported `DataType` (FIR, TF, TF-E, SOS).
 

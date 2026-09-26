@@ -215,9 +215,13 @@ func minimalTFEFile() *File {
 		SOFAConventionsVersion: "1.0",
 		DataType:               "TF-E",
 		M:                      M, R: R, E: E, N: N,
-		Frequencies: freqs,
-		TFRealE:     tfR,
-		TFImagE:     tfI,
+		Frequencies:          freqs,
+		TFRealE:              tfR,
+		TFImagE:              tfI,
+		ReceiverPositions:    []Vector3{{0, 0, 0}},
+		ReceiverPositionType: CoordinateCartesian,
+		SourcePositions:      []Vector3{{0, 0, 1}},
+		SourcePositionType:   CoordinateSpherical,
 	}
 }
 
@@ -231,8 +235,12 @@ func minimalSOSFile() *File {
 		SOFAConventionsVersion: "1.0",
 		DataType:               "SOS",
 		M:                      M, R: R, E: E, N: N,
-		SOSCoefficients: sos,
-		SamplingRate:    []float64{48000},
+		SOSCoefficients:      sos,
+		SamplingRate:         []float64{48000},
+		ReceiverPositions:    []Vector3{{0, 0, 0}},
+		ReceiverPositionType: CoordinateCartesian,
+		SourcePositions:      []Vector3{{0, 0, 1}},
+		SourcePositionType:   CoordinateSpherical,
 	}
 }
 

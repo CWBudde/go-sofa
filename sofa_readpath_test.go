@@ -442,6 +442,10 @@ func TestOpenLegacyTwoDimensionalPositions(t *testing.T) {
 		dims: []string{dimE, dimC}, data: []float64{1, 2, 3, 4, 5, 6},
 		attrs: map[string]string{"Type": CoordinateCartesian, "Units": "metre"},
 	}
+	spec.vars["SourcePosition"] = craftedVar{
+		dims: []string{dimI, dimC}, data: []float64{0, 0, 1},
+		attrs: map[string]string{"Type": CoordinateSpherical, "Units": UnitsSphericalDegrees},
+	}
 	f, err := Open(writeCraftedSpec(t, spec))
 	if err != nil {
 		t.Fatalf("Open: %v", err)

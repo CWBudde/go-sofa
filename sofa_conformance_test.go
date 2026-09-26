@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -381,7 +382,7 @@ func TestValidateRejectsPositionType(t *testing.T) {
 		})
 	}
 
-	// A position that is not written needs no Type.
+	// An empty EmitterPosition is written as the default, so it needs no Type.
 	f := minimalFIRFile()
 	f.EmitterPositions, f.EmitterPositionType = nil, ""
 	if err := f.validate(); err != nil {
@@ -392,6 +393,59 @@ func TestValidateRejectsPositionType(t *testing.T) {
 	f.SourcePositionType = "Spherical"
 	if err := f.validate(); err != nil {
 		t.Errorf("validate with Type %q: %v", f.SourcePositionType, err)
+	}
+}
+
+// TestSaveRequiresPositions checks that Save rejects a file without
+// ReceiverPosition or SourcePosition, which have no conventions' default.
+func TestSaveRequiresPositions(t *testing.T) {
+	for name, mutate := range map[string]func(*File){
+		datasetReceiverPosition + "s": func(f *File) { f.ReceiverPositions, f.ReceiverPositionsM = nil, nil },
+		datasetSourcePosition + "s":   func(f *File) { f.SourcePositions = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := minimalFIRFile()
+			mutate(f)
+			err := f.Save(filepath.Join(t.TempDir(), "positions.sofa"))
+			var ve *ValidationError
+			if !errors.As(err, &ve) || ve.Field != name {
+				t.Fatalf("Save error = %v, want a *ValidationError for %s", err, name)
+			}
+		})
+	}
+}
+
+// TestSavePositionDefaults checks that an empty ListenerPosition or
+// EmitterPosition is written as the conventions' default, [0 0 0]
+// cartesian in metres, without changing the File.
+func TestSavePositionDefaults(t *testing.T) {
+	f := minimalFIRFile()
+	f.ListenerPositions, f.ListenerPositionType = nil, ""
+	f.EmitterPositions, f.EmitterPositionType = nil, ""
+	path := filepath.Join(t.TempDir(), "defaults.sofa")
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if f.ListenerPositions != nil || f.EmitterPositions != nil || f.ListenerPositionType != "" || f.EmitterPositionType != "" {
+		t.Error("Save changed the File's positions")
+	}
+	back, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer back.Close()
+	origin := []Vector3{{0, 0, 0}}
+	for _, p := range []struct {
+		name       string
+		got        []Vector3
+		typ, units string
+	}{
+		{datasetListenerPosition, back.ListenerPositions, back.ListenerPositionType, back.ListenerPositionUnits},
+		{datasetEmitterPosition, back.EmitterPositions, back.EmitterPositionType, back.EmitterPositionUnits},
+	} {
+		if !reflect.DeepEqual(p.got, origin) || p.typ != CoordinateCartesian || p.units != "metre" {
+			t.Errorf("%s = %v %q %q, want %v %q %q", p.name, p.got, p.typ, p.units, origin, CoordinateCartesian, "metre")
+		}
 	}
 }
 

@@ -45,6 +45,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Requires go-hdf5 v0.18.0, which writes new-style groups (the layout
   libmysofa reads), text attributes with the ASCII character set, and
   tracks attribute creation order as netCDF-C does.
+- **Breaking:** `Save` requires `ReceiverPositions` and `SourcePositions`,
+  which the SOFA conventions make mandatory without a usable default, and
+  writes an empty `ListenerPositions` or `EmitterPositions` as the
+  conventions' default, `[0 0 0]` cartesian in metres. The `File` is not
+  modified.
 
 ## [v0.2.0] - 2026-09-26
 

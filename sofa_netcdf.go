@@ -216,6 +216,38 @@ func rowDim(n int, dim string, size int) string {
 	return dimI
 }
 
+// savedPosition is one position variable as Save writes it: shared rows
+// (one per dim entry, or a single one) or per-measurement rows perM, and
+// its Type and Units attributes.
+type savedPosition struct {
+	name       string
+	positions  []Vector3
+	perM       [][]Vector3
+	dim        string
+	size       int
+	typ, units string
+}
+
+// savedPositions returns the four position variables Save writes: the
+// File's, except that an empty ListenerPosition or EmitterPosition becomes
+// the conventions' default, [0 0 0] cartesian in metres. The File itself is
+// not changed.
+func (f *File) savedPositions() []savedPosition {
+	ps := []savedPosition{
+		{datasetListenerPosition, f.ListenerPositions, nil, dimM, f.M, f.ListenerPositionType, f.ListenerPositionUnits},
+		{datasetReceiverPosition, f.ReceiverPositions, f.ReceiverPositionsM, dimR, f.R, f.ReceiverPositionType, f.ReceiverPositionUnits},
+		{datasetSourcePosition, f.SourcePositions, nil, dimM, f.M, f.SourcePositionType, f.SourcePositionUnits},
+		{datasetEmitterPosition, f.EmitterPositions, f.EmitterPositionsM, dimE, f.E, f.EmitterPositionType, f.EmitterPositionUnits},
+	}
+	for i, p := range ps {
+		defaulted := p.name == datasetListenerPosition || p.name == datasetEmitterPosition
+		if defaulted && len(p.positions) == 0 && len(p.perM) == 0 {
+			ps[i].positions, ps[i].typ, ps[i].units = []Vector3{{}}, CoordinateCartesian, "metre"
+		}
+	}
+	return ps
+}
+
 // writePositionDataset writes a position variable tagged with the Type and
 // Units attributes that name its coordinate system: [rows, C] for listener
 // and source positions, [rows, C, I] for receiver and emitter positions

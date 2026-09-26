@@ -227,6 +227,10 @@ func minimalTFFile() *File {
 		Frequencies:            freqs,
 		TFReal:                 tfR,
 		TFImag:                 tfI,
+		ReceiverPositions:      []Vector3{{0, 0, 0}},
+		ReceiverPositionType:   CoordinateCartesian,
+		SourcePositions:        []Vector3{{0, 0, 1}},
+		SourcePositionType:     CoordinateSpherical,
 	}
 }
 

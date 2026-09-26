@@ -81,7 +81,9 @@ type File struct {
 	E int // number of emitters (typically 1; for SH-encoded HRTFs this is the SH coefficient index, with E = (Lmax+1)² — see (*File).SHOrder)
 	N int // number of samples per impulse response
 
-	// Spatial data
+	// Spatial data. Save requires ReceiverPositions and SourcePositions and
+	// writes an empty ListenerPositions or EmitterPositions as the
+	// conventions' default, [0 0 0] cartesian in metres.
 	ListenerPositions []Vector3 // [M] listener positions for each measurement
 	ListenerUp        Vector3   // listener's up vector
 	ListenerView      Vector3   // listener's view direction
@@ -820,19 +822,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 
 	// Write spatial position datasets; per-measurement receiver and
 	// emitter positions, when set, replace the shared ones.
-	for _, p := range []struct {
-		name       string
-		positions  []Vector3
-		perM       [][]Vector3
-		dim        string
-		size       int
-		typ, units string
-	}{
-		{datasetListenerPosition, f.ListenerPositions, nil, dimM, f.M, f.ListenerPositionType, f.ListenerPositionUnits},
-		{datasetReceiverPosition, f.ReceiverPositions, f.ReceiverPositionsM, dimR, f.R, f.ReceiverPositionType, f.ReceiverPositionUnits},
-		{datasetSourcePosition, f.SourcePositions, nil, dimM, f.M, f.SourcePositionType, f.SourcePositionUnits},
-		{datasetEmitterPosition, f.EmitterPositions, f.EmitterPositionsM, dimE, f.E, f.EmitterPositionType, f.EmitterPositionUnits},
-	} {
+	for _, p := range f.savedPositions() {
 		var err error
 		if len(p.perM) > 0 {
 			err = nc.writePositionDatasetPerM("/"+p.name, p.perM,
@@ -991,23 +981,8 @@ func (f *File) validate() error {
 		return invalid("DataType", "%w", checkDataType(f.DataType))
 	}
 
-	// Check position array dimensions
-	// SOFA spec allows positions to be [M×C] or [1×C] (scalar), same for other dimensions
-	if len(f.ListenerPositions) != f.M && len(f.ListenerPositions) != 1 && len(f.ListenerPositions) != 0 {
-		return invalid("ListenerPositions", "length %d must be M=%d, 1 (scalar), or 0",
-			len(f.ListenerPositions), f.M)
-	}
-	if len(f.ReceiverPositions) != f.R && len(f.ReceiverPositions) != 1 && len(f.ReceiverPositions) != 0 {
-		return invalid("ReceiverPositions", "length %d must be R=%d, 1 (scalar), or 0",
-			len(f.ReceiverPositions), f.R)
-	}
-	if len(f.SourcePositions) != f.M && len(f.SourcePositions) != 1 && len(f.SourcePositions) != 0 {
-		return invalid("SourcePositions", "length %d must be M=%d, 1 (scalar), or 0",
-			len(f.SourcePositions), f.M)
-	}
-	if len(f.EmitterPositions) != f.E && len(f.EmitterPositions) != 1 && len(f.EmitterPositions) != 0 {
-		return invalid("EmitterPositions", "length %d must be E=%d, 1 (scalar), or 0",
-			len(f.EmitterPositions), f.E)
+	if err := f.validatePositionCounts(); err != nil {
+		return err
 	}
 	if err := f.validatePerMeasurement(); err != nil {
 		return err
@@ -1025,24 +1000,40 @@ func (f *File) validate() error {
 	return f.validateConvention()
 }
 
+// validatePositionCounts checks that every position Save writes has one row
+// per measurement (M) or object (R, E), or a single shared row. The SOFA
+// conventions make all four positions mandatory; ReceiverPosition and
+// SourcePosition have no default Save could write, so they are required.
+// Per-measurement rows, when set, are checked by validatePerMeasurement.
+func (f *File) validatePositionCounts() error {
+	for _, p := range f.savedPositions() {
+		n := len(p.positions)
+		switch {
+		case n == 0 && len(p.perM) > 0:
+		case n == 0:
+			return invalid(p.name+"s", "is required")
+		case n != p.size && n != 1:
+			return invalid(p.name+"s", "length %d must be %s=%d or 1 (scalar)", n, p.dim, p.size)
+		}
+	}
+	return nil
+}
+
 // validateCoordinateTypes checks that every position Save writes names its
 // coordinate system with an AES69 Type, and that a ListenerView Type, when
 // set, is one too. Types are compared case-insensitively.
 func (f *File) validateCoordinateTypes() error {
-	for _, p := range []struct {
-		name    string
-		written bool
-		typ     string
-	}{
-		{datasetListenerPosition, len(f.ListenerPositions) > 0, f.ListenerPositionType},
-		{datasetReceiverPosition, len(f.ReceiverPositions) > 0 || len(f.ReceiverPositionsM) > 0, f.ReceiverPositionType},
-		{datasetSourcePosition, len(f.SourcePositions) > 0, f.SourcePositionType},
-		{datasetEmitterPosition, len(f.EmitterPositions) > 0 || len(f.EmitterPositionsM) > 0, f.EmitterPositionType},
-		{datasetListenerView, f.ListenerViewType != "", f.ListenerViewType},
-	} {
-		if !p.written {
-			continue
-		}
+	type coordinates struct {
+		name, typ string
+	}
+	var all []coordinates
+	for _, p := range f.savedPositions() {
+		all = append(all, coordinates{p.name, p.typ})
+	}
+	if f.ListenerViewType != "" {
+		all = append(all, coordinates{datasetListenerView, f.ListenerViewType})
+	}
+	for _, p := range all {
 		if p.typ == "" {
 			return invalid(p.name+"Type", "is required")
 		}
