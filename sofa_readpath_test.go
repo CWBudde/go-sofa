@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,15 +13,17 @@ import (
 )
 
 // craftedVar is one dataset of a crafted file: its row-major values
-// (zero-filled when nil), optional string attributes, and either named
-// dims (the shape then follows from the dimension sizes and the dataset
-// is attached to the scales, as netCDF-4 does) or a bare shape without
-// dimension labels.
+// (zero-filled when nil), optional string attributes, further dataset
+// options (such as chunking and compression), and either named dims (the
+// shape then follows from the dimension sizes and the dataset is attached
+// to the scales, as netCDF-4 does) or a bare shape without dimension
+// labels.
 type craftedVar struct {
 	dims  []string
 	shape []uint64
 	data  []float64
 	attrs map[string]string
+	opts  []hdf5.DatasetOption
 }
 
 // craftedSpec describes a SOFA file written directly through go-hdf5,
@@ -32,10 +35,10 @@ type craftedSpec struct {
 	vars     map[string]craftedVar
 	// extra, when set, writes further objects the craftedVar model cannot
 	// express (other datatypes) before the file is closed.
-	extra func(t *testing.T, fw *hdf5.FileWriter)
+	extra func(t testing.TB, fw *hdf5.FileWriter)
 }
 
-func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
+func writeCraftedSpec(t testing.TB, spec craftedSpec) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "crafted.sofa")
 	opts := []any{
@@ -80,7 +83,7 @@ func writeCraftedSpec(t *testing.T, spec craftedSpec) string {
 	return path
 }
 
-func writeCraftedVar(t *testing.T, nc *netcdfDimensions, name string, v craftedVar) {
+func writeCraftedVar(t testing.TB, nc *netcdfDimensions, name string, v craftedVar) {
 	t.Helper()
 	shape := v.shape
 	if v.dims != nil {
@@ -100,7 +103,7 @@ func writeCraftedVar(t *testing.T, nc *netcdfDimensions, name string, v craftedV
 	if uint64(len(data)) != n {
 		t.Fatalf("%s: %d values for shape %v", name, len(data), shape)
 	}
-	var opts []hdf5.DatasetOption
+	opts := slices.Clone(v.opts)
 	for k, val := range v.attrs {
 		opts = append(opts, hdf5.WithAttribute(k, val))
 	}
@@ -504,7 +507,7 @@ func TestDimensionLabels(t *testing.T) {
 			"Data.IR": {dims: []string{dimM, dimR, dimN}},
 			"Bare":    {shape: []uint64{2, 2}},
 		},
-		extra: func(t *testing.T, fw *hdf5.FileWriter) {
+		extra: func(t testing.TB, fw *hdf5.FileWriter) {
 			t.Helper()
 			ds, err := fw.CreateDataset("/Bogus", hdf5.Float64, []uint64{1},
 				hdf5.WithAttribute("REFERENCE_LIST", "not a compound"))

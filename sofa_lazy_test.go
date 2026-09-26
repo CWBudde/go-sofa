@@ -101,7 +101,7 @@ func TestOpenLazyRejectsNonNumericAudio(t *testing.T) {
 				shape = append(shape, uint64(tc.spec.dims[d])) //nolint:gosec // small test sizes
 			}
 			delete(tc.spec.vars, tc.name)
-			tc.spec.extra = func(t *testing.T, fw *hdf5.FileWriter) {
+			tc.spec.extra = func(t testing.TB, fw *hdf5.FileWriter) {
 				t.Helper()
 				n := 1
 				for _, d := range shape {

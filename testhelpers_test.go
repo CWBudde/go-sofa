@@ -19,6 +19,7 @@ var optionalTestdata = map[string]bool{
 	"demo_FreeFieldHRTF_4_SH.sofa":  true,
 	"OfficeII.sofa":                 true,
 	"SingleRoomSRIR_1.1.sofa":       true,
+	"Kayser2009_Anechoic.sofa":      true,
 }
 
 // testdataPath returns the path of a third-party reference file in testdata/.

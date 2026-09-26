@@ -13,7 +13,7 @@ import (
 // instead of leaving the positions silently empty.
 func TestOpenPropagatesPositionReadError(t *testing.T) {
 	spec := firSpec()
-	spec.extra = func(t *testing.T, fw *hdf5.FileWriter) {
+	spec.extra = func(t testing.TB, fw *hdf5.FileWriter) {
 		t.Helper()
 		ds, err := fw.CreateDataset("/ReceiverPosition", hdf5.Int16, []uint64{2, 3})
 		if err != nil {
@@ -98,7 +98,7 @@ func TestOpenRejectsRank2FrequencyVector(t *testing.T) {
 			"Data.Real": {shape: []uint64{1, 1, 4}},
 			"Data.Imag": {shape: []uint64{1, 1, 4}},
 		},
-		extra: func(t *testing.T, fw *hdf5.FileWriter) {
+		extra: func(t testing.TB, fw *hdf5.FileWriter) {
 			t.Helper()
 			ds, err := fw.CreateDataset("/N", hdf5.Float64, []uint64{2, 2})
 			if err != nil {
