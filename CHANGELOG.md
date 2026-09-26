@@ -7,6 +7,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `Save` writes `ReceiverPosition` and `EmitterPosition` as `[R,C,I]` and
+  `[E,C,I]` (`[I,C,I]` for a single shared row), the only layouts the SOFA
+  conventions allow; they were `[R,C]` and `[E,C]`, which libmysofa's
+  `mysofa_check` rejects. `Open` still reads the old layout. Together with
+  go-hdf5 v0.18.0, SimpleFreeFieldHRIR files written by go-sofa now pass
+  libmysofa's `mysofa_load` and `mysofa_check`.
+
+### Changed
+
+- Requires go-hdf5 v0.18.0, which writes new-style groups (the layout
+  libmysofa reads), text attributes with the ASCII character set, and
+  tracks attribute creation order as netCDF-C does.
+
 ## [v0.2.0] - 2026-09-26
 
 ### Changed

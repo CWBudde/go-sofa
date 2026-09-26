@@ -370,12 +370,20 @@ func positionDatasets(f *sofa.File) map[string]dataset {
 		}
 		return d
 	}
+	// Receiver and emitter positions carry a trailing I axis: [R,C,I],
+	// [E,C,I], as the conventions require and libmysofa checks.
+	perObject := func(rows string, vs []sofa.Vector3) dataset {
+		d := flat(rows, vs)
+		d.Shape = append(d.Shape, 1)
+		d.Dims = append(d.Dims, "I")
+		return d
+	}
 	// base writes one listener, R receivers, M sources and E emitters.
 	return map[string]dataset{
 		"ListenerPosition": flat("I", f.ListenerPositions),
-		"ReceiverPosition": flat("R", f.ReceiverPositions),
+		"ReceiverPosition": perObject("R", f.ReceiverPositions),
 		"SourcePosition":   flat("M", f.SourcePositions),
-		"EmitterPosition":  flat("E", f.EmitterPositions),
+		"EmitterPosition":  perObject("E", f.EmitterPositions),
 		"ListenerUp":       flat("I", []sofa.Vector3{f.ListenerUp}),
 		"ListenerView":     flat("I", []sofa.Vector3{f.ListenerView}),
 	}

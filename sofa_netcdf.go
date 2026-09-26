@@ -216,16 +216,22 @@ func rowDim(n int, dim string, size int) string {
 	return dimI
 }
 
-// writePositionDataset writes a position variable [rows, C] tagged with the
-// Type and Units attributes that name its coordinate system. Empty type or
-// units are omitted rather than written as empty strings.
-func (nc *netcdfDimensions) writePositionDataset(name string, positions []Vector3, rows, typ, units string) error {
+// writePositionDataset writes a position variable tagged with the Type and
+// Units attributes that name its coordinate system: [rows, C] for listener
+// and source positions, [rows, C, I] for receiver and emitter positions
+// (perObject), the only shared layouts the conventions allow for them.
+// Empty type or units are omitted rather than written as empty strings.
+func (nc *netcdfDimensions) writePositionDataset(name string, positions []Vector3, rows string, perObject bool, typ, units string) error {
 	if len(positions) == 0 {
 		// Skip if no positions provided
 		return nil
 	}
 
-	return nc.writeVariableWithAttrs(name, flattenVector3s(positions), []string{rows, dimC},
+	dims := []string{rows, dimC}
+	if perObject {
+		dims = append(dims, dimI)
+	}
+	return nc.writeVariableWithAttrs(name, flattenVector3s(positions), dims,
 		positionAttributes(typ, units))
 }
 

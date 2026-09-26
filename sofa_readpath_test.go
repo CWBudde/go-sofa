@@ -423,6 +423,61 @@ func TestOpenSharedPositionsLeavePerMFieldsEmpty(t *testing.T) {
 	}
 }
 
+// TestOpenLegacyTwoDimensionalPositions opens a file with ReceiverPosition
+// [R,C] and EmitterPosition [E,C], as go-sofa up to v0.2.0 wrote them, and
+// checks that Save rewrites both as the [R,C,I] and [E,C,I] the conventions
+// require.
+func TestOpenLegacyTwoDimensionalPositions(t *testing.T) {
+	spec := firSpec()
+	spec.dims[dimE] = 2
+	spec.vars["ReceiverPosition"] = craftedVar{
+		dims: []string{dimR, dimC}, data: []float64{0, 0.09, 0, 0, -0.09, 0},
+		attrs: map[string]string{"Type": CoordinateCartesian, "Units": "metre"},
+	}
+	spec.vars["EmitterPosition"] = craftedVar{
+		dims: []string{dimE, dimC}, data: []float64{1, 2, 3, 4, 5, 6},
+		attrs: map[string]string{"Type": CoordinateCartesian, "Units": "metre"},
+	}
+	f, err := Open(writeCraftedSpec(t, spec))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+	if want := []Vector3{{0, 0.09, 0}, {0, -0.09, 0}}; !reflect.DeepEqual(f.ReceiverPositions, want) {
+		t.Errorf("ReceiverPositions = %v, want %v", f.ReceiverPositions, want)
+	}
+	if want := []Vector3{{1, 2, 3}, {4, 5, 6}}; !reflect.DeepEqual(f.EmitterPositions, want) {
+		t.Errorf("EmitterPositions = %v, want %v", f.EmitterPositions, want)
+	}
+	if f.ReceiverPositionsM != nil || f.EmitterPositionsM != nil {
+		t.Errorf("per-M fields set for [X,C] layouts: %v, %v", f.ReceiverPositionsM, f.EmitterPositionsM)
+	}
+
+	path := filepath.Join(t.TempDir(), "resaved.sofa")
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	vars := readNetcdfLayout(t, path).variables
+	for name, want := range map[string][]string{
+		"ReceiverPosition": {dimR, dimC, dimI},
+		"EmitterPosition":  {dimE, dimC, dimI},
+	} {
+		if !reflect.DeepEqual(vars[name], want) {
+			t.Errorf("resaved %s dimensions = %v, want %v", name, vars[name], want)
+		}
+	}
+	back, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open resaved: %v", err)
+	}
+	defer back.Close()
+	if !reflect.DeepEqual(back.ReceiverPositions, f.ReceiverPositions) ||
+		!reflect.DeepEqual(back.EmitterPositions, f.EmitterPositions) {
+		t.Errorf("resaved positions = %v, %v, want %v, %v",
+			back.ReceiverPositions, back.EmitterPositions, f.ReceiverPositions, f.EmitterPositions)
+	}
+}
+
 // TestOpenOfficeIIListenerViewPerMeasurement covers a third-party file
 // whose ListenerView is [M,C].
 func TestOpenOfficeIIListenerViewPerMeasurement(t *testing.T) {
