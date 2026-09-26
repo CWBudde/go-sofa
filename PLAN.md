@@ -357,7 +357,7 @@ from `rowDim`, `sofa_netcdf.go:212`). Every convention allows only
       them unchanged (shape with h5py, dims with netCDF4). `just interop`
       passes; files generated before the fix fail it.
 
-### P1.3 — Regression gate
+### P1.3 — Regression gate — ✅ DONE (2026-09-27)
 
 - [x] **P1.3a.** Add libmysofa to `just interop` and `test-interop.yaml`:
       build libmysofa at a pinned commit (cache the build), run the harness
@@ -378,7 +378,13 @@ from `rowDim`, `sofa_netcdf.go:212`). Every convention allows only
       files from before P1.2 fail it (fir, extras `check 10008`), as do
       go-hdf5 v0.17 files (all `load err 10001`) and a resave whose result
       differs from its original's.
-- [ ] **P1.3b.** Document the libmysofa result in README "Interoperability".
+- [x] **P1.3b.** Document the libmysofa result in README "Interoperability".
+      (2026-09-27) — new README section "Interoperability" with the
+      libmysofa 3f4cb66 result per file kind (SimpleFreeFieldHRIR FIR: load
+      and check OK; other FIR/SOS: `MYSOFA_INVALID_ATTRIBUTES` from check;
+      TF/TF-E: `MYSOFA_INVALID_FORMAT` from load, as for the originals),
+      taken from a fresh `just interop` run; Features bullet and
+      "Cross-validation" name the libmysofa step.
 
 ---
 
