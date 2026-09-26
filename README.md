@@ -496,7 +496,7 @@ if errors.As(err, &ve) {
 
 One coordinate triplet of a position or orientation. Its units are those the
 variable's `Type` and `Units` attributes name: metres for `cartesian`;
-azimuth, elevation (degrees or radians) and radius in metres for `spherical`
+azimuth, elevation (degrees; `Save` rejects other angle units) and radius in metres for `spherical`
 and `spherical harmonics`.
 
 **Fields:**
@@ -551,12 +551,14 @@ finite, sampling rates above zero, frequencies ascending from zero or above,
 all for the active `DataType` only; per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
 new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
 the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
-`(0, 90, 1)`, elevation π/2 when `ListenerViewUnits` is in radians).
+`(0, 90, 1)`).
 `ReceiverPositions` and `SourcePositions` are required; an empty
 `ListenerPositions` or `EmitterPositions` is written as the conventions'
 default, `[0 0 0]` cartesian in metres. Every position needs a `Type`; empty
 `Units` are written as the default for it, `metre` for cartesian and
-`degree, degree, metre` otherwise. The destination is created from scratch on
+`degree, degree, metre` otherwise. `Units` may name only `metre` and `degree`
+(also `meter`, `metres`, `meters`, `degrees`; any case), so radians are
+rejected. The destination is created from scratch on
 each call; an existing file is overwritten only after validation
 succeeds. Works for every supported `DataType` (FIR, TF, TF-E, SOS).
 

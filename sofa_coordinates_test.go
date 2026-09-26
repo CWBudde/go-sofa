@@ -1,7 +1,9 @@
 package sofa
 
 import (
+	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -49,7 +51,6 @@ func TestPositionCoordinateAttributesRoundTrip(t *testing.T) {
 		units string
 	}{
 		{"spherical degrees", CoordinateSpherical, UnitsSphericalDegrees},
-		{"spherical radians", CoordinateSpherical, "radian, radian, metre"},
 		{"cartesian", CoordinateCartesian, UnitsCartesianMetres},
 	}
 
@@ -148,5 +149,39 @@ func TestReadRealFileCoordinateType(t *testing.T) {
 
 	if f.SourcePositionType != CoordinateSpherical {
 		t.Errorf("SourcePositionType = %q, want %q", f.SourcePositionType, CoordinateSpherical)
+	}
+}
+
+// TestSaveRejectsBadUnits checks that Save accepts only the SOFA unit names
+// (metre and degree, with the aliases sofar and the SOFA Toolbox accept) in
+// the Units of positions and ListenerView, compared case-insensitively.
+func TestSaveRejectsBadUnits(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, units string
+		ok                 bool
+	}{
+		{"metre", "SourcePositionUnits", "metre", true},
+		{"aliases", "SourcePositionUnits", "Degrees, degree, METERS", true},
+		{"no spaces", "SourcePositionUnits", "degree,degree,metre", true},
+		{"three metres", "ReceiverPositionUnits", "metres, meter, metre", true},
+		{"garbage", "SourcePositionUnits", "furlong, parsec, cubit", false},
+		{"radians", "SourcePositionUnits", "radian, radian, metre", false},
+		{"empty part", "ListenerPositionUnits", "degree,,metre", false},
+		{"ListenerView radians", "ListenerViewUnits", "rad, rad, metre", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := minimalFIRFile()
+			setSphericalOrientation(f)
+			f.ListenerViewUnits = UnitsSphericalDegrees
+			reflect.ValueOf(f).Elem().FieldByName(tc.field).SetString(tc.units)
+			err := f.Save(filepath.Join(t.TempDir(), "units.sofa"))
+			var ve *ValidationError
+			switch {
+			case tc.ok && err != nil:
+				t.Fatalf("Save rejected %s %q: %v", tc.field, tc.units, err)
+			case !tc.ok && (!errors.As(err, &ve) || ve.Field != tc.field):
+				t.Fatalf("Save error = %v, want a *ValidationError for %s", err, tc.field)
+			}
+		})
 	}
 }

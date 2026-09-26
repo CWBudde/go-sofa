@@ -64,7 +64,8 @@ const (
 // Vector3 is one coordinate triplet of a position or orientation
 // variable. Its units are those the variable's Type and Units attributes
 // name: X, Y, Z in metres for "cartesian"; azimuth, elevation (degrees, or
-// radians where Units say so) and radius in metres for "spherical" and
+// radians where a file's Units say so; Save accepts only degrees) and
+// radius in metres for "spherical" and
 // "spherical harmonics" (where each EmitterPosition row is one SH
 // coefficient's emitter).
 type Vector3 struct {
@@ -114,7 +115,9 @@ type File struct {
 	// Save requires a Type ("cartesian", "spherical" or "spherical
 	// harmonics") on every position it writes, and writes empty Units as the
 	// conventions' default for the Type: UnitsCartesianMetres for cartesian,
-	// UnitsSphericalDegrees otherwise.
+	// UnitsSphericalDegrees otherwise. Units, here and on ListenerView, may
+	// name only metre and degree (also meter, metres, meters, degrees; any
+	// case), comma-separated.
 	ListenerPositionType  string
 	ListenerPositionUnits string
 	ReceiverPositionType  string
@@ -991,6 +994,9 @@ func (f *File) validate() error {
 		return err
 	}
 	if err := f.validateCoordinateTypes(); err != nil {
+		return err
+	}
+	if err := f.validateUnits(); err != nil {
 		return err
 	}
 	if err := f.validateValues(); err != nil {

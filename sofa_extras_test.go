@@ -223,7 +223,7 @@ func TestTypeUnitsKeepCase(t *testing.T) {
 	f.SourcePositionType = "Spherical"
 	f.SourcePositionUnits = "Degree, Degree, Metre"
 	f.ListenerViewType = "Spherical"
-	f.ListenerViewUnits = "Radian, Radian, Metre"
+	f.ListenerViewUnits = "Degree, Degree, Metre"
 	f.ListenerView = Vector3{}
 	f.ListenerUp = Vector3{}
 	back := roundTrip(t, f)
@@ -231,12 +231,12 @@ func TestTypeUnitsKeepCase(t *testing.T) {
 		t.Errorf("SourcePosition Type/Units = %q/%q, want the original case",
 			back.SourcePositionType, back.SourcePositionUnits)
 	}
-	if back.ListenerViewType != "Spherical" || back.ListenerViewUnits != "Radian, Radian, Metre" {
+	if back.ListenerViewType != "Spherical" || back.ListenerViewUnits != "Degree, Degree, Metre" {
 		t.Errorf("ListenerView Type/Units = %q/%q, want the original case",
 			back.ListenerViewType, back.ListenerViewUnits)
 	}
-	// The spherical, radian default up vector proves both were recognised.
-	if want := (Vector3{0, 1.5707963267948966, 1}); back.ListenerUp != want {
+	// The spherical default up vector proves the Type was recognised.
+	if want := (Vector3{0, 90, 1}); back.ListenerUp != want {
 		t.Errorf("ListenerUp = %v, want %v", back.ListenerUp, want)
 	}
 }

@@ -57,6 +57,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Breaking:** `UnitsCartesianMetres` is `"metre"`, the value of the SOFA
   convention tables, instead of `"metre, metre, metre"`. `Open` still reads
   either as it is stored.
+- **Breaking:** `Save` checks the `Units` of every position and of
+  `ListenerView`: each comma-separated part must be `metre` or `degree`
+  (also `meter`, `metres`, `meters`, `degrees`; any case), the names sofar
+  and the SOFA Toolbox accept. Other units, radians included, are a
+  `*ValidationError`; the default spherical `ListenerUp` for radian units
+  (elevation π/2) is gone. `Open` still reads such files.
 
 ## [v0.2.0] - 2026-09-26
 
