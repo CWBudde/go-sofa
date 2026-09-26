@@ -224,7 +224,10 @@ hit by P1.1m.
       rejects that, so resaves of `SimpleFreeFieldHRIR_1.0.sofa` and
       `SimpleHeadphoneIR_0.2.sofa` (`RoomDescription` contains "×") fail with
       `load err 10001`. netCDF-C writes text attributes as ASCII and keeps the
-      UTF-8 bytes; so do the originals.
+      UTF-8 bytes; so do the originals. Neither file is fetched in CI and
+      `internal/interop/gen` writes only ASCII values, so add a generated
+      file with a non-ASCII global attribute (e.g. `RoomDescription` with
+      "×") that P1.3a's libmysofa gate loads.
 
 ### P1.2 — go-sofa: correct position variable dimensions
 
