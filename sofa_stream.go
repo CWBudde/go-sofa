@@ -241,6 +241,9 @@ func (f *File) readMRN(what, name string, loaded [][][]float64, m int) ([][]floa
 		if m >= len(loaded) {
 			return nil, fmt.Errorf("%s(%d): no data stored: %w", what, m, ErrIndexOutOfRange)
 		}
+		if err := checkRN(loaded[m], f.R, f.N); err != nil {
+			return nil, fmt.Errorf("%s(%d): %w", what, m, err)
+		}
 		return loaded[m], nil
 	}
 	flat, _, err := f.lazy.readMeasurement(name, m)
@@ -248,6 +251,20 @@ func (f *File) readMRN(what, name string, loaded [][][]float64, m int) ([][]floa
 		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
 	}
 	return reshapeIR(flat, 1, f.R, f.N)[0], nil
+}
+
+// checkRN reports whether rows has exactly rows×n shape, so a File built
+// or edited in memory cannot hand out a ragged measurement.
+func checkRN(rows [][]float64, nRows, n int) error {
+	if len(rows) != nRows {
+		return fmt.Errorf("%d rows stored, want %d: %w", len(rows), nRows, ErrIndexOutOfRange)
+	}
+	for i, row := range rows {
+		if len(row) != n {
+			return fmt.Errorf("row %d has %d values, want %d: %w", i, len(row), n, ErrIndexOutOfRange)
+		}
+	}
+	return nil
 }
 
 // readMREN returns measurement m of a TF-E [M][R][E][N] audio variable,
@@ -260,7 +277,16 @@ func (f *File) readMREN(what, name string, loaded [][][][]float64, m int) ([][][
 		if m >= len(loaded) {
 			return nil, fmt.Errorf("%s(%d): no data stored: %w", what, m, ErrIndexOutOfRange)
 		}
-		return loaded[m], nil
+		row := loaded[m]
+		if len(row) != f.R {
+			return nil, fmt.Errorf("%s(%d): %d receivers stored, R=%d: %w", what, m, len(row), f.R, ErrIndexOutOfRange)
+		}
+		for r := range row {
+			if err := checkRN(row[r], f.E, f.N); err != nil {
+				return nil, fmt.Errorf("%s(%d) receiver %d: %w", what, m, r, err)
+			}
+		}
+		return row, nil
 	}
 	flat, v, err := f.lazy.readMeasurement(name, m)
 	if err != nil {

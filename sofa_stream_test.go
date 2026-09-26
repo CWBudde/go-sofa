@@ -191,6 +191,34 @@ func TestReadMeasurementMatchesEager(t *testing.T) {
 	}
 }
 
+// A File built or edited in memory with ragged data must not hand out a
+// measurement that is not [R][N] (or [R][E][N]).
+func TestReadMeasurementRejectsRaggedInMemory(t *testing.T) {
+	f := streamFIRFile(3, 2, 4)
+	f.ImpulseResponses[1] = f.ImpulseResponses[1][:1] // one receiver instead of R=2
+	f.ImpulseResponses[2][1] = f.ImpulseResponses[2][1][:3]
+	if _, err := f.ReadMeasurement(0); err != nil {
+		t.Fatalf("ReadMeasurement(0): %v", err)
+	}
+	for _, m := range []int{1, 2} {
+		if _, err := f.ReadMeasurement(m); !errors.Is(err, ErrIndexOutOfRange) {
+			t.Errorf("ReadMeasurement(%d): %v, want ErrIndexOutOfRange", m, err)
+		}
+	}
+	calls := 0
+	err := f.RangeMeasurements(func(int, [][]float64) error { calls++; return nil })
+	if !errors.Is(err, ErrIndexOutOfRange) || calls != 1 {
+		t.Errorf("RangeMeasurements: err=%v after %d calls, want ErrIndexOutOfRange after 1", err, calls)
+	}
+
+	e := &File{DataType: DataTypeTFE, M: 1, R: 2, E: 2, N: 3}
+	e.TFRealE = [][][][]float64{{{{1, 2, 3}, {4, 5, 6}}, {{7, 8, 9}, {1, 2}}}}
+	e.TFImagE = e.TFRealE
+	if _, _, err := e.ReadTFEMeasurement(0); !errors.Is(err, ErrIndexOutOfRange) {
+		t.Errorf("ReadTFEMeasurement: %v, want ErrIndexOutOfRange", err)
+	}
+}
+
 func TestReadMeasurementErrors(t *testing.T) {
 	fir := saveTemp(t, streamFIRFile(3, 2, 4), "fir.sofa")
 	for _, tc := range []struct {
