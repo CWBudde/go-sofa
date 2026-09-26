@@ -238,15 +238,20 @@ func main() {
         DataType:               sofa.DataTypeFIR,
         Title:                  "Synthetic HRIR",
         M:                      M, R: R, E: E, N: N,
-        SamplingRate: []float64{48000},
-        Delay:        []float64{0},
-        ListenerPositions: []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+        SamplingRate:         []float64{48000},
+        Delay:                []float64{0},
+        ListenerPositions:    []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+        ListenerPositionType: sofa.CoordinateCartesian,
         ReceiverPositions: []sofa.Vector3{
             {X: 0, Y: 0.09, Z: 0},  // left ear
             {X: 0, Y: -0.09, Z: 0}, // right ear
         },
-        SourcePositions:  []sofa.Vector3{{X: 1, Y: 0, Z: 0}},
-        EmitterPositions: []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+        ReceiverPositionType: sofa.CoordinateCartesian,
+        // azimuth 0°, elevation 0°, 1 m: straight ahead
+        SourcePositions:     []sofa.Vector3{{X: 0, Y: 0, Z: 1}},
+        SourcePositionType:  sofa.CoordinateSpherical,
+        EmitterPositions:    []sofa.Vector3{{X: 0, Y: 0, Z: 0}},
+        EmitterPositionType: sofa.CoordinateCartesian,
     }
 
     // [M][R][N] impulse responses
