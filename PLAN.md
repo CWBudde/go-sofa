@@ -58,20 +58,22 @@ cmake --build build`, then compile this against the static lib:
 
 ---
 
-## Phase 0 — Release hygiene (do first, ~1 hour)
+## Phase 0 — Release hygiene (do first, ~1 hour) — ✅ DONE (2026-09-26)
 
 The documented install commands are broken today; nothing else matters to a
 new user until this is fixed.
 
-- [ ] **P0a. Tag and release v0.2.0.** Only `v0.1.0` exists (remote and proxy).
+- [x] **P0a. Tag and release v0.2.0.** (2026-09-26) — tagged `v0.2.0` on
+      `fbf29c0` and published the GitHub release with the CHANGELOG section;
+      the proxy resolves `@latest` to v0.2.0 and
+      `go install github.com/CWBudde/go-sofa/cmd/sofainfo@latest` works.
+      Original task: only `v0.1.0` exists (remote and proxy).
       v0.1.0's `go.mod` declares `github.com/cwbudde/go-sofa`, so
       `go install github.com/CWBudde/go-sofa/cmd/sofainfo@latest` fails with
       "module declares its path as …". Push the `v0.2.0` tag on `fbf29c0`
       (or later), create a GitHub release with the CHANGELOG section, and
       verify `GOPROXY=https://proxy.golang.org go list -m
 github.com/CWBudde/go-sofa@latest` returns v0.2.0.
-      (2026-09-26) — partial: tag push and release are manual (the agent may
-      not publish them). Release notes = CHANGELOG `## [v0.2.0]` section.
 - [x] ~~**P0b. Retire the lowercase module path.**~~ (2026-09-26) — won't
       do: the proxy lists both casings from the same tags (`go list -m
 -versions` for either path shows v0.1.0, whose go.mod says lowercase), so
