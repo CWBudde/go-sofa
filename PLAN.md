@@ -585,7 +585,8 @@ per measurement → every `ReadMeasurement` evicts and re-inflates all of them.
       `ds.SetChunkCacheSize(max(8, k), clamp(k × chunkBytes, 16 MiB, 256 MiB))`.
       Contiguous datasets: nothing to do.
       (2026-09-27) — `chunkCacheSize` (`sofa_stream.go`) computes the bounds
-      with saturating products (malformed chunk shapes keep the defaults);
+      with saturating products (malformed chunk shapes and chunks one
+      measurement long keep the defaults: no later read reuses those);
       `prepareLazyAudio` applies them to each chunked audio dataset.
       `TestChunkCacheSize` covers Kayser2009 (32 chunks, 44.9 MB), CIPIC
       (defaults), edge chunks, the clamps and overflow.

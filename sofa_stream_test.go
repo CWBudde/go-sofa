@@ -631,9 +631,12 @@ func TestChunkCacheSize(t *testing.T) {
 		{"partial chunks", []uint64{10, 5, 7}, []uint64{4, 2, 3}, 0, 4, 9, defBytes},
 		{"M last", []uint64{3, 4, 40}, []uint64{1, 1, 4}, 2, 8, 12, defBytes},
 		{"no M axis", []uint64{4, 2, 2}, []uint64{1, 1, 1}, -1, 8, 16, defBytes},
-		{"too many chunks", []uint64{1, 1 << 20, 1 << 20}, []uint64{1, 1, 1}, 0, 8, maxChunkCacheBytes, maxChunkCacheBytes},
-		{"too large", []uint64{1, 64, 1 << 20}, []uint64{1, 1, 1 << 20}, 0, 8, 64, maxChunkCacheBytes},
+		{"too many chunks", []uint64{2, 1 << 20, 1 << 20}, []uint64{2, 1, 1}, 0, 8, maxChunkCacheBytes, maxChunkCacheBytes},
+		{"too large", []uint64{2, 64, 1 << 20}, []uint64{2, 1, 1 << 20}, 0, 8, 64, maxChunkCacheBytes},
 		{"overflowing chunk", []uint64{1 << 40, 1 << 40, 1 << 40}, []uint64{1 << 40, 1 << 40, 1 << 40}, 0, 8, defChunks, maxChunkCacheBytes},
+		// Each chunk holds one measurement: no later read reuses it.
+		{"one measurement per chunk", []uint64{584, 8, 4800}, []uint64{1, 1, 1200}, 0, 8, defChunks, defBytes},
+		{"one measurement per chunk, M last", []uint64{3, 4, 40}, []uint64{1, 1, 1}, 2, 8, defChunks, defBytes},
 		{"zero chunk dim", []uint64{584, 8, 4800}, []uint64{146, 0, 1200}, 0, 8, defChunks, defBytes},
 		{"rank mismatch", []uint64{584, 8, 4800}, []uint64{146, 1}, 0, 8, defChunks, defBytes},
 	} {

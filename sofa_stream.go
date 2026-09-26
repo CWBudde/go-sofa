@@ -42,9 +42,9 @@ var ErrNotLoaded = errors.New("audio data not loaded (file opened with OpenLazy)
 // (CIPIC: Data.IR [1250,2,200] in chunks of [1250,1,200]). There the first
 // ReadMeasurement decompresses every receiver's chunk and keeps it cached,
 // so OpenLazy saves memory over Open only for files chunked along M or
-// stored contiguously. The cache holds the chunks one measurement spans (up to
-// 256 MiB per audio variable), so reading every measurement decompresses
-// each chunk once.
+// stored contiguously. When chunks span several measurements, the cache
+// holds the chunks one measurement spans (up to 256 MiB per audio
+// variable), so reading every measurement decompresses each chunk once.
 func OpenLazy(path string) (*File, error) {
 	return open(path, true)
 }
@@ -81,9 +81,10 @@ type lazyAudio struct {
 //
 // Each read is one ReadSlice of a whole measurement. go-hdf5 caches the
 // dataset's parsed header and chunk index and keeps recently used chunks
-// decompressed; prepareLazyAudio sizes that cache to the chunks one
-// measurement spans (see chunkCacheSize), so sequential reads of a chunked
-// file decompress each chunk once.
+// decompressed; when chunks span several measurements, prepareLazyAudio
+// sizes that cache to the chunks one measurement spans (see
+// chunkCacheSize), so sequential reads of a chunked file decompress each
+// chunk once.
 type lazyVariable struct {
 	ds     *hdf5.Dataset
 	layout []string
@@ -177,11 +178,12 @@ const maxChunkCacheBytes = 256 << 20
 // such read spans, at least go-hdf5's defaults, and at most
 // maxChunkCacheBytes. With a smaller cache, reading every measurement in
 // order evicts each chunk before the next measurement needs it again, so
-// every read decompresses all its chunks. Malformed chunk shapes get the
-// defaults.
+// every read decompresses all its chunks. Chunks one measurement long
+// (chunk[mAxis] == 1) are never needed by another measurement, so they get
+// the defaults, as do malformed chunk shapes.
 func chunkCacheSize(shape, chunk []uint64, mAxis int, elemSize uint64) (maxChunks int, maxBytes int64) {
 	maxChunks, maxBytes = hdf5.DefaultChunkCacheChunks, hdf5.DefaultChunkCacheBytes
-	if len(chunk) != len(shape) {
+	if len(chunk) != len(shape) || (mAxis >= 0 && mAxis < len(chunk) && chunk[mAxis] == 1) {
 		return maxChunks, maxBytes
 	}
 	perRead, chunkBytes := uint64(1), elemSize

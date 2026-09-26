@@ -24,8 +24,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   go-hdf5 v0.18.0, SimpleFreeFieldHRIR files written by go-sofa now pass
   libmysofa's `mysofa_load` and `mysofa_check`.
 - `OpenLazy` sizes go-hdf5's cache of decompressed chunks to the chunks one
-  measurement spans (up to 256 MiB per audio variable) instead of leaving
-  it at 8 chunks / 16 MiB. With a file whose measurements span more chunks
+  measurement spans (up to 256 MiB per audio variable) when chunks span
+  several measurements, instead of leaving it at 8 chunks / 16 MiB. With a file whose measurements span more chunks
   than that, reading every measurement decompressed every chunk again for
   each measurement: Kayser2009 (`Data.IR` [584,8,4800] in chunks of
   [146,1,1200], 32 per measurement) streamed in 78 s and allocated 75.7 GB;
