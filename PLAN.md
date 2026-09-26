@@ -127,7 +127,7 @@ messages, and only superblock v2/v3 (forcing
 SOFA roots have ~20–30 links, so netCDF-C typically ends up with **dense link
 storage** (fractal heap + v2 B-tree name index) at the root.
 
-- [ ] **P1.1a. Emit new-style root group for superblock v2.** Building blocks
+- [x] **P1.1a. Emit new-style root group for superblock v2.** Building blocks
       exist: `internal/core/link_message.go`, `internal/core/linkinfo.go`,
       `internal/writer/densegroup_writer.go`, `FileWriter.CreateDenseGroup`
       (`group_write.go:770`). Make `CreateForWrite`/`CreateForWriteTo` with
@@ -135,8 +135,10 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       messages (≤8 links) and switch to dense storage above the threshold
       (HDF5 default `max_compact = 8`). Keep the symbol-table path for
       superblock v0 only.
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
-      merge. Linking now reads the root header, so `OpenForWrite` +
+      (2026-09-26) — done in cwbudde/go-hdf5#6 (merged, unreleased until
+      P1.1d); `TestRootGroupNewStyle*` and
+      `TestRootGroupSuperblockV0KeepsSymbolTable` pass on go-hdf5 `main`.
+      Linking now reads the root header, so `OpenForWrite` +
       `CreateDataset` at a v2 root works too (it failed before).
 - [ ] **P1.1b. Track attribute creation order** (Attribute Info message
       flags, `attribute_write.go`) so `ncdump` lists globals in write order
@@ -144,16 +146,19 @@ storage** (fractal heap + v2 B-tree name index) at the root.
       Also needed to modify netCDF-C files: go-hdf5 refuses to rewrite object
       headers that track attribute creation order, so `OpenForWrite` cannot
       add links to a netCDF-C (or h5py `track_order=True`) root yet.
-- [ ] **P1.1c. Tests in go-hdf5:** read back with h5py (`c_compat_h5py_test.go`
+- [x] **P1.1c. Tests in go-hdf5:** read back with h5py (`c_compat_h5py_test.go`
       pattern) and with `h5dump`; assert the root OHDR contains no 0x11
       message; add a libmysofa-load test if the harness is available (skip
       otherwise).
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
-      merge. The harness is `scripts/libmysofa/build.sh` there (no cmake);
+      (2026-09-26) — done in cwbudde/go-hdf5#6 (merged): `TestInteropH5py`
+      (`root_links_*`), `TestRootGroupNewStyleH5Dump` and
+      `TestLibmysofaLoad` pass on go-hdf5 `main` with h5py, h5dump and
+      libmysofa installed. The harness is `scripts/libmysofa/build.sh` there (no cmake);
       `TestLibmysofaLoad` needs `LIBMYSOFA_LOAD` and gets `check 0` on a
       minimal SimpleFreeFieldHRIR file.
 - [ ] **P1.1d. Include the P3.1a dataspace fix**, release go-hdf5 **v0.18.0**,
-      bump go-sofa's `go.mod`.
+      bump go-sofa's `go.mod`. (2026-09-26) — gated: v0.18.0 also waits for
+      P1.1b, P1.1k and P1.1l (decided 2026-09-26).
 
 Found while doing P1.1a/c: libmysofa does not read HDF5 generically, it
 matches netCDF-C's byte layout (`src/hdf/fractalhead.c`). A new-style root
@@ -163,25 +168,27 @@ loads (`check 10006`, see P1.1h). With P1.1h–j it reaches `check 10008`
 TF/TF-E conventions (their netCDF-C originals fail the same way) and files
 hit by P1.1m.
 
-- [ ] **P1.1e. String datatype message is 8 bytes** (it had a non-spec
+- [x] **P1.1e. String datatype message is 8 bytes** (it had a non-spec
       "properties" byte; libmysofa lost sync on every string attribute).
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
-      merge.
-- [ ] **P1.1f. Scalar attribute dataspace as 4-byte version 2** (as
+      (2026-09-26) — done in cwbudde/go-hdf5#6 (merged);
+      `TestEncodeDatatypeMessage_String` passes on go-hdf5 `main`.
+- [x] **P1.1f. Scalar attribute dataspace as 4-byte version 2** (as
       netCDF-C; libmysofa's dense-attribute reader requires it).
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
-      merge.
-- [ ] **P1.1g. Root tracks link creation order** and every link stores it
+      (2026-09-26) — done in cwbudde/go-hdf5#6 (merged);
+      `TestScalarAttributeMatchesNetCDFLayout` passes on go-hdf5 `main`.
+- [x] **P1.1g. Root tracks link creation order** and every link stores it
       (libmysofa's dense-link reader expects netCDF-C's Link message layout).
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#6, awaiting
-      merge.
+      (2026-09-26) — done in cwbudde/go-hdf5#6 (merged);
+      `TestRootGroupNewStyleCreationOrder` and
+      `TestEncodeHardLinkMessageCreationOrder` pass on go-hdf5 `main`.
 - [ ] **P1.1h. Global heap collection below 64 KiB.** libmysofa keeps the
       GCOL address in a `uint16_t` (`gcol.c:18`), so `DIMENSION_LIST`
       references written at `Close` (end of file) do not resolve: MIT_KEMAR
       resave → `check 10006` (`MYSOFA_INVALID_DIMENSION_LIST`). netCDF-C
       writes the collection early. Needed for P1.3a's `check 0`.
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7 (stacked on
-      #6), awaiting merge. v2 files reserve the first collection right after
+      (2026-09-26) — partial: cwbudde/go-hdf5#7 merged into #6's branch
+      after #6 had merged, so it is not on `main`; cwbudde/go-hdf5#8 brings
+      it there. v2 files reserve the first collection right after
       the root group. libmysofa derives the collection end from the 16-bit
       address and then reads no objects. It also looks references up by
       index across collections and stops at objects over 8 bytes, so all
@@ -191,8 +198,9 @@ hit by P1.1m.
       headers that spill attributes (e.g. `DIMENSION_LIST` added at `Close`)
       into continuation chunks break larger files: SingleRoomSRIR resave →
       `load err 10001` ("recursive problem"). Reserve header space instead.
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7, awaiting
-      merge. Dataset headers reserve room for `DIMENSION_LIST`; resaves now
+      (2026-09-26) — partial: cwbudde/go-hdf5#7 merged into #6's branch
+      after #6 had merged, so it is not on `main`; cwbudde/go-hdf5#8 brings
+      it there. Dataset headers reserve room for `DIMENSION_LIST`; resaves now
       need 6–7 continuations (netCDF-C originals: 12–23). Attributes written
       after creation can still use up that room; go-sofa passes them at
       creation.
@@ -201,8 +209,9 @@ hit by P1.1m.
       `extras.sofa`) fail libmysofa's dense-attribute reader → `load err
 10001`. libmysofa reads only scalar string attributes from dense storage,
       whatever the message version.
-      (2026-09-26) — partial: implemented in cwbudde/go-hdf5#7, awaiting
-      merge. Datasets keep all attributes compact; groups still switch at 9.
+      (2026-09-26) — partial: cwbudde/go-hdf5#7 merged into #6's branch
+      after #6 had merged, so it is not on `main`; cwbudde/go-hdf5#8 brings
+      it there. Datasets keep all attributes compact; groups still switch at 9.
       `extras.sofa` now reaches `check 10008` (P1.2).
 - [ ] **P1.1k. Soft/external links under a new-style root** are still a
       separate object header hard-linked into the group (non-conformant, as
@@ -228,6 +237,12 @@ hit by P1.1m.
       `internal/interop/gen` writes only ASCII values, so add a generated
       file with a non-ASCII global attribute (e.g. `RoomDescription` with
       "×") that P1.3a's libmysofa gate loads.
+      (2026-09-26) — partial: go-hdf5 side in cwbudde/go-hdf5#9 (ASCII
+      character set; `TestLibmysofaLoad/large` has a non-ASCII global among
+      10 and gets `check 0`, `load err 10001` before). The
+      SimpleFreeFieldHRIR_1.0 resave now reaches `check 10008` (P1.2),
+      SimpleHeadphoneIR_0.2 `check 10004`. Remains: the generated interop
+      file here, after the P1.1d bump.
 
 ### P1.2 — go-sofa: correct position variable dimensions
 
@@ -358,9 +373,18 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       before indexing, and bounds-check the per-dimension reads that follow.
       Add the crasher to go-hdf5's fuzz corpus and to
       `testdata/fuzz/FuzzOpen/` here. Ships with P1.1d.
+      (2026-09-26) — partial: fixed in cwbudde/go-hdf5#9 with the crasher
+      (re-found by this repo's `FuzzOpen` in 2 min) in its `FuzzOpen`
+      corpus. Remains: the same input in `testdata/fuzz/FuzzOpen/` here
+      after the P1.1d bump (it panics with go-hdf5 v0.17.0).
 - [ ] **P3.1b. Grep go-hdf5 `internal/core/*.go` for the same pattern**
       (`len(data) < k` followed by `data[k]` or larger fixed offsets) and fix
       them in the same PR.
+      (2026-09-26) — partial: cwbudde/go-hdf5#9 adds
+      `TestParsersRejectTruncatedMessages` (every prefix of well-formed
+      messages of all 11 header message parsers, also with each byte 0xFF;
+      it panics without the P3.1a fix). No other parser panics, so nothing
+      else needed fixing. Awaiting merge.
 - [ ] **P3.1c. Lazy nil-pointer.** `readMeasurement` (`sofa_stream.go`) does
       `v := l.vars[name]` without `ok`. Changing the exported `f.DataType` on a
       lazy File (TF → FIR) makes `v.shape` panic. Check `ok`, return an error.
