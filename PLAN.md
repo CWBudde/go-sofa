@@ -527,13 +527,20 @@ per read (max(256 MiB, fileSize × ratio)). There is no budget across one
 
 ### P3.3 — Silent wrong data
 
-- [ ] **P3.3a. TF-E transposition for unlabeled files.** When a file has no
+- [x] **P3.3a. TF-E transposition for unlabeled files.** When a file has no
       dimension labels (no `REFERENCE_LIST`, e.g. written by h5py) and E == N,
       `resolveLayout` tries `layoutMREN` (old go-sofa order) before
       `layoutMRNE` (AES69) at `sofa.go:657,678` and `sofa_stream.go:102`.
       Verified: an AES69-ordered `[1,1,2,2]` file returned
       `TFRealE[0][0][1] = [10 11]` instead of `[1 11]`. Put `layoutMRNE`
       first everywhere; add a crafted-file test for E == N unlabeled.
+      (2026-09-27) — `readTFEAudioData` and `prepareLazyAudio` try
+      `layoutMRNE` first. New rows: `TestOpenTFEAxisOrder` "AES69 [M,R,N,E]
+      unlabelled E==N" (failed before with `TFRealE[0][0][0][1] = 1, want 10`)
+      and `TestReadMeasurementMatchesEager` "TF-E MRNE unlabelled E==N"
+      (fails if only the lazy path keeps the old order). Trade-off, in
+      CHANGELOG: go-sofa v0.1.0 wrote TF-E `[M,R,E,N]` without labels, so
+      such a file with E == N now reads transposed.
 - [ ] **P3.3b. Room scalars.** `readRoomScalars` (`sofa_srir.go:~95`) ignores
       the `ds.Read()` error, takes `data[0]` of any shape and accepts NaN/Inf
       (which `Save` then rejects → Open→Save breaks). Return read errors, check

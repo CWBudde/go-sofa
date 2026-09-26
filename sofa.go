@@ -533,7 +533,7 @@ func (f *File) readAudioData(datasets map[string]*hdf5.Dataset, labels map[strin
 // Layouts of the audio variables, in order of preference.
 var (
 	layoutMRN  = []string{dimM, dimR, dimN}
-	layoutMREN = []string{dimM, dimR, dimE, dimN} // TF-E order older go-sofa versions wrote
+	layoutMREN = []string{dimM, dimR, dimE, dimN} // TF-E order go-sofa v0.1.0 wrote, without dimension labels
 	layoutMRNE = []string{dimM, dimR, dimN, dimE} // AES69 TF-E order ("mrne"); SOFA Toolbox and Save write it
 )
 
@@ -642,7 +642,9 @@ func (f *File) readTFAudioData(datasets map[string]*hdf5.Dataset, labels map[str
 // readTFEAudioData reads /Data.Real and /Data.Imag as 4D arrays of
 // shape [M][R][E][N], plus the frequency vector from /N. Used for
 // DataType == "TF-E". Files store the arrays [M,R,N,E] (AES69, SOFA
-// Toolbox, Save), transposed on read, or [M,R,E,N] (older go-sofa).
+// Toolbox, Save), transposed on read, or [M,R,E,N] (go-sofa v0.1.0).
+// Without dimension labels and with E == N the shapes coincide, and the
+// AES69 order wins.
 func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
 	if err := f.readFrequencyVector(datasets, labels); err != nil {
 		return err
@@ -654,7 +656,7 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if !ok {
 		return fmt.Errorf("Data.Real dataset not found")
 	}
-	realLayout, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMREN, layoutMRNE)
+	realLayout, err := f.resolveLayout("Data.Real", realDS, labels["Data.Real"], layoutMRNE, layoutMREN)
 	if err != nil {
 		return err
 	}
@@ -675,7 +677,7 @@ func (f *File) readTFEAudioData(datasets map[string]*hdf5.Dataset, labels map[st
 	if !ok {
 		return fmt.Errorf("Data.Imag dataset not found")
 	}
-	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMREN, layoutMRNE)
+	imagLayout, err := f.resolveLayout("Data.Imag", imagDS, labels["Data.Imag"], layoutMRNE, layoutMREN)
 	if err != nil {
 		return err
 	}

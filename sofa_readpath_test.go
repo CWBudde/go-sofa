@@ -263,6 +263,7 @@ func TestOpenTFEAxisOrder(t *testing.T) {
 		{"toolbox [M,R,N,E] unlabelled", 3, 4, mrne, false},
 		{"go-sofa [M,R,E,N] labelled E==N", 3, 3, mren, true},
 		{"toolbox [M,R,N,E] labelled E==N", 3, 3, mrne, true},
+		{"AES69 [M,R,N,E] unlabelled E==N", 3, 3, mrne, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := Open(writeCraftedSpec(t, tfeSpec(tc.e, tc.n, tc.order, tc.labelled)))
