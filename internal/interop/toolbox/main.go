@@ -1,6 +1,6 @@
 // Command toolbox is the Go side of the SOFA Toolbox cross-validation
-// (scripts/matlab/roundtrip.m, PLAN.md D2). It is internal and not a
-// supported tool.
+// (scripts/matlab/roundtrip.m, README "Cross-validation"). It is internal
+// and not a supported tool.
 //
 //	toolbox write FILE          write a SimpleFreeFieldHRIR file with go-sofa
 //	toolbox compare A B         Data.IR, SourcePosition and ListenerPosition
@@ -101,7 +101,7 @@ func write(path string) error {
 	return nil
 }
 
-// fields are the values D2 requires to survive bit-exactly.
+// fields are the values the cross-validation requires to survive bit-exactly.
 type fields struct {
 	ir       [][][]float64
 	src, lst []sofa.Vector3

@@ -172,7 +172,7 @@ func fmtDims(dims []string) string {
 
 // TestBroadcastFixtures checks the helpers on a real file: an [I,R] delay
 // with [M,C] source positions (MIT KEMAR). The [M,R] fixtures
-// (SimpleFreeFieldSOS) cannot be opened yet, see PLAN.md Phase B; the
+// (SimpleFreeFieldSOS) are local-only, see docs/design-notes.md "Fixtures"; the
 // crafted TestDelayAtFileLayouts covers that layout.
 func TestBroadcastFixtures(t *testing.T) {
 	f, err := Open(testdataPath(t, "MIT_KEMAR_normal_pinna.sofa"))

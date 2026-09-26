@@ -85,7 +85,7 @@ def _check_text_attrs(errors: list[str], where: str, f: h5py.File) -> None:
 
     netCDF-C reads those as NC_CHAR text; a variable-length string or a
     one-element array becomes NC_STRING (`ncdump -h` prints `string :Title`),
-    which the SOFA Toolbox under Octave cannot load (PLAN.md E8).
+    which the SOFA Toolbox under Octave cannot load.
     """
     prefix = f"{where}: " if where else ""
     objects = [("/", f)] + [(name, f[name]) for name in f]

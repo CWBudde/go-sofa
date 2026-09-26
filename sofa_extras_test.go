@@ -129,7 +129,7 @@ func TestRoundTripSyntheticExtras(t *testing.T) {
 }
 
 // TestRoundTripManyVariableAttributes saves variables with more than eight
-// attributes, which go-hdf5 keeps in dense storage (PLAN.md E1), and reads
+// attributes, which go-hdf5 keeps in dense storage, and reads
 // them back with Open and OpenLazy. `just interop` checks the same with
 // h5py and netCDF4 (internal/interop/gen, extras.sofa).
 func TestRoundTripManyVariableAttributes(t *testing.T) {
