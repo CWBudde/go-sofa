@@ -429,7 +429,8 @@ memory for `Save`. It holds no open file handle.
 **Methods:**
 
 - `Open(path string) (*File, error)` — Reads a SOFA file completely and closes it again
-- `Close() error` — Does nothing and returns nil (`Open` holds no open file); kept so existing `defer f.Close()` code compiles
+- `OpenLazy(path string) (*File, error)` — Like `Open`, but leaves the audio data in the file and keeps it open until `Close`
+- `Close() error` — Closes the file a `File` from `OpenLazy` holds open (idempotent); on a `File` from `Open` it does nothing and returns nil
 - `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
   `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
