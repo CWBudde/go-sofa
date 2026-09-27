@@ -215,24 +215,12 @@ type File struct {
 //
 // Before reading any data, Open refuses a file whose variables together
 // declare more than 64 Mi elements or eight elements per byte of the file,
-// whichever is more, with an error wrapping ErrTooLarge: a file of a few
-// kilobytes can declare gigabytes of never-written data. OpenLazy does not
-// count the audio variables it leaves in the file.
+// whichever is more, or one variable declaring more than 2^30 elements,
+// with an error wrapping ErrTooLarge: a file of a few kilobytes can declare
+// gigabytes of never-written data. OpenLazy does not count the audio
+// variables it leaves in the file.
 func Open(path string) (*File, error) {
 	return open(path, false)
-}
-
-// open reads the SOFA file at path; see read for lazy.
-func open(path string, lazy bool) (*File, error) {
-	h, err := hdf5.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open HDF5: %w", err)
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, errors.Join(err, h.Close())
-	}
-	return read(h, fi.Size(), lazy)
 }
 
 // read reads the SOFA file h of size bytes and closes it. When lazy is

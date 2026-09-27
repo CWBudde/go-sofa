@@ -483,6 +483,46 @@ func TestOpenReadBudgetLimit(t *testing.T) {
 	}
 }
 
+// TestOpenReadBudgetOneVariable checks that one variable declaring more
+// than maxDataElements is rejected with ErrTooLarge even when the budget
+// of a large file would cover the clamped count.
+func TestOpenReadBudgetOneVariable(t *testing.T) {
+	path := writeCraftedFIRWith(t, craftedFIRDims, []uint64{2, 2, 4}, unwrittenExtras(t, 1, 4*maxDataElements))
+	readBudget = func(int64) uint64 { return 8 * maxDataElements }
+	t.Cleanup(func() { readBudget = defaultReadBudget })
+	for name, open := range openVariants(t, path) {
+		t.Run(name, func(t *testing.T) {
+			f, err := open()
+			if err == nil {
+				f.Close()
+				t.Fatal("opened a file with a variable of 2^32 elements, want ErrTooLarge")
+			}
+			if !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("error = %v, want ErrTooLarge", err)
+			}
+		})
+	}
+}
+
+// TestOpenLazyClosesFile checks that Close on a File from OpenLazy closes
+// the file OpenLazy opened, which open keeps to size the read budget.
+func TestOpenLazyClosesFile(t *testing.T) {
+	f, err := OpenLazy(writeCraftedFIR(t, craftedFIRDims, []uint64{2, 2, 4}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	osf, ok := f.lazy.file.(*os.File)
+	if !ok {
+		t.Fatalf("lazy file = %T, want *os.File", f.lazy.file)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := osf.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("Stat after Close: %v, want os.ErrClosed", err)
+	}
+}
+
 func TestDefaultReadBudget(t *testing.T) {
 	for _, c := range []struct {
 		size int64

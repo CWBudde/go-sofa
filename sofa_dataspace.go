@@ -21,20 +21,28 @@ func defaultReadBudget(size int64) uint64 {
 	return max(1<<26, 8*uint64(max(size, 0)))
 }
 
-// checkReadBudget fails with ErrTooLarge when the datasets, except those
-// named in skip, declare more elements together than readBudget allows for
-// a file of size bytes. It reads no data, so a file it rejects allocates
-// nothing. A dataset whose shape is unknown is not counted; reading it is
-// bounded by go-hdf5.
+// checkReadBudget fails with ErrTooLarge when one of the datasets, except
+// those named in skip, declares more than maxDataElements elements, or all
+// of them together declare more than readBudget allows for a file of size
+// bytes. It reads no data, so a file it rejects allocates nothing. A
+// dataset whose shape is unknown is not counted; reading it is bounded by
+// go-hdf5.
 func checkReadBudget(datasets map[string]*hdf5.Dataset, skip []string, size int64) error {
-	var total uint64 // each count is at most maxDataElements+1: no overflow
+	var total uint64 // each count is at most maxDataElements: no overflow
 	for name, ds := range datasets {
 		if slices.Contains(skip, name) {
 			continue
 		}
-		if n, ok := datasetElementCount(ds); ok {
-			total += n
+		n, ok := datasetElementCount(ds)
+		if !ok {
+			continue
 		}
+		// The count is clamped, so it must be checked on its own: a large
+		// file's budget exceeds maxDataElements.
+		if n > maxDataElements {
+			return fmt.Errorf("%w: variable %q declares more than %d elements", ErrTooLarge, name, maxDataElements)
+		}
+		total += n
 	}
 	if budget := readBudget(size); total > budget {
 		return fmt.Errorf("%w: variables declare %d elements, more than the %d read from a %d-byte file",

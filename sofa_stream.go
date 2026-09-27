@@ -73,6 +73,7 @@ func (f *File) Close() error {
 type lazyAudio struct {
 	mu       sync.Mutex
 	h        *hdf5.File // nil after Close
+	file     io.Closer  // the file under h when OpenLazy opened it; nil for OpenLazyReader
 	vars     map[string]*lazyVariable
 	dataType string // the DataType vars were resolved for
 }
@@ -251,7 +252,10 @@ func (l *lazyAudio) close() error {
 		return nil
 	}
 	err := l.h.Close()
-	l.h = nil
+	if l.file != nil {
+		err = errors.Join(err, l.file.Close())
+	}
+	l.h, l.file = nil, nil
 	if err != nil {
 		return fmt.Errorf("close HDF5: %w", err)
 	}

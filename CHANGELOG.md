@@ -12,7 +12,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Open`, `OpenReader`, `OpenLazy` and `OpenLazyReader` refuse, before
   reading any data, a file whose variables together declare more than
   64 Mi elements or eight elements per byte of the file, whichever is more,
-  with an error wrapping the new `ErrTooLarge`. A crafted file of a few
+  or one of which declares more than 2^30 elements, with an error wrapping
+  the new `ErrTooLarge`. A crafted file of a few
   kilobytes with chunked, never-written variables used to open and pin
   gigabytes. The lazy functions do not count the audio variables they leave
   in the file. Every real file tested stays at least 52× below the budget.

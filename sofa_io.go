@@ -28,6 +28,29 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 	return read(h, size, lazy)
 }
 
+// open reads the SOFA file at path; see read for lazy. The read budget
+// comes from the size of the file it opened, not of whatever path names by
+// the time of a second lookup.
+func open(path string, lazy bool) (*File, error) {
+	osf, err := os.Open(path) //nolint:gosec // G304: opening the caller's path is the point
+	if err != nil {
+		return nil, fmt.Errorf("open HDF5: %w", err)
+	}
+	fi, err := osf.Stat()
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("open HDF5: %w", err), osf.Close())
+	}
+	f, err := openReader(osf, fi.Size(), lazy)
+	if err != nil || !lazy {
+		if cerr := osf.Close(); cerr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close HDF5: %w", cerr))
+		}
+		return f, err
+	}
+	f.lazy.file = osf
+	return f, nil
+}
+
 // Save writes the SOFA file to the specified path.
 // It validates the File struct before writing and creates a fully compliant
 // SOFA file with netCDF-4/HDF5 dimension scales.
