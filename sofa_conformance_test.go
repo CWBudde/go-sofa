@@ -421,12 +421,15 @@ func TestSaveRequiresPositions(t *testing.T) {
 func TestSavePositionDefaults(t *testing.T) {
 	f := minimalFIRFile()
 	f.ListenerPositions, f.ListenerPositionType = nil, ""
-	f.EmitterPositions, f.EmitterPositionType = nil, ""
+	// Units left over from a spherical position are replaced with the
+	// default's, so Type and Units cannot contradict each other.
+	f.EmitterPositions, f.EmitterPositionType, f.EmitterPositionUnits = nil, "", UnitsSphericalDegrees
 	path := filepath.Join(t.TempDir(), "defaults.sofa")
 	if err := f.Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if f.ListenerPositions != nil || f.EmitterPositions != nil || f.ListenerPositionType != "" || f.EmitterPositionType != "" {
+	if f.ListenerPositions != nil || f.EmitterPositions != nil || f.ListenerPositionType != "" || f.EmitterPositionType != "" ||
+		f.EmitterPositionUnits != UnitsSphericalDegrees {
 		t.Error("Save changed the File's positions")
 	}
 	back, err := Open(path)

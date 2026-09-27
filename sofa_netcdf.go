@@ -230,7 +230,8 @@ type savedPosition struct {
 
 // savedPositions returns the four position variables Save writes: the
 // File's, except that an empty ListenerPosition or EmitterPosition becomes
-// the conventions' default, [0 0 0] cartesian in metres, and empty Units
+// the conventions' default, [0 0 0] cartesian in metres (whatever its Type
+// and Units fields say), and empty Units
 // become the default for the Type (see defaultUnits). The File itself is
 // not changed.
 func (f *File) savedPositions() []savedPosition {
@@ -243,7 +244,7 @@ func (f *File) savedPositions() []savedPosition {
 	for i, p := range ps {
 		defaulted := p.name == datasetListenerPosition || p.name == datasetEmitterPosition
 		if defaulted && len(p.positions) == 0 && len(p.perM) == 0 {
-			ps[i].positions, ps[i].typ = []Vector3{{}}, CoordinateCartesian
+			ps[i].positions, ps[i].typ, ps[i].units = []Vector3{{}}, CoordinateCartesian, UnitsCartesianMetres
 		}
 		if ps[i].units == "" {
 			ps[i].units = defaultUnits(ps[i].typ)
