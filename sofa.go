@@ -851,6 +851,8 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	// else [I,C] with the conventions' default for an unset vector. Only
 	// ListenerView carries the coordinate system (both use it): the
 	// convention tables define Type and Units on ListenerView alone.
+	// validateExtras rejects them in VariableAttributes[ListenerUp], whose
+	// other attributes writeVariableWithAttrs appends.
 	view, up := f.listenerOrientation()
 	for _, o := range []struct {
 		name  string

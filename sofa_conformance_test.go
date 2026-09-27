@@ -418,6 +418,43 @@ func TestSaveListenerUpWithoutCoordinates(t *testing.T) {
 	}
 }
 
+// TestSaveRejectsListenerUpCoordinatesInVariableAttributes checks that
+// VariableAttributes cannot put Type or Units back on ListenerUp: Save
+// counts both as its own there (see writtenVariables), so it rejects them
+// like any other attribute it owns and writes nothing, while other
+// attributes on ListenerUp are still written.
+func TestSaveRejectsListenerUpCoordinatesInVariableAttributes(t *testing.T) {
+	for _, attr := range []string{"Type", "Units"} {
+		t.Run(attr, func(t *testing.T) {
+			f := minimalFIRFile()
+			f.VariableAttributes = map[string][]Attribute{datasetListenerUp: {{Name: attr, Value: "cartesian"}}}
+			dir := t.TempDir()
+			err := f.Save(filepath.Join(dir, "up.sofa"))
+			if ve := requireValidationError(t, err); ve.Field != "VariableAttributes" {
+				t.Errorf("ValidationError.Field = %q, want VariableAttributes", ve.Field)
+			}
+			assertOnlyFile(t, dir)
+		})
+	}
+
+	t.Run("other attribute", func(t *testing.T) {
+		f := minimalFIRFile()
+		f.VariableAttributes = map[string][]Attribute{datasetListenerUp: {{Name: "Comment", Value: "head up"}}}
+		path := filepath.Join(t.TempDir(), "up.sofa")
+		if err := f.Save(path); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if v := readDatasetAttr(t, path, datasetListenerUp, "Comment"); v != "head up" {
+			t.Errorf("ListenerUp:Comment = %v, want %q", v, "head up")
+		}
+		for _, attr := range []string{"Type", "Units"} {
+			if v := readDatasetAttr(t, path, datasetListenerUp, attr); v != nil {
+				t.Errorf("ListenerUp:%s = %v, want none", attr, v)
+			}
+		}
+	})
+}
+
 // TestValidateRejectsPositionType checks that every written position must
 // name its coordinate system with an AES69 Type.
 func TestValidateRejectsPositionType(t *testing.T) {

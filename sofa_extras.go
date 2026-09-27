@@ -138,7 +138,8 @@ func (f *File) keepGlobalAttribute(a globalAttribute) {
 //
 // ListenerUp's Type and Units count as Save's although it no longer writes
 // them: go-sofa v0.2.0 did, so Open drops them rather than keeping them
-// for the next Save.
+// for the next Save, and validateExtras rejects them in VariableAttributes,
+// so no caller can put them back either.
 func (f *File) writtenVariables() map[string][]string {
 	units := []string{attrUnits}
 	typeUnits := []string{"Type", attrUnits}
