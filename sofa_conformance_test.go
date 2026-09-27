@@ -296,8 +296,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 			{"Data.SamplingRate", "Units"}: "hertz",
 			{"ListenerView", "Type"}:       "cartesian",
 			{"ListenerView", "Units"}:      "metre",
-			{"ListenerUp", "Type"}:         "cartesian",
-			{"ListenerUp", "Units"}:        "metre",
 			{"SourcePosition", "Type"}:     "spherical",
 		}},
 		{"TF", minimalTFFile(), map[[2]string]string{
@@ -319,7 +317,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 		}(), map[[2]string]string{
 			{"ListenerView", "Type"}:  "spherical",
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
-			{"ListenerUp", "Type"}:    "spherical",
 		}},
 		{"spherical view without units", func() *File {
 			f := minimalFIRFile()
@@ -327,7 +324,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 			return f
 		}(), map[[2]string]string{
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
-			{"ListenerUp", "Units"}:   UnitsSphericalDegrees,
 		}},
 	}
 	for _, tc := range cases {
@@ -359,6 +355,66 @@ func TestSaveVariableAttributes(t *testing.T) {
 	defer back.Close()
 	if back.ListenerViewType != CoordinateSpherical || back.ListenerViewUnits != UnitsSphericalDegrees {
 		t.Errorf("ListenerView Type/Units = %q/%q after round trip", back.ListenerViewType, back.ListenerViewUnits)
+	}
+}
+
+// TestSaveListenerUpWithoutCoordinates checks that Save writes no Type or
+// Units on ListenerUp, which the convention tables define on ListenerView
+// only, and that a file carrying them, as go-sofa v0.2.0 wrote it, opens
+// without complaint and loses them on the next Save.
+func TestSaveListenerUpWithoutCoordinates(t *testing.T) {
+	spherical := minimalFIRFile()
+	setSphericalOrientation(spherical)
+	for name, f := range map[string]*File{"cartesian": minimalFIRFile(), "spherical": spherical} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "up.sofa")
+			if err := f.Save(path); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			checkUp := func(path string) {
+				t.Helper()
+				for _, attr := range []string{"Type", "Units"} {
+					if v := readDatasetAttr(t, path, datasetListenerUp, attr); v != nil {
+						t.Errorf("ListenerUp:%s = %v, want none", attr, v)
+					}
+					if v := readDatasetAttr(t, path, datasetListenerView, attr); v == nil {
+						t.Errorf("ListenerView:%s missing", attr)
+					}
+				}
+			}
+			checkUp(path)
+
+			fw, err := hdf5.OpenForWrite(path, hdf5.OpenReadWrite)
+			if err != nil {
+				t.Fatalf("OpenForWrite: %v", err)
+			}
+			ds, err := fw.OpenDataset("/" + datasetListenerUp)
+			if err != nil {
+				t.Fatalf("OpenDataset: %v", err)
+			}
+			typ, units := f.listenerViewCoordinates()
+			if err := errors.Join(ds.WriteAttribute("Type", typ), ds.WriteAttribute("Units", units), fw.Close()); err != nil {
+				t.Fatalf("add ListenerUp Type/Units: %v", err)
+			}
+			if v := readDatasetAttr(t, path, datasetListenerUp, "Type"); v != typ {
+				t.Fatalf("ListenerUp:Type = %v after adding it, want %q", v, typ)
+			}
+
+			old, err := Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer old.Close()
+			if len(old.Dropped) != 0 || old.VariableAttributes[datasetListenerUp] != nil {
+				t.Errorf("Open: Dropped = %v, VariableAttributes[ListenerUp] = %v, want neither", old.Dropped, old.VariableAttributes[datasetListenerUp])
+			}
+			resaved := filepath.Join(dir, "resaved.sofa")
+			if err := old.Save(resaved); err != nil {
+				t.Fatalf("re-Save: %v", err)
+			}
+			checkUp(resaved)
+		})
 	}
 }
 

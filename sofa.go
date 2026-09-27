@@ -848,23 +848,24 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	}
 
 	// Write listener orientation vectors, [M,C] when given per measurement,
-	// else [I,C] with the conventions' default for an unset vector. Both
-	// carry ListenerView's coordinate system.
-	viewAttrs := positionAttributes(f.listenerViewCoordinates())
+	// else [I,C] with the conventions' default for an unset vector. Only
+	// ListenerView carries the coordinate system (both use it): the
+	// convention tables define Type and Units on ListenerView alone.
 	view, up := f.listenerOrientation()
 	for _, o := range []struct {
-		name string
-		one  Vector3
-		all  []Vector3
+		name  string
+		one   Vector3
+		all   []Vector3
+		attrs []hdf5.DatasetOption
 	}{
-		{datasetListenerUp, up, f.ListenerUps},
-		{datasetListenerView, view, f.ListenerViews},
+		{datasetListenerUp, up, f.ListenerUps, nil},
+		{datasetListenerView, view, f.ListenerViews, positionAttributes(f.listenerViewCoordinates())},
 	} {
 		vecs, rows := []Vector3{o.one}, dimI
 		if len(o.all) > 0 {
 			vecs, rows = o.all, dimM
 		}
-		if err := nc.writeVariableWithAttrs("/"+o.name, flattenVector3s(vecs), []string{rows, dimC}, viewAttrs); err != nil {
+		if err := nc.writeVariableWithAttrs("/"+o.name, flattenVector3s(vecs), []string{rows, dimC}, o.attrs); err != nil {
 			return fmt.Errorf("write %s: %w", o.name, err)
 		}
 	}

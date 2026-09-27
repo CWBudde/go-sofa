@@ -135,6 +135,10 @@ func (f *File) keepGlobalAttribute(a globalAttribute) {
 // writtenVariables returns the variables Save writes for f, dimension
 // scales included, each with the attributes Save sets on it itself (the
 // dimension-scale plumbing aside).
+//
+// ListenerUp's Type and Units count as Save's although it no longer writes
+// them: go-sofa v0.2.0 did, so Open drops them rather than keeping them
+// for the next Save.
 func (f *File) writtenVariables() map[string][]string {
 	units := []string{attrUnits}
 	typeUnits := []string{"Type", attrUnits}
@@ -372,9 +376,11 @@ func (f *File) validateExtras() error {
 	// not in writtenVariables, which Open uses to tell such a variable,
 	// read back as an ordinary one, apart.
 	for _, v := range f.missingMandatoryVariables() {
+		owned := written[v.Name]
 		for _, a := range v.Attributes {
-			written[v.Name] = append(written[v.Name], a.Name)
+			owned = append(owned, a.Name)
 		}
+		written[v.Name] = owned // also for a default without attributes
 	}
 	names := make([]string, 0, len(f.VariableAttributes))
 	for name := range f.VariableAttributes {

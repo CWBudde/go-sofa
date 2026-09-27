@@ -72,16 +72,19 @@ var referenceDirectivityTF = map[string][]string{
 // sourceOrientation returns the SourceView and SourceUp variables with the
 // defaults the convention tables give them where they make them mandatory:
 // view (cartesian, in metres) as given, up along +z, one row for all
-// measurements.
+// measurements. Only SourceView carries Type and Units; the tables define
+// none on SourceUp.
 func sourceOrientation(view Vector3) []Variable {
-	orientation := func(name string, v Vector3) Variable {
+	orientation := func(name string, v Vector3, attrs []Attribute) Variable {
 		return Variable{
 			Name: name, Dims: []string{dimI, dimC}, Shape: []int{1, 3},
-			Values:     []float64{v.X, v.Y, v.Z},
-			Attributes: []Attribute{{"Type", CoordinateCartesian}, {attrUnits, UnitsCartesianMetres}},
+			Values: []float64{v.X, v.Y, v.Z}, Attributes: attrs,
 		}
 	}
-	return []Variable{orientation("SourceView", view), orientation("SourceUp", Vector3{Z: 1})}
+	return []Variable{
+		orientation("SourceView", view, []Attribute{{"Type", CoordinateCartesian}, {attrUnits, UnitsCartesianMetres}}),
+		orientation("SourceUp", Vector3{Z: 1}, nil),
+	}
 }
 
 // conventionRules holds the requirements of one SOFAConventions value,
