@@ -100,25 +100,37 @@ const (
 	varSOS  = "Data.SOS"
 )
 
+// audioVariables returns the names of the audio variables of dataType,
+// which OpenLazy leaves in the file, or nil for an unknown DataType.
+func audioVariables(dataType string) []string {
+	switch dataType {
+	case DataTypeFIR:
+		return []string{varIR}
+	case DataTypeTF, DataTypeTFE:
+		return []string{varReal, varImag}
+	case DataTypeSOS:
+		return []string{varSOS}
+	}
+	return nil
+}
+
 // prepareLazyAudio resolves the layout of each audio variable of the
 // file's DataType without reading it, reads the small per-measurement
 // variables (SamplingRate, Delay, Frequencies) as Open does, and keeps h
 // open for later reads.
 func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset, labels map[string][]string) error {
-	var names []string
+	names := audioVariables(f.DataType)
 	var layouts [][]string
 	switch f.DataType {
-	case DataTypeFIR:
-		names, layouts = []string{varIR}, [][]string{layoutMRN}
-	case DataTypeTF:
-		names, layouts = []string{varReal, varImag}, [][]string{layoutMRN}
+	case DataTypeFIR, DataTypeTF:
+		layouts = [][]string{layoutMRN}
 	case DataTypeTFE:
-		names, layouts = []string{varReal, varImag}, [][]string{layoutMRNE, layoutMREN}
+		layouts = [][]string{layoutMRNE, layoutMREN}
 	case DataTypeSOS:
 		if f.N%6 != 0 {
 			return fmt.Errorf("DataType=SOS expects N divisible by 6, got %d", f.N)
 		}
-		names, layouts = []string{varSOS}, [][]string{layoutMRN}
+		layouts = [][]string{layoutMRN}
 	default:
 		return invalid("DataType", "%w", checkDataType(f.DataType))
 	}

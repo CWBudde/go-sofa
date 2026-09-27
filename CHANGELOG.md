@@ -9,6 +9,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `Open`, `OpenReader`, `OpenLazy` and `OpenLazyReader` refuse, before
+  reading any data, a file whose variables together declare more than
+  64 Mi elements or eight elements per byte of the file, whichever is more,
+  with an error wrapping the new `ErrTooLarge`. A crafted file of a few
+  kilobytes with chunked, never-written variables used to open and pin
+  gigabytes. The lazy functions do not count the audio variables they leave
+  in the file. Every real file tested stays at least 52× below the budget.
 - **Breaking:** `IsBRIR` reports true only for `SingleRoomDRIR` and
   `IsSRIR` only for `SingleRoomSRIR`; neither matches `MultiSpeakerBRIR` or
   `SingleRoomMIMOSRIR` any more, and the BRIR/SRIR rules for those two
@@ -57,6 +64,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (seconds since the Unix epoch, the reproducible-builds convention): it
   replaces the current time as the save time, so output is reproducible. A
   malformed value, the empty string included, is an error.
+- `ErrTooLarge`, returned by the Open functions for a file declaring more
+  data than its size makes plausible.
 - `Save` writes the `SourceView` and `SourceUp` variables that
   SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make mandatory
   when `Variables` lacks them, with the table's default: `[I,C]`,

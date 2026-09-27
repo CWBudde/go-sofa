@@ -1,9 +1,13 @@
 package sofa
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"math"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -27,6 +31,13 @@ func dimNAME(size string) string {
 // writeCraftedFIR builds a FIR SOFA file with arbitrary dimension scales
 // and a zero-filled Data.IR of shape irShape, bypassing Save's validation.
 func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irShape []uint64) string {
+	t.Helper()
+	return writeCraftedFIRWith(t, dims, irShape, nil)
+}
+
+// writeCraftedFIRWith is writeCraftedFIR with extra, if not nil, called to
+// add further datasets before the file is closed.
+func writeCraftedFIRWith(t *testing.T, dims map[string]craftedDim, irShape []uint64, extra func(*hdf5.FileWriter)) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "crafted.sofa")
 	fw, err := hdf5.CreateForWrite(path, hdf5.CreateTruncate,
@@ -71,6 +82,9 @@ func writeCraftedFIR(t *testing.T, dims map[string]craftedDim, irShape []uint64)
 	}
 	if err := sr.Write([]float64{48000}); err != nil {
 		t.Fatalf("write Data.SamplingRate: %v", err)
+	}
+	if extra != nil {
+		extra(fw)
 	}
 	if err := fw.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -363,4 +377,125 @@ func robustSOSFile() *File {
 	f.SOSCoefficients = ramp3D(3, 1, 6, 0.1)
 	f.SamplingRate = []float64{44100}
 	return f
+}
+
+// craftedFIRDims are the dimensions of a valid crafted FIR file whose
+// Data.IR has shape [2 2 4]. With the four dimension scales and
+// Data.SamplingRate it declares 16+4+1 = 21 elements.
+var craftedFIRDims = map[string]craftedDim{
+	"M": named("2"), "R": named("2"), "E": named("1"), "N": {value: 4},
+}
+
+// unwrittenExtras returns a writeCraftedFIRWith hook adding n chunked,
+// never-written float64 variables of size elements each: a few bytes in
+// the file, but size elements once read.
+func unwrittenExtras(t *testing.T, n int, size uint64) func(*hdf5.FileWriter) {
+	t.Helper()
+	return func(fw *hdf5.FileWriter) {
+		for i := range n {
+			name := fmt.Sprintf("/Extra%d", i)
+			_, err := fw.CreateDataset(name, hdf5.Float64, []uint64{size}, hdf5.WithChunkDims([]uint64{1 << 16}))
+			if err != nil {
+				t.Fatalf("create %s: %v", name, err)
+			}
+		}
+	}
+}
+
+// openVariants opens path with each Open function.
+func openVariants(t *testing.T, path string) map[string]func() (*File, error) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]func() (*File, error){
+		"Open":           func() (*File, error) { return Open(path) },
+		"OpenReader":     func() (*File, error) { return OpenReader(bytes.NewReader(data), int64(len(data))) },
+		"OpenLazy":       func() (*File, error) { return OpenLazy(path) },
+		"OpenLazyReader": func() (*File, error) { return OpenLazyReader(bytes.NewReader(data), int64(len(data))) },
+	}
+}
+
+// TestOpenReadBudget checks that a file of a few KB whose chunked,
+// never-written extras declare 3×2^25 elements (768 MiB as float64) is
+// rejected with ErrTooLarge by every Open function, before any of it is
+// read.
+func TestOpenReadBudget(t *testing.T) {
+	path := writeCraftedFIRWith(t, craftedFIRDims, []uint64{2, 2, 4}, unwrittenExtras(t, 3, 1<<25))
+	for name, open := range openVariants(t, path) {
+		t.Run(name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			f, err := open()
+			runtime.ReadMemStats(&after)
+			if err == nil {
+				f.Close()
+				t.Fatal("opened a file declaring 3×2^25 elements, want ErrTooLarge")
+			}
+			if !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("error = %v, want ErrTooLarge", err)
+			}
+			if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 64<<20 {
+				t.Errorf("allocated %d MiB before rejecting the file", alloc>>20)
+			}
+		})
+	}
+}
+
+// TestOpenReadBudgetLimit checks the budget boundary with a lowered budget:
+// a file declaring exactly the budget opens, one element more is rejected,
+// and a lazy open does not count the audio variables it leaves unread.
+func TestOpenReadBudgetLimit(t *testing.T) {
+	path := writeCraftedFIR(t, craftedFIRDims, []uint64{2, 2, 4})
+	setBudget := func(t *testing.T, n uint64) {
+		t.Helper()
+		readBudget = func(int64) uint64 { return n }
+		t.Cleanup(func() { readBudget = defaultReadBudget })
+	}
+	cases := []struct {
+		name     string
+		budget   uint64
+		mustFail map[string]bool // the Open functions that must fail
+	}{
+		{"exact", 21, nil},
+		{"one short", 20, map[string]bool{"Open": true, "OpenReader": true}},
+		{"without audio", 5, map[string]bool{"Open": true, "OpenReader": true}},
+		{"below the rest", 4, map[string]bool{"Open": true, "OpenReader": true, "OpenLazy": true, "OpenLazyReader": true}},
+	}
+	for _, c := range cases {
+		for name, open := range openVariants(t, path) {
+			t.Run(c.name+"/"+name, func(t *testing.T) {
+				setBudget(t, c.budget)
+				f, err := open()
+				if c.mustFail[name] {
+					if !errors.Is(err, ErrTooLarge) {
+						t.Fatalf("budget %d: error = %v, want ErrTooLarge", c.budget, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("budget %d: %v", c.budget, err)
+				}
+				f.Close()
+			})
+		}
+	}
+}
+
+func TestDefaultReadBudget(t *testing.T) {
+	for _, c := range []struct {
+		size int64
+		want uint64
+	}{
+		{0, 1 << 26},
+		{5 << 10, 1 << 26},
+		{1 << 23, 1 << 26},     // 8 elements per byte reaches the floor
+		{1<<23 + 1, 1<<26 + 8}, // and exceeds it from here
+		{140 << 20, 8 * 140 << 20},
+	} {
+		if got := defaultReadBudget(c.size); got != c.want {
+			t.Errorf("defaultReadBudget(%d) = %d, want %d", c.size, got, c.want)
+		}
+	}
 }

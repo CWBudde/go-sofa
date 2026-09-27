@@ -212,6 +212,12 @@ type File struct {
 // is returned too, joined with any read error, and yields no File. Use
 // OpenLazy to leave the audio data in the file and read it one measurement
 // at a time, and OpenReader to read a file held in memory.
+//
+// Before reading any data, Open refuses a file whose variables together
+// declare more than 64 Mi elements or eight elements per byte of the file,
+// whichever is more, with an error wrapping ErrTooLarge: a file of a few
+// kilobytes can declare gigabytes of never-written data. OpenLazy does not
+// count the audio variables it leaves in the file.
 func Open(path string) (*File, error) {
 	return open(path, false)
 }
@@ -222,13 +228,17 @@ func open(path string, lazy bool) (*File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
-	return read(h, lazy)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, errors.Join(err, h.Close())
+	}
+	return read(h, fi.Size(), lazy)
 }
 
-// read reads the SOFA file h and closes it. When lazy is set, the audio
-// variables are checked but not read, and h stays open for them unless
-// read fails.
-func read(h *hdf5.File, lazy bool) (f *File, err error) {
+// read reads the SOFA file h of size bytes and closes it. When lazy is
+// set, the audio variables are checked but not read, and h stays open for
+// them unless read fails.
+func read(h *hdf5.File, size int64, lazy bool) (f *File, err error) {
 	defer func() {
 		if lazy && err == nil {
 			return
@@ -260,6 +270,16 @@ func read(h *hdf5.File, lazy bool) (f *File, err error) {
 		if ds, ok := child.(*hdf5.Dataset); ok {
 			datasets[ds.Name()] = ds
 		}
+	}
+
+	// Refuse a file declaring more data than its size makes plausible
+	// before reading any of it. A lazy File leaves the audio in the file.
+	var unread []string
+	if lazy {
+		unread = audioVariables(f.DataType)
+	}
+	if err := checkReadBudget(datasets, unread, size); err != nil {
+		return nil, err
 	}
 
 	// Read dimensions from dimension-scale datasets.
@@ -367,11 +387,11 @@ func (f *File) globalFields() map[string]func(string) {
 	}
 }
 
-// maxDataElements caps the number of elements (product of dimensions) a
-// SOFA data array may declare. It bounds the size arithmetic so that
-// crafted dimension values cannot overflow int or request absurd
-// allocations; 1<<30 float64 values is 8 GiB, well beyond any real
-// HRTF/BRIR data set.
+// maxDataElements caps the number of elements (product of dimensions) one
+// SOFA variable may declare. It bounds the size arithmetic so that crafted
+// dimension values cannot overflow int. It is a bound per variable (1<<30
+// float64 values are 8 GiB); what one Open reads across all variables is
+// capped by the far smaller readBudget, see checkReadBudget.
 const maxDataElements = 1 << 30
 
 // readDimensions extracts M, R, E, N from dimension-scale datasets.

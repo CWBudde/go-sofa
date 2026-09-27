@@ -10,6 +10,11 @@ import (
 // attribute is not "SOFA". Test for it with errors.Is.
 var ErrNotSOFA = errors.New("not a SOFA file")
 
+// ErrTooLarge reports that Open read a file whose variables together
+// declare more data than Open reads for a file of its size; see Open.
+// Test for it with errors.Is.
+var ErrTooLarge = errors.New("file declares too much data")
+
 // ValidationError reports a File that Save refuses to write. Field names
 // the File field at fault, such as "M", "ImpulseResponses",
 // "SourcePositionType" or "Variables"; Err says what is wrong with it.

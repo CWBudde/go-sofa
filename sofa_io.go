@@ -25,7 +25,7 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open HDF5: %w", err)
 	}
-	return read(h, lazy)
+	return read(h, size, lazy)
 }
 
 // Save writes the SOFA file to the specified path.
