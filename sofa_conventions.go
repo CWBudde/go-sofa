@@ -1,6 +1,11 @@
 package sofa
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+)
 
 // SOFAConventions values of the official conventions not declared next to
 // their specific checks (SingleRoomSRIR in sofa_srir.go, SingleRoomDRIR in
@@ -20,11 +25,18 @@ const (
 	conventionSimpleHeadphoneIR      = "SimpleHeadphoneIR"
 )
 
-// conventionAliases maps legacy SOFAConventions names to the convention
-// whose rules validate them: SOFA 1.0 called SimpleFreeFieldHRSOS
-// SimpleFreeFieldSOS.
-var conventionAliases = map[string]string{
-	"SimpleFreeFieldSOS": conventionSimpleFreeFieldHRSOS,
+// conventionAlias names the convention whose rules validate a legacy
+// SOFAConventions name, and the SOFAConventionsVersion values the legacy
+// name itself had.
+type conventionAlias struct {
+	convention string
+	versions   []string
+}
+
+// conventionAliases maps legacy SOFAConventions names to their
+// conventionAlias: SOFA 1.0 called SimpleFreeFieldHRSOS SimpleFreeFieldSOS.
+var conventionAliases = map[string]conventionAlias{
+	"SimpleFreeFieldSOS": {conventionSimpleFreeFieldHRSOS, strings.Fields("1.0")},
 }
 
 // Global attributes some conventions make mandatory beyond the ones every
@@ -64,6 +76,10 @@ func sourceOrientation(view Vector3) []Variable {
 type conventionRules struct {
 	dataType string // the one DataType allowed; "" means any
 	r, e     int    // the required receiver and emitter counts; 0 means any
+	// versions are the known SOFAConventionsVersion values, current and
+	// deprecated, of the SOFA Toolbox and pyfar convention tables; another
+	// one gets a warning. nil means any.
+	versions []string
 
 	validate func(f *File) error    // nil means no further checks
 	warnings func(f *File) []string // nil means no advisory messages
@@ -83,42 +99,59 @@ type conventionRules struct {
 // generic checks, so files using unknown or custom conventions keep
 // writing unchanged.
 var conventionRegistry = map[string]conventionRules{
-	conventionGeneralFIR: {dataType: DataTypeFIR},
-	conventionGeneralTF:  {dataType: DataTypeTF},
-	conventionGeneralTFE: {dataType: DataTypeTFE},
+	conventionGeneralFIR: {dataType: DataTypeFIR, versions: strings.Fields("1.0")},
+	conventionGeneralTF:  {dataType: DataTypeTF, versions: strings.Fields("1.0 2.0")},
+	conventionGeneralTFE: {dataType: DataTypeTFE, versions: strings.Fields("1.0")},
 
-	conventionSimpleFreeFieldHRIR:  {dataType: DataTypeFIR, r: 2, e: 1, mandatoryGlobals: globalsHRTF},
-	conventionSimpleFreeFieldHRTF:  {dataType: DataTypeTF, r: 2, e: 1, mandatoryGlobals: globalsHRTF},
-	conventionSimpleFreeFieldHRSOS: {dataType: DataTypeSOS, r: 2, e: 1, mandatoryGlobals: globalsHRTF},
-	conventionFreeFieldHRTF:        {dataType: DataTypeTFE, mandatoryGlobals: globalsHRTF},
+	conventionSimpleFreeFieldHRIR: {
+		dataType: DataTypeFIR, r: 2, e: 1, versions: strings.Fields("0.4 1.0 1.1 1.2"),
+		mandatoryGlobals: globalsHRTF,
+	},
+	conventionSimpleFreeFieldHRTF: {
+		dataType: DataTypeTF, r: 2, e: 1, versions: strings.Fields("1.0 1.1 1.2"),
+		mandatoryGlobals: globalsHRTF,
+	},
+	conventionSimpleFreeFieldHRSOS: {
+		dataType: DataTypeSOS, r: 2, e: 1, versions: strings.Fields("1.0 1.1 1.2"),
+		mandatoryGlobals: globalsHRTF,
+	},
+	conventionFreeFieldHRTF: {dataType: DataTypeTFE, versions: strings.Fields("1.0"), mandatoryGlobals: globalsHRTF},
 	conventionFreeFieldDirectivityTF: {
-		dataType: DataTypeTF, mandatoryGlobals: globalsDirectivityTF,
+		dataType: DataTypeTF, versions: strings.Fields("1.0 1.1"), mandatoryGlobals: globalsDirectivityTF,
 		mandatoryVariables: sourceOrientation(Vector3{X: 1}),
 	},
-	conventionSimpleHeadphoneIR: {dataType: DataTypeFIR, mandatoryGlobals: globalsHeadphoneIR},
+	conventionSimpleHeadphoneIR: {
+		dataType: DataTypeFIR, versions: strings.Fields("0.1 0.2 1.0 1.1"),
+		mandatoryGlobals: globalsHeadphoneIR,
+	},
 
 	conventionSingleRoomSRIR: {
-		dataType: DataTypeFIR, warnings: srirWarnings, mandatoryGlobals: globalsSRIR,
-		mandatoryVariables: sourceOrientation(Vector3{X: 1}), roomType: srirRoomType,
+		dataType: DataTypeFIR, versions: strings.Fields("1.0 1.1"), warnings: srirWarnings,
+		mandatoryGlobals: globalsSRIR, mandatoryVariables: sourceOrientation(Vector3{X: 1}),
+		roomType: srirRoomType,
 	},
 	// The (deprecated) SingleRoomDRIR table points the source at the
 	// listener (SourceView defaults to -x) and defaults RoomType to
 	// reverberant.
 	conventionSingleRoomDRIR: {
-		dataType: DataTypeFIR, validate: validateBRIR, mandatoryGlobals: globalsDRIR,
-		mandatoryVariables: sourceOrientation(Vector3{X: -1}),
-		roomType:           func(*File) string { return roomTypeReverberant },
+		dataType: DataTypeFIR, versions: strings.Fields("0.1 0.2 0.3"), validate: validateBRIR,
+		mandatoryGlobals: globalsDRIR, mandatoryVariables: sourceOrientation(Vector3{X: -1}),
+		roomType: func(*File) string { return roomTypeReverberant },
 	},
 }
 
 // rulesFor returns the rules registered for the SOFAConventions value
-// convention, or for the convention a legacy name stands for; ok is false
-// for conventions without rules.
+// convention, or for the convention a legacy name stands for, with the
+// legacy name's own versions; ok is false for conventions without rules.
 func rulesFor(convention string) (rules conventionRules, ok bool) {
-	if name, isAlias := conventionAliases[convention]; isAlias {
-		convention = name
+	alias, isAlias := conventionAliases[convention]
+	if isAlias {
+		convention = alias.convention
 	}
 	rules, ok = conventionRegistry[convention]
+	if isAlias {
+		rules.versions = alias.versions
+	}
 	return rules, ok
 }
 
@@ -146,16 +179,54 @@ func (f *File) validateConvention() error {
 	return rules.validate(f)
 }
 
-// ConventionWarnings returns advisory messages from the rules of the file's
-// SOFAConventions, such as missing optional room metadata. Unlike validation
-// errors they never stop Save; callers should surface them to users. Empty
-// for conventions without specific rules.
+// ConventionWarnings returns advisory messages about the file's
+// conformance: SOFA 2.x features (the FreeFieldHRTF convention, DataType
+// TF-E, spherical-harmonics positions) in a file whose Version is below
+// 2.0, a SOFAConventionsVersion its registered convention does not know
+// (custom conventions are not checked), and the checks of the
+// convention's own rules, such as missing optional room metadata. Unlike
+// validation errors they never stop Save; callers should surface them to
+// users.
 func (f *File) ConventionWarnings() []string {
+	out := f.sofa2Warnings()
 	rules, ok := rulesFor(f.SOFAConventions)
-	if !ok || rules.warnings == nil {
+	if !ok {
+		return out
+	}
+	if v := strings.TrimSpace(f.SOFAConventionsVersion); v != "" && len(rules.versions) > 0 && !slices.Contains(rules.versions, v) {
+		out = append(out, fmt.Sprintf("SOFAConventionsVersion %q is not a known version of %s (known: %s)",
+			f.SOFAConventionsVersion, f.SOFAConventions, strings.Join(rules.versions, ", ")))
+	}
+	if rules.warnings != nil {
+		out = append(out, rules.warnings(f)...)
+	}
+	return out
+}
+
+// sofa2Warnings flags the features the SOFA conventions introduced with
+// SOFA 2.0 when f.Version is a number below 2.0. Neither the SOFA Toolbox
+// nor sofar gates on Version, so these are warnings only; an empty or
+// unparsable Version gets none. SOS, which SimpleFreeFieldSOS used in SOFA
+// 1.0, is no 2.x feature.
+func (f *File) sofa2Warnings() []string {
+	version, err := strconv.ParseFloat(strings.TrimSpace(f.Version), 64)
+	if err != nil || !(version < 2) { // NaN included
 		return nil
 	}
-	return rules.warnings(f)
+	suffix := fmt.Sprintf(", but Version is %q", f.Version)
+	var out []string
+	if f.SOFAConventions == conventionFreeFieldHRTF {
+		out = append(out, conventionFreeFieldHRTF+" is a SOFA 2.x convention"+suffix)
+	}
+	if f.DataType == DataTypeTFE {
+		out = append(out, "DataType "+DataTypeTFE+" is a SOFA 2.x feature"+suffix)
+	}
+	for _, p := range f.savedPositions() {
+		if strings.EqualFold(strings.TrimSpace(p.typ), CoordinateSphericalHarmonics) {
+			out = append(out, fmt.Sprintf("%s Type %q is a SOFA 2.x feature%s", p.name, p.typ, suffix))
+		}
+	}
+	return out
 }
 
 // missingMandatoryGlobals returns the mandatory global attributes of the

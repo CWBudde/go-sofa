@@ -632,6 +632,12 @@ Any AES69 convention name is accepted and written unchanged. The
 official conventions get extra behaviour: `Save` enforces their
 DataType, layout and required metadata, and `(*File).ConventionWarnings() []string` reports
 advisory findings that never block `Save` (`sofainfo` prints them).
+Besides the per-convention warnings in the table below, it reports a
+`SOFAConventionsVersion` that the SOFA Toolbox and pyfar tables do not
+list for an official convention (custom conventions are not checked), and,
+for any convention, SOFA 2.x features in a file whose `Version` is below
+2.0: the `FreeFieldHRTF` convention, DataType TF-E and a position `Type`
+of `"spherical harmonics"`.
 
 | Convention                                 | Accessors                                   | Checks                                                                                                                             |
 | ------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |

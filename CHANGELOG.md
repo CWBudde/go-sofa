@@ -50,6 +50,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `DatabaseName` (SingleRoomSRIR), and `RoomDescription` and `DatabaseName`
   (SingleRoomDRIR). The `File` is not modified.
 
+- `ConventionWarnings` reports a `SOFAConventionsVersion` that is not a
+  known version of the file's official convention (current and deprecated
+  SOFA Toolbox and pyfar tables; the legacy SimpleFreeFieldSOS is checked
+  against its own 1.0; custom conventions are not checked), and SOFA 2.x
+  features in a file declaring `Version` below 2.0: the FreeFieldHRTF
+  convention, DataType TF-E and a position `Type` of `spherical harmonics`.
+  These are warnings only; `Save` still writes such files.
+
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
   and loads every generated file and every re-saved reference file with it.

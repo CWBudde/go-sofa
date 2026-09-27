@@ -2,8 +2,10 @@ package sofa
 
 import (
 	"errors"
+	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -384,5 +386,136 @@ func TestSaveConventionRoomType(t *testing.T) {
 				t.Errorf("Save changed the File's RoomType to %q", f.RoomType)
 			}
 		})
+	}
+}
+
+// TestConventionVersionWarnings checks that ConventionWarnings flags a
+// SOFAConventionsVersion the file's registered convention does not know,
+// checking a legacy name against its own versions, and never a custom
+// convention's or a missing one (Save rejects that).
+func TestConventionVersionWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		name, convention, version string
+		want                      []string
+	}{
+		{"unknown", "SimpleFreeFieldHRIR", "9.9", []string{
+			`SOFAConventionsVersion "9.9" is not a known version of SimpleFreeFieldHRIR (known: 0.4, 1.0, 1.1, 1.2)`,
+		}},
+		{"GeneralTF 2.0", "GeneralTF", "2.0", nil},
+		{"GeneralTF 1.1", "GeneralTF", "1.1", []string{
+			`SOFAConventionsVersion "1.1" is not a known version of GeneralTF (known: 1.0, 2.0)`,
+		}},
+		{"custom", "MyCustomConvention", "9.9", nil},
+		{"legacy alias 1.0", "SimpleFreeFieldSOS", "1.0", nil},
+		{"legacy alias 1.1", "SimpleFreeFieldSOS", "1.1", []string{
+			`SOFAConventionsVersion "1.1" is not a known version of SimpleFreeFieldSOS (known: 1.0)`,
+		}},
+		{"alias target 1.1", "SimpleFreeFieldHRSOS", "1.1", nil},
+		{"missing", "SimpleFreeFieldHRIR", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &File{Version: "2.1", SOFAConventions: tc.convention, SOFAConventionsVersion: tc.version}
+			if got := f.ConventionWarnings(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ConventionWarnings() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	known := map[string][]string{
+		"SimpleFreeFieldHRIR":    {"0.4", "1.0", "1.1", "1.2"},
+		"SimpleFreeFieldHRTF":    {"1.0", "1.1", "1.2"},
+		"SimpleHeadphoneIR":      {"0.1", "0.2", "1.0", "1.1"},
+		"SingleRoomDRIR":         {"0.1", "0.2", "0.3"},
+		"FreeFieldDirectivityTF": {"1.0", "1.1"},
+	}
+	for convention, versions := range known {
+		for _, version := range versions {
+			f := &File{Version: "2.1", SOFAConventions: convention, SOFAConventionsVersion: version}
+			if got := f.ConventionWarnings(); got != nil {
+				t.Errorf("%s %s: ConventionWarnings() = %q, want none", convention, version, got)
+			}
+		}
+	}
+}
+
+// TestConventionVersionsRegistered checks that every registered convention
+// and legacy name lists the SOFAConventionsVersion values it knows.
+func TestConventionVersionsRegistered(t *testing.T) {
+	names := slices.Collect(maps.Keys(conventionRegistry))
+	names = append(names, slices.Collect(maps.Keys(conventionAliases))...)
+	for _, name := range names {
+		if rules, _ := rulesFor(name); len(rules.versions) == 0 {
+			t.Errorf("%s lists no known SOFAConventionsVersion", name)
+		}
+	}
+}
+
+// TestConventionSOFA2Warnings checks that ConventionWarnings flags SOFA 2.x
+// features (the FreeFieldHRTF convention, DataType TF-E, spherical-harmonics
+// positions) in a file whose Version is below 2.0, for any convention, and
+// not in a SOFA 2.x file or one whose Version is no number.
+func TestConventionSOFA2Warnings(t *testing.T) {
+	sh := func(f *File) {
+		f.EmitterPositions, f.EmitterPositionType = []Vector3{{}}, " Spherical Harmonics "
+	}
+	for _, tc := range []struct {
+		name, version, convention, dataType string
+		modify                              func(*File)
+		want                                []string
+	}{
+		{"FreeFieldHRTF", "1.0", "FreeFieldHRTF", "TF-E", nil, []string{
+			`FreeFieldHRTF is a SOFA 2.x convention, but Version is "1.0"`,
+			`DataType TF-E is a SOFA 2.x feature, but Version is "1.0"`,
+		}},
+		{"GeneralTF-E", "1.0", "GeneralTF-E", "TF-E", nil, []string{
+			`DataType TF-E is a SOFA 2.x feature, but Version is "1.0"`,
+		}},
+		{"TF-E in a custom convention", "0.6", "MyCustomConvention", "TF-E", nil, []string{
+			`DataType TF-E is a SOFA 2.x feature, but Version is "0.6"`,
+		}},
+		{"SH emitters", "1.0", "GeneralTF", "TF", sh, []string{
+			`EmitterPosition Type " Spherical Harmonics " is a SOFA 2.x feature, but Version is "1.0"`,
+		}},
+		{"SH receivers", "1.0", "GeneralTF", "TF", func(f *File) {
+			f.ReceiverPositions, f.ReceiverPositionType = []Vector3{{}}, CoordinateSphericalHarmonics
+		}, []string{
+			`ReceiverPosition Type "spherical harmonics" is a SOFA 2.x feature, but Version is "1.0"`,
+		}},
+		{"SOS in SimpleFreeFieldSOS", "1.0", "SimpleFreeFieldSOS", "SOS", nil, nil},
+		{"FIR", "1.0", "SimpleFreeFieldHRIR", "FIR", nil, nil},
+		{"SOFA 2.1", "2.1", "FreeFieldHRTF", "TF-E", sh, nil},
+		{"SOFA 2.0", "2.0", "GeneralTF-E", "TF-E", sh, nil},
+		{"unparsable Version", "one", "FreeFieldHRTF", "TF-E", sh, nil},
+		{"empty Version", "", "FreeFieldHRTF", "TF-E", sh, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &File{Version: tc.version, SOFAConventions: tc.convention, SOFAConventionsVersion: "1.0", DataType: tc.dataType}
+			if tc.modify != nil {
+				tc.modify(f)
+			}
+			if got := f.ConventionWarnings(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ConventionWarnings() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConventionVersionWarningsDoNotBlockSave checks that version warnings
+// are advisory only: a SOFA 1.0 FreeFieldHRTF file with an unknown
+// SOFAConventionsVersion saves and reads back as written.
+func TestConventionVersionWarningsDoNotBlockSave(t *testing.T) {
+	f := minimalTFEFile()
+	f.SOFAConventions, f.SOFAConventionsVersion, f.Version = "FreeFieldHRTF", "9.9", "1.0"
+	f.EmitterPositions = []Vector3{{0, 0, 0}, {1, -1, 0}}
+	f.EmitterPositionType = CoordinateSphericalHarmonics
+	if got := f.ConventionWarnings(); len(got) != 4 {
+		t.Fatalf("ConventionWarnings() = %q, want 4 warnings", got)
+	}
+	back := roundTrip(t, f)
+	if back.Version != "1.0" || back.SOFAConventionsVersion != "9.9" {
+		t.Errorf("Version, SOFAConventionsVersion = %q, %q, want 1.0, 9.9", back.Version, back.SOFAConventionsVersion)
+	}
+	if got := back.ConventionWarnings(); len(got) != 4 {
+		t.Errorf("ConventionWarnings() after Open = %q, want 4 warnings", got)
 	}
 }
