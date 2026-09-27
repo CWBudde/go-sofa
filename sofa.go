@@ -897,8 +897,8 @@ const (
 )
 
 // RoomType values Save writes when the File has none (see
-// defaultRoomType); free field is the default of every convention but
-// SingleRoomSRIR and SingleRoomDRIR.
+// defaultRoomType): free field for every convention but SingleRoomDRIR
+// (reverberant) and SingleRoomSRIR with both room corners (shoebox).
 const (
 	roomTypeFreeField   = "free field"
 	roomTypeShoebox     = "shoebox"

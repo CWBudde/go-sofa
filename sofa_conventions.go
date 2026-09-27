@@ -87,7 +87,8 @@ type conventionRules struct {
 	// Attributes has none of that name.
 	mandatoryGlobals []string
 	// mandatoryVariables are variables Save writes, with these defaults,
-	// when Variables has none of that name.
+	// when Variables has none of that name. They are shared by every file
+	// of the convention: read-only.
 	mandatoryVariables []Variable
 	// roomType returns the RoomType Save writes when the File has none;
 	// nil means free field.
@@ -245,7 +246,7 @@ func (f *File) missingMandatoryGlobals() []Attribute {
 
 // missingMandatoryVariables returns the mandatory variables of the file's
 // SOFAConventions that Variables lacks, each with the default Save writes
-// for it.
+// for it. They alias the registry's defaults: callers must not modify them.
 func (f *File) missingMandatoryVariables() []Variable {
 	rules, _ := rulesFor(f.SOFAConventions)
 	var missing []Variable
