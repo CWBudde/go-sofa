@@ -18,8 +18,9 @@ in the same layout as the generator's expectations, then check them:
 
 When DIR/resaved/ exists (the generator re-saves testdata/sofar/, files
 written by sofar through netCDF-C), each re-saved file is also compared with
-its original: same global attributes and, per variable, the same values,
-read with both h5py and netCDF4.
+its original: same global attributes (apart from the provenance Save
+stamps, checked separately) and, per variable, the same values, read with
+both h5py and netCDF4.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import traceback
 
@@ -183,6 +185,29 @@ def _same_values(orig, got) -> bool:
     return bool(np.array_equal(orig, got))
 
 
+# Global attributes Save writes itself (see File.Save): go-sofa as the API,
+# the save time, and a History line naming the API that wrote the original.
+PROVENANCE = ("APIName", "APIVersion", "DateModified", "History")
+
+
+def _check_provenance(errors: list[str], orig: dict, got: dict) -> None:
+    version = got.get("APIVersion", "")
+    if got.get("APIName") != "go-sofa":
+        errors.append(f"attribute APIName = {got.get('APIName')!r}, want 'go-sofa'")
+    if not version:
+        errors.append("attribute APIVersion is empty, want go-sofa's version")
+    if not re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", got.get("DateModified", "")):
+        errors.append(f"attribute DateModified = {got.get('DateModified')!r}, want the save time")
+    history = orig.get("History", "")
+    api = (orig.get("APIName", ""), orig.get("APIVersion", ""))
+    if api[0] and api != ("go-sofa", version):
+        line = f"resaved by go-sofa {version} from {api[0]} {api[1]}".strip()
+        history = history.rstrip("\n")
+        history = f"{history}\n{line}" if history else line
+    if got.get("History", "") != history:
+        errors.append(f"attribute History = {got.get('History')!r}, want {history!r}")
+
+
 def check_resaved(directory: str) -> bool:
     """Compare DIR/resaved/*.sofa with the originals in testdata/sofar/."""
     with open(os.path.join(directory, "resaved", "resaved.json"), encoding="utf-8") as fh:
@@ -198,9 +223,10 @@ def check_resaved(directory: str) -> bool:
                 if label == "h5py":
                     with h5py.File(got_path, "r") as f:
                         _check_text_attrs(errors, "", f)
+                _check_provenance(errors, want_attrs, got_attrs)
                 for key, want in want_attrs.items():
                     # Save does not write empty optional attributes.
-                    if got_attrs.get(key, "") != want:
+                    if key not in PROVENANCE and got_attrs.get(key, "") != want:
                         errors.append(f"attribute {key} = {got_attrs.get(key)!r}, want {want!r}")
                 for name, want in want_vars.items():
                     if name not in got_vars:
