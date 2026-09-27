@@ -871,7 +871,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	if err := f.writeAudioDatasets(nc); err != nil {
 		return fmt.Errorf("write audio data: %w", err)
 	}
-	if err := nc.writeExtraVariables(f.Variables); err != nil {
+	if err := nc.writeExtraVariables(f.savedVariables()); err != nil {
 		return err
 	}
 

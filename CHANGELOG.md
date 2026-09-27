@@ -15,8 +15,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   conventions are dropped. They use DataType `FIRE` and `FIR-E`, which `Open` and
   `Save` reject, so the rules could never apply. README "Limitations" lists
   FIR-E as unsupported.
+- **Breaking:** `Save` requires the one DataType each official convention's
+  SOFA Toolbox table allows for GeneralFIR (FIR), GeneralTF (TF),
+  GeneralTF-E (TF-E), SimpleHeadphoneIR (FIR), SingleRoomSRIR (FIR) and
+  SingleRoomDRIR (FIR), and returns a `*ValidationError` for field
+  `DataType` otherwise; these used to accept any DataType. The legacy SOFA
+  1.0 name SimpleFreeFieldSOS is validated like SimpleFreeFieldHRSOS
+  (DataType SOS, R = 2, E = 1) and gets its mandatory global attributes.
 
 ### Added
+
+- `Save` writes the `SourceView` and `SourceUp` variables that
+  SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make mandatory
+  when `Variables` lacks them, with the table's default: `[I,C]`, cartesian
+  in metres, `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and
+  `SourceUp` `[0 0 1]`. A `SourceView` or `SourceUp` in `Variables` is
+  written as is. The `File` is not modified.
 
 - `Save` writes the global attributes a convention's SOFA Toolbox table
   makes mandatory beyond the generic ones, as the empty default the table
@@ -24,8 +38,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ListenerShortName` (SimpleFreeFieldHRIR/HRTF/HRSOS, FreeFieldHRTF),
   `DatabaseName`, `SourceType` and `SourceManufacturer`
   (FreeFieldDirectivityTF), `DatabaseName`, `ListenerShortName`,
-  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR), and
-  `DatabaseName` (SingleRoomSRIR). The `File` is not modified.
+  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR),
+  `DatabaseName` (SingleRoomSRIR), and `RoomDescription` and `DatabaseName`
+  (SingleRoomDRIR). The `File` is not modified.
 
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)

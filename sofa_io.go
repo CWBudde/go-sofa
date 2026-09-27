@@ -50,7 +50,10 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 // attributes the file's SOFAConventions makes mandatory beyond the generic
 // ones (DatabaseName and ListenerShortName for SimpleFreeFieldHRIR, …):
 // Save writes the empty default the SOFA convention tables give them when
-// Attributes lacks one.
+// Attributes lacks one. Likewise, the SourceView and SourceUp variables
+// that SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make
+// mandatory are written with the tables' defaults when Variables lacks
+// them.
 //
 // Returns an error if:
 //   - Validation fails (missing required fields, invalid dimensions, etc.)

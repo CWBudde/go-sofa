@@ -22,10 +22,6 @@ const (
 	unitsRoomTemperature   = "kelvin"
 )
 
-// srirRules are advisory only: SRIR files without room metadata, or recorded
-// with a raw microphone array instead of Ambisonics channels, are valid.
-var srirRules = conventionRules{warnings: srirWarnings}
-
 // IsSRIR reports whether the file holds spatial room impulse responses, that
 // is, whether SOFAConventions is SingleRoomSRIR. SingleRoomMIMOSRIR files
 // use DataType FIR-E, which is not supported.
@@ -48,6 +44,9 @@ func (f *File) AmbisonicsOrder() (order int, ok bool) {
 	return root - 1, true
 }
 
+// srirWarnings are advisory only: SRIR files without room metadata, or
+// recorded with a raw microphone array instead of Ambisonics channels, are
+// valid.
 func srirWarnings(f *File) []string {
 	var out []string
 	if f.RoomVolume == 0 {

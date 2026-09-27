@@ -150,6 +150,9 @@ func TestSaveWritesNetcdf4Dimensions(t *testing.T) {
 				"EmitterPosition":  {"E", "C", "I"},
 				"ListenerUp":       {"I", "C"},
 				"ListenerView":     {"I", "C"},
+				// FreeFieldDirectivityTF makes the source orientation mandatory.
+				"SourceUp":   {"I", "C"},
+				"SourceView": {"I", "C"},
 			},
 		},
 		{
