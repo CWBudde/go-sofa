@@ -588,7 +588,7 @@ dimensions, type, comment). Transcribe the needed rows by hand into
 
 ## Phase 3 — Robustness for untrusted input
 
-### P3.1 — Crashes
+### P3.1 — Crashes — ✅ DONE (2026-09-27)
 
 - [x] **P3.1a. go-hdf5 dataspace panic.**
       `internal/core/dataspace.go:30` checks `len(data) < 2`, then reads
@@ -615,9 +615,20 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       else needed fixing. (2026-09-26) — merged;
       `TestParsersRejectTruncatedMessages` passes on go-hdf5 `main`
       (51e9ba8).
-- [ ] **P3.1c. Lazy nil-pointer.** `readMeasurement` (`sofa_stream.go`) does
+- [x] **P3.1c. Lazy nil-pointer.** `readMeasurement` (`sofa_stream.go`) does
       `v := l.vars[name]` without `ok`. Changing the exported `f.DataType` on a
       lazy File (TF → FIR) makes `v.shape` panic. Check `ok`, return an error.
+      (2026-09-27) — new `File.lazyVariable` looks the variable up with `ok`
+      and returns `ErrUnsupportedDataType` (naming the DataType OpenLazy
+      used). `TestReadMeasurementEditedLazyFile` "TF read as FIR" and "FIR
+      read as SOS" panicked with a nil pointer dereference before.
+- [x] **P3.1d. Lazy reshape with edited sizes** _(found with P3.1c)_.
+      `readMRN`/`readMREN` reshaped the stored measurement with the File's
+      current R, N, E: raising R or N panicked (slice bounds), raising E
+      panicked (index out of range), lowering N or reading TF as TF-E
+      returned misshaped data. (2026-09-27) — `lazyVariable` also checks the
+      stored layout and that M, R, N, E still match (`ErrIndexOutOfRange`);
+      the six shape rows of `TestReadMeasurementEditedLazyFile` cover it.
 
 ### P3.2 — Memory budget
 

@@ -71,9 +71,10 @@ func (f *File) Close() error {
 
 // lazyAudio holds the audio variables of a File returned by OpenLazy.
 type lazyAudio struct {
-	mu   sync.Mutex
-	h    *hdf5.File // nil after Close
-	vars map[string]*lazyVariable
+	mu       sync.Mutex
+	h        *hdf5.File // nil after Close
+	vars     map[string]*lazyVariable
+	dataType string // the DataType vars were resolved for
 }
 
 // lazyVariable is one audio variable left in the file: its dataset, the
@@ -165,7 +166,7 @@ func (f *File) prepareLazyAudio(h *hdf5.File, datasets map[string]*hdf5.Dataset,
 			return err
 		}
 	}
-	f.lazy = &lazyAudio{h: h, vars: vars}
+	f.lazy = &lazyAudio{h: h, vars: vars, dataType: f.DataType}
 	return nil
 }
 
@@ -245,21 +246,69 @@ func (l *lazyAudio) close() error {
 	return nil
 }
 
-// readMeasurement reads measurement m of an audio variable in its stored
-// layout into a new slice.
-func (l *lazyAudio) readMeasurement(name string, m int) ([]float64, *lazyVariable, error) {
+// lazyVariable returns audio variable name of a File from OpenLazy, stored
+// in one of layouts, after checking it against the File's DataType, M, R,
+// N and E. Those fields are exported, and reading with values changed
+// since OpenLazy would read a variable the file does not hold or reshape
+// the stored data to the wrong sizes: a missing variable is reported as
+// ErrUnsupportedDataType, any other mismatch as ErrIndexOutOfRange. After
+// Close it fails with fs.ErrClosed first, whatever was changed; the read
+// that follows checks that again for a concurrent Close.
+func (f *File) lazyVariable(name string, layouts ...[]string) (*lazyVariable, error) {
+	if f.lazy.closed() {
+		return nil, fmt.Errorf("read %s: %w", name, fs.ErrClosed)
+	}
+	v, ok := f.lazy.vars[name]
+	if !ok {
+		return nil, fmt.Errorf("%w %q: the file, opened lazily as %s, holds no %s", ErrUnsupportedDataType, f.DataType, f.lazy.dataType, name)
+	}
+	if !slices.ContainsFunc(layouts, func(l []string) bool { return slices.Equal(l, v.layout) }) {
+		return nil, fmt.Errorf("%s is stored as %v, not as %s data: %w", name, v.layout, f.DataType, ErrIndexOutOfRange)
+	}
+	for i, d := range v.layout {
+		if size := f.axisSize(d); size != v.shape[i] {
+			return nil, fmt.Errorf("%s has %s=%d, the File %s=%d: %w", name, d, v.shape[i], d, size, ErrIndexOutOfRange)
+		}
+	}
+	return v, nil
+}
+
+// closed reports whether Close was called.
+func (l *lazyAudio) closed() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	v := l.vars[name]
+	return l.h == nil
+}
+
+// checkLazyRange checks the audio variables names of a File from OpenLazy
+// as lazyVariable does, before a Range function loops over M. A File whose
+// M was changed to 0 or less would otherwise range over no measurements
+// and report success. It does nothing for any other File.
+func (f *File) checkLazyRange(what string, layout []string, names ...string) error {
+	if f.lazy == nil {
+		return nil
+	}
+	for _, name := range names {
+		if _, err := f.lazyVariable(name, layout); err != nil {
+			return fmt.Errorf("%s: %w", what, err)
+		}
+	}
+	return nil
+}
+
+// readMeasurement reads measurement m of an audio variable in its stored
+// layout into a new slice.
+func (l *lazyAudio) readMeasurement(name string, v *lazyVariable, m int) ([]float64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.h == nil {
-		return nil, v, fmt.Errorf("read %s: %w", name, fs.ErrClosed)
+		return nil, fmt.Errorf("read %s: %w", name, fs.ErrClosed)
 	}
 	row := 1
 	for _, n := range v.shape[1:] {
 		row *= int(n) //nolint:gosec // bounded by dimProduct
 	}
-	flat, err := v.read(m, row)
-	return flat, v, err
+	return v.read(m, row)
 }
 
 // read reads measurement m of the variable, row values long, as the
@@ -317,7 +366,11 @@ func (f *File) readMRN(what, name string, loaded [][][]float64, m int) ([][]floa
 		}
 		return loaded[m], nil
 	}
-	flat, _, err := f.lazy.readMeasurement(name, m)
+	v, err := f.lazyVariable(name, layoutMRN)
+	if err != nil {
+		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
+	}
+	flat, err := f.lazy.readMeasurement(name, v, m)
 	if err != nil {
 		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
 	}
@@ -359,7 +412,11 @@ func (f *File) readMREN(what, name string, loaded [][][][]float64, m int) ([][][
 		}
 		return row, nil
 	}
-	flat, v, err := f.lazy.readMeasurement(name, m)
+	v, err := f.lazyVariable(name, layoutMRNE, layoutMREN)
+	if err != nil {
+		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
+	}
+	flat, err := f.lazy.readMeasurement(name, v, m)
 	if err != nil {
 		return nil, fmt.Errorf("%s(%d): %w", what, m, err)
 	}
@@ -375,7 +432,11 @@ func (f *File) readMREN(what, name string, loaded [][][][]float64, m int) ([][][
 // ImpulseResponses[m], which shares memory with the File. It fails with
 // ErrUnsupportedDataType for non-FIR files, with ErrIndexOutOfRange when
 // m is outside [0,M) or no data is stored there, and with fs.ErrClosed after
-// Close of a lazy File.
+// Close of a lazy File. A lazy File reads the audio variable OpenLazy found
+// for its DataType; after DataType, M, R, N or E are changed, reads fail
+// with ErrUnsupportedDataType when the file holds no variable for the new
+// DataType and with ErrIndexOutOfRange when its shape no longer matches,
+// or with fs.ErrClosed once the File is closed.
 func (f *File) ReadMeasurement(m int) ([][]float64, error) {
 	if err := f.requireDataType("ReadMeasurement", DataTypeFIR); err != nil {
 		return nil, err
@@ -434,9 +495,14 @@ func (f *File) ReadMeasurementSOS(m int) ([][]float64, error) {
 // ReadMeasurement) of each measurement in order. It stops at the first
 // error, from reading or from fn, and returns it; an error of fn is
 // returned unwrapped. For a File returned by OpenLazy only one measurement
-// is held in memory at a time, unless fn keeps it.
+// is held in memory at a time, unless fn keeps it, and the stored shape is
+// checked before fn is first called, so a File whose M was changed fails
+// with ErrIndexOutOfRange even when M is now 0 or less.
 func (f *File) RangeMeasurements(fn func(m int, ir [][]float64) error) error {
 	if err := f.requireDataType("RangeMeasurements", DataTypeFIR); err != nil {
+		return err
+	}
+	if err := f.checkLazyRange("RangeMeasurements", layoutMRN, varIR); err != nil {
 		return err
 	}
 	for m := range f.M {
@@ -456,6 +522,9 @@ func (f *File) RangeMeasurements(fn func(m int, ir [][]float64) error) error {
 // stops like RangeMeasurements.
 func (f *File) RangeMeasurementsTF(fn func(m int, re, im [][]float64) error) error {
 	if err := f.requireDataType("RangeMeasurementsTF", DataTypeTF); err != nil {
+		return err
+	}
+	if err := f.checkLazyRange("RangeMeasurementsTF", layoutMRN, varReal, varImag); err != nil {
 		return err
 	}
 	for m := range f.M {
