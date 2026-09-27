@@ -107,7 +107,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   was changed afterwards: they return `ErrUnsupportedDataType` when the file
   holds no audio variable for the new DataType and `ErrIndexOutOfRange`
   when the stored shape no longer matches, instead of dereferencing nil or
-  reshaping the stored data to the new sizes.
+  reshaping the stored data to the new sizes. The `RangeMeasurements`
+  functions check the shape before the first callback, so an `M` changed to
+  0 or less fails instead of returning nil, and after `Close` a shape
+  mismatch no longer masks `fs.ErrClosed`.
 - `Save` writes `ReceiverPosition` and `EmitterPosition` as `[R,C,I]` and
   `[E,C,I]` (`[I,C,I]` for a single shared row), the only layouts the SOFA
   conventions allow; they were `[R,C]` and `[E,C]`, which libmysofa's
