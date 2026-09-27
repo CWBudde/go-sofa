@@ -21,8 +21,7 @@ import (
 // validate. writeHDF5 stamps the provenance: APIName and APIVersion are
 // go-sofa's, and DateModified is the (pinned) save time.
 func TestOpenReadsEveryGlobalField(t *testing.T) {
-	saveTime = func() time.Time { return time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC) }
-	t.Cleanup(func() { saveTime = time.Now })
+	pinSaveTime(t, time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC))
 	want := map[string]string{
 		"Conventions":            "SOFA",
 		"Version":                "2.1",

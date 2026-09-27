@@ -47,6 +47,15 @@ func TestSaveDeterministic(t *testing.T) {
 	}
 }
 
+// pinSaveTime makes Save stamp ts for the rest of the test, clearing any
+// SOURCE_DATE_EPOCH the environment sets, which would take precedence.
+func pinSaveTime(t *testing.T, ts time.Time) {
+	t.Helper()
+	t.Setenv("SOURCE_DATE_EPOCH", "")
+	saveTime = func() time.Time { return ts }
+	t.Cleanup(func() { saveTime = time.Now })
+}
+
 // TestSaveStampsEmptyDates checks that empty DateCreated/DateModified are
 // stamped with the save time, so output differs across clock seconds (the
 // reason reproducible output needs SOURCE_DATE_EPOCH), and that the File
@@ -57,8 +66,7 @@ func TestSaveStampsEmptyDates(t *testing.T) {
 	dir := t.TempDir()
 	saveAt := func(ts time.Time, name string) []byte {
 		t.Helper()
-		saveTime = func() time.Time { return ts }
-		t.Cleanup(func() { saveTime = time.Now })
+		pinSaveTime(t, ts)
 		path := filepath.Join(dir, name)
 		if err := f.Save(path); err != nil {
 			t.Fatalf("Save: %v", err)
@@ -86,8 +94,7 @@ func TestSaveStampsEmptyDates(t *testing.T) {
 // save time as DateModified, keeps DateCreated, notes a different
 // previous API in History, and leaves the File unchanged.
 func TestSaveProvenance(t *testing.T) {
-	saveTime = func() time.Time { return time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC) }
-	t.Cleanup(func() { saveTime = time.Now })
+	pinSaveTime(t, time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC))
 	const (
 		stamp   = "2026-09-27 10:00:00"
 		created = "2020-01-02 03:04:05"
@@ -103,6 +110,7 @@ func TestSaveProvenance(t *testing.T) {
 		{"same go-sofa", defaultAPIName, v, "measured", "measured"},
 		{"other API", ari, "0.4.4", "", resaved + ari + " 0.4.4"},
 		{"other API with history", "MyTool", "3.1", "measured", "measured\n" + resaved + "MyTool 3.1"},
+		{"history ending in a newline", "MyTool", "3.1", "measured\n", "measured\n" + resaved + "MyTool 3.1"},
 		{"older go-sofa", defaultAPIName, "v0.2.0", "", resaved + "go-sofa v0.2.0"},
 		{"no version", "MyTool", "", "", resaved + "MyTool"},
 	}

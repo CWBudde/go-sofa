@@ -989,10 +989,10 @@ func (f *File) resaveHistory() string {
 		return f.History
 	}
 	line := strings.TrimSpace("resaved by " + defaultAPIName + " " + version + " from " + f.APIName + " " + f.APIVersion)
-	if f.History == "" {
-		return line
+	if history := strings.TrimRight(f.History, "\n"); history != "" {
+		return history + "\n" + line
 	}
-	return f.History + "\n" + line
+	return line
 }
 
 // validate checks that the File struct contains all required fields

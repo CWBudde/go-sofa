@@ -534,9 +534,7 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		return out
 	}
 	// Pin the clock; a local time must be written as UTC.
-	orig := saveTime
-	saveTime = func() time.Time { return time.Date(2026, 9, 25, 14, 30, 0, 0, time.FixedZone("CEST", 2*3600)) }
-	t.Cleanup(func() { saveTime = orig })
+	pinSaveTime(t, time.Date(2026, 9, 25, 14, 30, 0, 0, time.FixedZone("CEST", 2*3600)))
 
 	t.Run("defaults", func(t *testing.T) {
 		f := minimalFIRFile() // sets none of the attributes below
