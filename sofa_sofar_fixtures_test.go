@@ -260,8 +260,9 @@ func hasVariable(f *File, name string) bool {
 // TestSofarFixturesRoundTrip saves every sofar fixture with go-sofa and
 // checks that reopening yields the same File: nothing sofar wrote is lost or
 // changed by Open → Save → Open, except the documented defaults Save adds
-// for a missing ListenerView/ListenerUp.
+// for a missing ListenerView/ListenerUp and the provenance it stamps.
 func TestSofarFixturesRoundTrip(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1790000000")
 	names, err := filepath.Glob(filepath.Join("testdata", "sofar", "*.sofa"))
 	if err != nil {
 		t.Fatal(err)
@@ -292,9 +293,12 @@ func TestSofarFixturesRoundTrip(t *testing.T) {
 }
 
 // withSaveDefaults returns a copy of f with the values Save writes for an
-// unset ListenerView/ListenerUp and their coordinate system.
+// unset ListenerView/ListenerUp and their coordinate system, and with the
+// provenance Save stamps at SOURCE_DATE_EPOCH 1790000000.
 func withSaveDefaults(f *File) *File {
 	g := *f
+	g.APIName, g.APIVersion = defaultAPIName, moduleVersion()
+	g.DateModified, g.History = "2026-09-21 14:13:20", f.resaveHistory()
 	if g.ListenerView == (Vector3{}) {
 		g.ListenerView = Vector3{X: 1}
 	}

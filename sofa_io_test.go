@@ -109,6 +109,7 @@ func TestOpenLazyReader(t *testing.T) {
 // TestWriteToMatchesSave checks that WriteTo produces the bytes Save
 // writes and reports their count.
 func TestWriteToMatchesSave(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1790000000") // both stamp the same DateModified
 	for _, f := range saveFixtures() {
 		t.Run(f.DataType, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "out.sofa")

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
@@ -17,8 +18,10 @@ import (
 // RoomVolume and RoomTemperature are written as root attributes rather
 // than variables (some writers do so, and Save rejects them in
 // f.Attributes), so the file is written with writeHDF5, which does not
-// validate.
+// validate. writeHDF5 stamps the provenance: APIName and APIVersion are
+// go-sofa's, and DateModified is the (pinned) save time.
 func TestOpenReadsEveryGlobalField(t *testing.T) {
+	pinSaveTime(t, time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC))
 	want := map[string]string{
 		"Conventions":            "SOFA",
 		"Version":                "2.1",
@@ -31,8 +34,8 @@ func TestOpenReadsEveryGlobalField(t *testing.T) {
 		"Title":                  "global attribute fixture",
 		"DateCreated":            "2026-01-02 03:04:05",
 		"DateModified":           "2026-06-07 08:09:10",
-		"APIName":                "test-api",
-		"APIVersion":             "9.8.7",
+		"APIName":                defaultAPIName,
+		"APIVersion":             moduleVersion(),
 		"AuthorContact":          "author@example.org",
 		"Organization":           "Example Org",
 		"License":                "CC-BY-4.0",

@@ -296,8 +296,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 			{"Data.SamplingRate", "Units"}: "hertz",
 			{"ListenerView", "Type"}:       "cartesian",
 			{"ListenerView", "Units"}:      "metre",
-			{"ListenerUp", "Type"}:         "cartesian",
-			{"ListenerUp", "Units"}:        "metre",
 			{"SourcePosition", "Type"}:     "spherical",
 		}},
 		{"TF", minimalTFFile(), map[[2]string]string{
@@ -319,7 +317,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 		}(), map[[2]string]string{
 			{"ListenerView", "Type"}:  "spherical",
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
-			{"ListenerUp", "Type"}:    "spherical",
 		}},
 		{"spherical view without units", func() *File {
 			f := minimalFIRFile()
@@ -327,7 +324,6 @@ func TestSaveVariableAttributes(t *testing.T) {
 			return f
 		}(), map[[2]string]string{
 			{"ListenerView", "Units"}: UnitsSphericalDegrees,
-			{"ListenerUp", "Units"}:   UnitsSphericalDegrees,
 		}},
 	}
 	for _, tc := range cases {
@@ -360,6 +356,103 @@ func TestSaveVariableAttributes(t *testing.T) {
 	if back.ListenerViewType != CoordinateSpherical || back.ListenerViewUnits != UnitsSphericalDegrees {
 		t.Errorf("ListenerView Type/Units = %q/%q after round trip", back.ListenerViewType, back.ListenerViewUnits)
 	}
+}
+
+// TestSaveListenerUpWithoutCoordinates checks that Save writes no Type or
+// Units on ListenerUp, which the convention tables define on ListenerView
+// only, and that a file carrying them, as go-sofa v0.2.0 wrote it, opens
+// without complaint and loses them on the next Save.
+func TestSaveListenerUpWithoutCoordinates(t *testing.T) {
+	spherical := minimalFIRFile()
+	setSphericalOrientation(spherical)
+	for name, f := range map[string]*File{"cartesian": minimalFIRFile(), "spherical": spherical} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "up.sofa")
+			if err := f.Save(path); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			checkUp := func(path string) {
+				t.Helper()
+				for _, attr := range []string{"Type", "Units"} {
+					if v := readDatasetAttr(t, path, datasetListenerUp, attr); v != nil {
+						t.Errorf("ListenerUp:%s = %v, want none", attr, v)
+					}
+					if v := readDatasetAttr(t, path, datasetListenerView, attr); v == nil {
+						t.Errorf("ListenerView:%s missing", attr)
+					}
+				}
+			}
+			checkUp(path)
+
+			fw, err := hdf5.OpenForWrite(path, hdf5.OpenReadWrite)
+			if err != nil {
+				t.Fatalf("OpenForWrite: %v", err)
+			}
+			ds, err := fw.OpenDataset("/" + datasetListenerUp)
+			if err != nil {
+				t.Fatalf("OpenDataset: %v", err)
+			}
+			typ, units := f.listenerViewCoordinates()
+			if err := errors.Join(ds.WriteAttribute("Type", typ), ds.WriteAttribute("Units", units), fw.Close()); err != nil {
+				t.Fatalf("add ListenerUp Type/Units: %v", err)
+			}
+			if v := readDatasetAttr(t, path, datasetListenerUp, "Type"); v != typ {
+				t.Fatalf("ListenerUp:Type = %v after adding it, want %q", v, typ)
+			}
+
+			old, err := Open(path)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer old.Close()
+			if len(old.Dropped) != 0 || old.VariableAttributes[datasetListenerUp] != nil {
+				t.Errorf("Open: Dropped = %v, VariableAttributes[ListenerUp] = %v, want neither", old.Dropped, old.VariableAttributes[datasetListenerUp])
+			}
+			resaved := filepath.Join(dir, "resaved.sofa")
+			if err := old.Save(resaved); err != nil {
+				t.Fatalf("re-Save: %v", err)
+			}
+			checkUp(resaved)
+		})
+	}
+}
+
+// TestSaveRejectsListenerUpCoordinatesInVariableAttributes checks that
+// VariableAttributes cannot put Type or Units back on ListenerUp: Save
+// counts both as its own there (see writtenVariables), so it rejects them
+// like any other attribute it owns and writes nothing, while other
+// attributes on ListenerUp are still written.
+func TestSaveRejectsListenerUpCoordinatesInVariableAttributes(t *testing.T) {
+	for _, attr := range []string{"Type", "Units"} {
+		t.Run(attr, func(t *testing.T) {
+			f := minimalFIRFile()
+			f.VariableAttributes = map[string][]Attribute{datasetListenerUp: {{Name: attr, Value: "cartesian"}}}
+			dir := t.TempDir()
+			err := f.Save(filepath.Join(dir, "up.sofa"))
+			if ve := requireValidationError(t, err); ve.Field != "VariableAttributes" {
+				t.Errorf("ValidationError.Field = %q, want VariableAttributes", ve.Field)
+			}
+			assertOnlyFile(t, dir)
+		})
+	}
+
+	t.Run("other attribute", func(t *testing.T) {
+		f := minimalFIRFile()
+		f.VariableAttributes = map[string][]Attribute{datasetListenerUp: {{Name: "Comment", Value: "head up"}}}
+		path := filepath.Join(t.TempDir(), "up.sofa")
+		if err := f.Save(path); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if v := readDatasetAttr(t, path, datasetListenerUp, "Comment"); v != "head up" {
+			t.Errorf("ListenerUp:Comment = %v, want %q", v, "head up")
+		}
+		for _, attr := range []string{"Type", "Units"} {
+			if v := readDatasetAttr(t, path, datasetListenerUp, attr); v != nil {
+				t.Errorf("ListenerUp:%s = %v, want none", attr, v)
+			}
+		}
+	})
 }
 
 // TestValidateRejectsPositionType checks that every written position must
@@ -478,9 +571,7 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		return out
 	}
 	// Pin the clock; a local time must be written as UTC.
-	orig := saveTime
-	saveTime = func() time.Time { return time.Date(2026, 9, 25, 14, 30, 0, 0, time.FixedZone("CEST", 2*3600)) }
-	t.Cleanup(func() { saveTime = orig })
+	pinSaveTime(t, time.Date(2026, 9, 25, 14, 30, 0, 0, time.FixedZone("CEST", 2*3600)))
 
 	t.Run("defaults", func(t *testing.T) {
 		f := minimalFIRFile() // sets none of the attributes below
@@ -515,7 +606,7 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		}
 	})
 
-	t.Run("set values kept", func(t *testing.T) {
+	t.Run("set values kept, provenance stamped", func(t *testing.T) {
 		f := minimalFIRFile()
 		f.APIName, f.APIVersion = "MyTool", "3.1"
 		f.DateCreated, f.DateModified = "2020-01-02 03:04:05", "2021-01-02 03:04:05"
@@ -527,8 +618,8 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		}
 		got := readRoot(t, path)
 		for name, want := range map[string]string{
-			"APIName": f.APIName, "APIVersion": f.APIVersion,
-			"DateCreated": f.DateCreated, "DateModified": f.DateModified,
+			"APIName": "go-sofa", "APIVersion": moduleVersion(),
+			"DateCreated": f.DateCreated, "DateModified": "2026-09-25 12:30:00",
 			"License": f.License, "RoomType": f.RoomType, "Title": f.Title,
 			"AuthorContact": f.AuthorContact, "Organization": f.Organization,
 		} {

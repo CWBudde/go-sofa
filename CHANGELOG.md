@@ -36,14 +36,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   as is, and the `File` is not modified.
 - `Save` no longer rejects a SingleRoomDRIR file with an empty `RoomType`;
   it writes the `reverberant` default instead.
+- **Breaking:** `Save` and `WriteTo` record their own provenance, as the
+  SOFA Toolbox's `SOFAsave` does: the written `APIName` is always
+  `go-sofa`, `APIVersion` go-sofa's module version and `DateModified` the
+  save time; they used to keep the `File`'s values, so a re-saved file
+  still claimed the API that first wrote it (libmysofa keys a workaround on
+  those two). `DateCreated` is kept (stamped only when empty). When the
+  `File` names another API or go-sofa version, `History` gains a line
+  `resaved by go-sofa <version> from <APIName> <APIVersion>`. The `File`
+  is not modified. Output is byte-identical across saves only with
+  `SOURCE_DATE_EPOCH` set (see Added).
+- `Save` no longer writes `Type` and `Units` on `ListenerUp`: the SOFA
+  convention tables define them on `ListenerView` only, and sofar reports
+  them as custom entries. `Open` still accepts files that have them (go-sofa
+  v0.2.0 wrote them) and drops them, so a re-save cleans the file.
 
 ### Added
 
+- `Save` and `WriteTo` honour the `SOURCE_DATE_EPOCH` environment variable
+  (seconds since the Unix epoch, the reproducible-builds convention): it
+  replaces the current time as the save time, so output is reproducible. A
+  malformed value, the empty string included, is an error.
 - `Save` writes the `SourceView` and `SourceUp` variables that
   SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make mandatory
-  when `Variables` lacks them, with the table's default: `[I,C]`, cartesian
-  in metres, `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and
-  `SourceUp` `[0 0 1]`, plus the attributes `VariableAttributes` holds for
+  when `Variables` lacks them, with the table's default: `[I,C]`,
+  `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) cartesian in metres,
+  and `SourceUp` `[0 0 1]` without `Type`/`Units` (the tables define none on
+  it), plus the attributes `VariableAttributes` holds for
   that name. A `SourceView` or `SourceUp` in `Variables` is written as is. The `File` is not modified.
 
 - `Save` writes the global attributes a convention's SOFA Toolbox table

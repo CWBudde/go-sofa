@@ -297,10 +297,10 @@ func (nc *netcdfDimensions) writePositionDatasetPerM(name string, perM [][]Vecto
 	return nc.writeVariableWithAttrs(name, flat, []string{rows, dimC, dimM}, positionAttributes(typ, units))
 }
 
-// listenerViewCoordinates returns the Type and Units written on
-// ListenerView and ListenerUp: the File's, defaulting to the conventions'
-// "cartesian" and the Type's default Units (see defaultUnits), so the
-// mandatory Units attribute is never omitted.
+// listenerViewCoordinates returns the Type and Units ListenerView and
+// ListenerUp share, written on ListenerView only: the File's, defaulting
+// to the conventions' "cartesian" and the Type's default Units (see
+// defaultUnits), so the mandatory Units attribute is never omitted.
 func (f *File) listenerViewCoordinates() (typ, units string) {
 	typ, units = f.ListenerViewType, f.ListenerViewUnits
 	if typ == "" {

@@ -245,11 +245,18 @@ func TestSaveLegacySimpleFreeFieldSOS(t *testing.T) {
 	}
 }
 
-// sourceOrientationDefault returns the variable Save writes for a missing
-// SourceView or SourceUp.
-func sourceOrientationDefault(name string, values ...float64) Variable {
+// sourceUpDefault returns the variable Save writes for a missing
+// SourceUp: [0 0 1], with no Type or Units, which no convention table
+// defines on SourceUp.
+func sourceUpDefault() Variable {
+	return Variable{Name: "SourceUp", Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: []float64{0, 0, 1}}
+}
+
+// sourceViewDefault returns the variable Save writes for a missing
+// SourceView with the given values.
+func sourceViewDefault(values ...float64) Variable {
 	return Variable{
-		Name: name, Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: values,
+		Name: "SourceView", Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: values,
 		Attributes: []Attribute{{"Type", "cartesian"}, {"Units", "metre"}},
 	}
 }
@@ -280,16 +287,16 @@ func variablesByName(t *testing.T, vars []Variable) map[string]Variable {
 // when Variables lacks them, keeps a caller's own, and leaves the File
 // unchanged.
 func TestSaveConventionMandatoryVariables(t *testing.T) {
-	up := sourceOrientationDefault("SourceUp", 0, 0, 1)
+	up := sourceUpDefault()
 	for _, tc := range []struct {
 		convention string
 		build      func() *File
 		want       []Variable // nil: no source orientation is written
 	}{
-		{"SingleRoomSRIR", func() *File { return srirTestFile(4) }, []Variable{sourceOrientationDefault("SourceView", 1, 0, 0), up}},
-		{"SingleRoomDRIR", brirTestFile, []Variable{sourceOrientationDefault("SourceView", -1, 0, 0), up}},
+		{"SingleRoomSRIR", func() *File { return srirTestFile(4) }, []Variable{sourceViewDefault(1, 0, 0), up}},
+		{"SingleRoomDRIR", brirTestFile, []Variable{sourceViewDefault(-1, 0, 0), up}},
 		{"FreeFieldDirectivityTF", minimalTFFile, []Variable{
-			withReference(sourceOrientationDefault("SourceView", 1, 0, 0), ""), withReference(up, ""),
+			withReference(sourceViewDefault(1, 0, 0), ""), withReference(up, ""),
 		}},
 		{"SimpleFreeFieldHRIR", minimalFIRFile, nil},
 		{"GeneralFIR", minimalFIRFile, nil},
@@ -331,11 +338,23 @@ func TestSaveConventionMandatoryVariables(t *testing.T) {
 		}
 	})
 
+	t.Run("VariableAttributes Type and Units on the SourceUp default", func(t *testing.T) {
+		f := srirTestFile(4)
+		own := []Attribute{{"Type", "cartesian"}, {"Units", "metre"}}
+		f.VariableAttributes = map[string][]Attribute{"SourceUp": own}
+		got := variablesByName(t, roundTrip(t, f).Variables)
+		want := sourceUpDefault()
+		want.Attributes = own
+		if !reflect.DeepEqual(got["SourceUp"], want) {
+			t.Errorf("SourceUp = %+v, want %+v", got["SourceUp"], want)
+		}
+	})
+
 	t.Run("VariableAttributes on a default", func(t *testing.T) {
 		f := srirTestFile(4)
 		f.VariableAttributes = map[string][]Attribute{"SourceView": {{"Reference", "center"}}}
 		got := variablesByName(t, roundTrip(t, f).Variables)
-		want := sourceOrientationDefault("SourceView", 1, 0, 0)
+		want := sourceViewDefault(1, 0, 0)
 		want.Attributes = append(want.Attributes, Attribute{"Reference", "center"})
 		if !reflect.DeepEqual(got["SourceView"], want) {
 			t.Errorf("SourceView = %+v, want %+v", got["SourceView"], want)
@@ -675,7 +694,7 @@ func TestSaveDirectivityTFReference(t *testing.T) {
 		f.SOFAConventions = "FreeFieldDirectivityTF"
 		return f
 	}
-	up := sourceOrientationDefault("SourceUp", 0, 0, 1)
+	up := sourceUpDefault()
 
 	t.Run("defaults", func(t *testing.T) {
 		f := directivity()
@@ -685,7 +704,7 @@ func TestSaveDirectivityTFReference(t *testing.T) {
 			t.Errorf("VariableAttributes = %q, want %q", back.VariableAttributes, want)
 		}
 		got := variablesByName(t, back.Variables)
-		for _, w := range []Variable{withReference(sourceOrientationDefault("SourceView", 1, 0, 0), ""), withReference(up, "")} {
+		for _, w := range []Variable{withReference(sourceViewDefault(1, 0, 0), ""), withReference(up, "")} {
 			if !reflect.DeepEqual(got[w.Name], w) {
 				t.Errorf("%s = %+v, want %+v", w.Name, got[w.Name], w)
 			}
@@ -710,7 +729,7 @@ func TestSaveDirectivityTFReference(t *testing.T) {
 			t.Errorf("VariableAttributes = %q, want %q", back.VariableAttributes, want)
 		}
 		got := variablesByName(t, back.Variables)
-		wantView := withReference(sourceOrientationDefault("SourceView", 1, 0, 0), "Viewing direction of the bell")
+		wantView := withReference(sourceViewDefault(1, 0, 0), "Viewing direction of the bell")
 		for _, w := range []Variable{wantView, ownUp} {
 			if !reflect.DeepEqual(got[w.Name], w) {
 				t.Errorf("%s = %+v, want %+v", w.Name, got[w.Name], w)
@@ -723,7 +742,7 @@ func TestSaveDirectivityTFReference(t *testing.T) {
 
 	t.Run("caller SourceView without Reference", func(t *testing.T) {
 		f := directivity()
-		own := sourceOrientationDefault("SourceView", 0, 1, 0)
+		own := sourceViewDefault(0, 1, 0)
 		f.Variables = []Variable{own}
 		got := variablesByName(t, roundTrip(t, f).Variables)
 		if want := withReference(own, ""); !reflect.DeepEqual(got["SourceView"], want) {

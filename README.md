@@ -556,7 +556,8 @@ finite, sampling rates above zero, frequencies ascending from zero or above,
 all for the active `DataType` only; per-measurement `ListenerViews`/`ListenerUps` non-zero), and writes it as a
 new SOFA file at `path`. An unset `ListenerView`/`ListenerUp` is written as
 the conventions' default, `[1 0 0]`/`[0 0 1]` (spherical: `(0, 0, 1)` /
-`(0, 90, 1)`).
+`(0, 90, 1)`). Only `ListenerView` carries their `Type` and `Units`, as the
+convention tables define them there alone.
 `ReceiverPositions` and `SourcePositions` are required; an empty
 `ListenerPositions` or `EmitterPositions` is written as the conventions'
 default, `[0 0 0]` cartesian in metres. Every position needs a `Type`; empty
@@ -576,9 +577,10 @@ ones are written empty when `Attributes` lacks them:
 
 SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF also make the
 `SourceView` and `SourceUp` variables mandatory. When `Variables` has none
-of that name, `Save` writes the table's default as `[I,C]`, cartesian in
-metres: `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and `SourceUp`
-`[0 0 1]`, plus any attributes `VariableAttributes` holds for that name
+of that name, `Save` writes the table's default as `[I,C]`: `SourceView`
+`[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`), cartesian in metres, and `SourceUp`
+`[0 0 1]` (without `Type` or `Units`, which the tables do not define on it),
+plus any attributes `VariableAttributes` holds for that name
 (such as a `Reference`). FreeFieldDirectivityTF also makes a `Reference`
 attribute (a narrative description of the spatial reference) mandatory on
 `SourcePosition`, `SourceView` and `SourceUp`: `Save` writes it as `""`
@@ -588,6 +590,17 @@ one. An empty `RoomType` is written as the convention's default:
 `Variables` holds both `RoomCornerA` and `RoomCornerB` (sofar requires them
 for a shoebox room), and `free field` otherwise. The `File` itself is not
 changed.
+
+Like the SOFA Toolbox's `SOFAsave`, `Save` records its own provenance:
+`APIName` `go-sofa`, go-sofa's module version as `APIVersion`, and the save
+time as `DateModified` (and as `DateCreated` when that is empty). When the
+`File` names another API or go-sofa version, `History` gains a line
+`resaved by go-sofa <version> from <APIName> <APIVersion>`. Record your own
+program in `ApplicationName`/`ApplicationVersion`. The save time is the
+current time, or `SOURCE_DATE_EPOCH` (seconds since the Unix epoch) when
+that environment variable is set: then saving the same `File` twice gives
+byte-identical files. A malformed `SOURCE_DATE_EPOCH`, the empty string
+included, is an error.
 
 The destination is created from scratch on
 each call; an existing file is overwritten only after validation

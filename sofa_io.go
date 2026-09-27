@@ -36,11 +36,20 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 // directory, flushed and fsynced, and then renamed over path. A failed
 // Save leaves any existing file at path untouched and removes the
 // temporary file. If path already exists its permission bits are kept;
-// otherwise the new file gets mode 0644. Output is deterministic: saving
-// the same File twice produces byte-identical files, provided DateCreated
-// and DateModified are set. Save stamps empty dates with the current time
-// (as the SOFA Toolbox does) without changing the File, so set them for
-// reproducible output.
+// otherwise the new file gets mode 0644.
+//
+// Like the SOFA Toolbox's SOFAsave, Save records its own provenance in the
+// written file, without changing the File: APIName "go-sofa" and
+// go-sofa's module version as APIVersion, the save time as DateModified,
+// and as DateCreated when that is empty. When the File names another API
+// (or another go-sofa version), History gains the line "resaved by
+// go-sofa <version> from <APIName> <APIVersion>". Set ApplicationName and
+// ApplicationVersion to record your program.
+//
+// The save time is the current time, or the SOURCE_DATE_EPOCH environment
+// variable (seconds since the Unix epoch) when set; a malformed value,
+// the empty string included, is an error. Output is otherwise deterministic: with SOURCE_DATE_EPOCH set,
+// saving the same File twice produces byte-identical files.
 //
 // All required SOFA attributes and datasets are written, along with optional
 // fields if present in the File struct. ReceiverPositions and

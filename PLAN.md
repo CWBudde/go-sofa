@@ -547,9 +547,9 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       RoomType Save writes when it is not `free field`.
       `TestConventionRoomTypeWarnings` (failed before).
 
-### P2.3 — Provenance on save
+### P2.3 — Provenance on save — ✅ DONE (2026-09-27)
 
-- [ ] **P2.3a.** Always stamp `DateModified = now`, `APIName = "go-sofa"`,
+- [x] **P2.3a.** Always stamp `DateModified = now`, `APIName = "go-sofa"`,
       `APIVersion = moduleVersion()` on `Save`/`WriteTo` (`sofa.go:927-929`
       currently keep the originals). Keep `DateCreated`. Append a line to
       `History` recording the previous API (`"resaved by go-sofa X from
@@ -557,9 +557,32 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       `SOFAsave` does, and libmysofa keys a receiver-position workaround on
       APIName/APIVersion. Document on `Save`; the `File` itself stays
       unchanged (only the written file).
-- [ ] **P2.3b.** Stop writing `Type`/`Units` attributes on `ListenerUp`
+      (2026-09-27) — `collectRootAttributes` writes `go-sofa`,
+      `moduleVersion()` and the save time; `resaveHistory` appends the
+      line when the File names another API or go-sofa version. SOFAsave
+      (checked) also resets APIName/APIVersion. The save time is
+      `SOURCE_DATE_EPOCH` when set (malformed → error wrapping
+      `*strconv.NumError`), which replaces the "dates set → byte-identical"
+      guarantee. Tests: `TestSaveProvenance`, `TestSaveSourceDateEpoch`;
+      `just interop` checks the stamped provenance on re-saved sofar files.
+- [x] **P2.3b.** Stop writing `Type`/`Units` attributes on `ListenerUp`
       (`sofa.go:850-866`): the spec defines them on `ListenerView` only. Keep
       reading them.
+      (2026-09-27) — `ListenerUp` is written without attributes;
+      `writtenVariables` still owns its Type/Units, so Open drops the
+      v0.2.0-era ones and a re-save cleans them
+      (`TestSaveListenerUpWithoutCoordinates`). sofar no longer reports
+      `ListenerUp_Type, ListenerUp_Units` as custom entries on a re-saved
+      MIT KEMAR.
+- [x] **P2.3c.** Found while planning P2.3b: the `SourceUp` default Save
+      adds for SingleRoomSRIR/DRIR and FreeFieldDirectivityTF (P2.2c) also
+      carried `Type`/`Units`, which no convention table defines on
+      `SourceUp`. (2026-09-27) — `sourceOrientation` gives `SourceUp` no
+      attributes (DirectivityTF's `Reference` stays); `validateExtras` still
+      counts the attribute-less default as written, so
+      `VariableAttributes["SourceUp"]` may set them
+      (`TestSaveConventionMandatoryVariables`, `TestSaveDirectivityTFReference`).
+      sofar no longer reports `SourceUp_Type, SourceUp_Units`.
 
 ---
 

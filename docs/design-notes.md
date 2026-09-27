@@ -15,10 +15,15 @@ from the code. Open work is tracked in GitHub issues; the history is in
 - **Durability.** `Save` writes a temp file in the target directory, `fsync`s
   it and renames it over the target; the HDF5 close error is returned.
 - **Determinism.** Scales are written in a fixed order. Output is
-  byte-identical across runs only when `DateCreated`/`DateModified` are set.
+  byte-identical across runs only when `SOURCE_DATE_EPOCH` fixes the save
+  time.
+- **Provenance is Save's own**, as in the SOFA Toolbox's `SOFAsave`:
+  `APIName` `go-sofa`, the module version as `APIVersion` and the save time
+  as `DateModified` are always written; `History` gains a line naming the
+  File's API when that is another one.
 - **Defaults live in the file only.** Empty mandatory globals (`Title`,
-  `DateCreated`, `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
-  `Organization`, `License`, `RoomType` — the convention's, e.g.
+  `DateCreated`, `AuthorContact`, `Organization`, `License`, `RoomType` —
+  the convention's, e.g.
   `reverberant` for SingleRoomDRIR), an unset single
   `ListenerView`/`ListenerUp` (`[1 0 0]`/`[0 0 1]`, spherical
   `(0,0,1)`/`(0,90,1)`) and a convention's missing mandatory globals and
