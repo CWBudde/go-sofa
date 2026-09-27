@@ -622,13 +622,13 @@ conventions get extra behaviour: `Save` enforces their required
 metadata, and `(*File).ConventionWarnings() []string` reports
 advisory findings that never block `Save` (`sofainfo` prints them).
 
-| Convention                                   | Accessors                                   | Checks                                                                                    |
-| -------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`             |
-| SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`  |
-| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`         | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                                |
-| `FreeFieldHRTF`                              | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                           |
-| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation |
+| Convention                                 | Accessors                                   | Checks                                                                                    |
+| ------------------------------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`                     | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`             |
+| SRIR: `SingleRoomSRIR`                     | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`  |
+| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`       | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                                |
+| `FreeFieldHRTF`                            | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                           |
+| Directivity: e.g. `FreeFieldDirectivityTF` | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
 read from their variables, or from root attributes of the same
@@ -658,6 +658,15 @@ To **write** an SH-encoded file, populate a `File` with
 a convention such as `FreeFieldHRTF`, and `E = (Lmax+1)²` SH
 coefficients per (measurement, receiver, frequency) tuple, then call
 `Save`.
+
+### Limitations
+
+- **FIR-E is not supported.** `Open` and `Save` fail with
+  `ErrUnsupportedDataType` for DataType `FIR-E` (per-emitter impulse
+  responses, GeneralFIR-E) and the legacy `FIRE`. Files of the
+  conventions built on it, such as `MultiSpeakerBRIR` and
+  `SingleRoomMIMOSRIR`, can therefore be neither read nor written, and
+  `IsBRIR`/`IsSRIR` do not match them.
 
 ## Interoperability
 

@@ -50,11 +50,9 @@ func (r conventionRules) withGlobals(names []string) conventionRules {
 // Conventions not listed here get only the generic checks, so files using
 // unknown or custom conventions keep writing unchanged.
 var conventionRegistry = map[string]conventionRules{
-	conventionSingleRoomDRIR:     brirRules,
-	conventionMultiSpeakerBRIR:   brirRules,
-	conventionSingleRoomSRIR:     srirRules.withGlobals(globalsSRIR),
-	conventionSingleRoomMIMOSRIR: srirRules,
-	conventionSimpleHeadphoneIR:  conventionRules{}.withGlobals(globalsHeadphoneIR),
+	conventionSingleRoomDRIR:    brirRules,
+	conventionSingleRoomSRIR:    srirRules.withGlobals(globalsSRIR),
+	conventionSimpleHeadphoneIR: conventionRules{}.withGlobals(globalsHeadphoneIR),
 
 	conventionSimpleFreeFieldHRIR:    layoutRules(DataTypeFIR, 2, 1).withGlobals(globalsHRTF),
 	conventionSimpleFreeFieldHRTF:    layoutRules(DataTypeTF, 2, 1).withGlobals(globalsHRTF),

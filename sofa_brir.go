@@ -1,25 +1,19 @@
 package sofa
 
-// SOFAConventions values for binaural room impulse responses.
-const (
-	conventionSingleRoomDRIR   = "SingleRoomDRIR"
-	conventionMultiSpeakerBRIR = "MultiSpeakerBRIR"
-)
+// SOFAConventions value for binaural room impulse responses. MultiSpeakerBRIR
+// is not listed: its DataType FIRE (legacy FIR-E) is rejected by Open and Save.
+const conventionSingleRoomDRIR = "SingleRoomDRIR"
 
 // brirRules require what a binaural room response cannot be interpreted
 // without: the room it was measured in and the orientation of the head.
 var brirRules = conventionRules{validate: validateBRIR}
 
 // IsBRIR reports whether the file holds binaural room impulse responses,
-// that is, whether SOFAConventions is SingleRoomDRIR or MultiSpeakerBRIR.
-// Save requires such files to carry a RoomType and a non-zero ListenerView
-// and ListenerUp.
+// that is, whether SOFAConventions is SingleRoomDRIR. Save requires such
+// files to carry a RoomType and a non-zero ListenerView and ListenerUp.
+// MultiSpeakerBRIR files use DataType FIRE, which is not supported.
 func (f *File) IsBRIR() bool {
-	switch f.SOFAConventions {
-	case conventionSingleRoomDRIR, conventionMultiSpeakerBRIR:
-		return true
-	}
-	return false
+	return f.SOFAConventions == conventionSingleRoomDRIR
 }
 
 func validateBRIR(f *File) error {

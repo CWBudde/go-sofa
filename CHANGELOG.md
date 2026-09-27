@@ -7,6 +7,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `IsBRIR` reports true only for `SingleRoomDRIR` and
+  `IsSRIR` only for `SingleRoomSRIR`; neither matches `MultiSpeakerBRIR` or
+  `SingleRoomMIMOSRIR` any more, and the BRIR/SRIR rules for those two
+  conventions are dropped. They use DataType `FIRE` and `FIR-E`, which `Open` and
+  `Save` reject, so the rules could never apply. README "Limitations" lists
+  FIR-E as unsupported.
+
 ### Added
 
 - `Save` writes the global attributes a convention's SOFA Toolbox table

@@ -9,11 +9,10 @@ import (
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-// SOFAConventions values for spatial room impulse responses.
-const (
-	conventionSingleRoomSRIR     = "SingleRoomSRIR"
-	conventionSingleRoomMIMOSRIR = "SingleRoomMIMOSRIR"
-)
+// SOFAConventions value for spatial room impulse responses.
+// SingleRoomMIMOSRIR is not listed: its DataType FIR-E is rejected by Open
+// and Save.
+const conventionSingleRoomSRIR = "SingleRoomSRIR"
 
 // Room metadata variables and their units.
 const (
@@ -28,13 +27,10 @@ const (
 var srirRules = conventionRules{warnings: srirWarnings}
 
 // IsSRIR reports whether the file holds spatial room impulse responses, that
-// is, whether SOFAConventions is SingleRoomSRIR or SingleRoomMIMOSRIR.
+// is, whether SOFAConventions is SingleRoomSRIR. SingleRoomMIMOSRIR files
+// use DataType FIR-E, which is not supported.
 func (f *File) IsSRIR() bool {
-	switch f.SOFAConventions {
-	case conventionSingleRoomSRIR, conventionSingleRoomMIMOSRIR:
-		return true
-	}
-	return false
+	return f.SOFAConventions == conventionSingleRoomSRIR
 }
 
 // AmbisonicsOrder returns the Ambisonics order of an SRIR file, detected from

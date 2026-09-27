@@ -36,6 +36,17 @@ func TestUnknownConventionStillReads(t *testing.T) {
 	}
 }
 
+// TestFIREConventionsUnregistered checks that conventions whose DataType is
+// FIR-E or FIRE have no rules: Open rejects both, so such rules could never
+// apply.
+func TestFIREConventionsUnregistered(t *testing.T) {
+	for _, name := range []string{"MultiSpeakerBRIR", "SingleRoomMIMOSRIR"} {
+		if _, ok := conventionRegistry[name]; ok {
+			t.Errorf("conventionRegistry has rules for %s, whose DataType Open rejects", name)
+		}
+	}
+}
+
 // TestConventionRulesDispatch checks that validate runs the rules registered
 // for the file's SOFAConventions, and only those.
 func TestConventionRulesDispatch(t *testing.T) {
