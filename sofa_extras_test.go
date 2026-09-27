@@ -2,6 +2,7 @@ package sofa
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -209,8 +210,10 @@ func TestRoundTripDimensionAttributes(t *testing.T) {
 		"M": {{"Description", "measurements"}},
 	}
 	back := roundTrip(t, f)
-	if !reflect.DeepEqual(back.VariableAttributes, f.VariableAttributes) {
-		t.Errorf("VariableAttributes = %v, want %v", back.VariableAttributes, f.VariableAttributes)
+	want := maps.Clone(f.VariableAttributes)
+	want["SourcePosition"] = []Attribute{{"Reference", ""}} // FreeFieldDirectivityTF's default
+	if !reflect.DeepEqual(back.VariableAttributes, want) {
+		t.Errorf("VariableAttributes = %v, want %v", back.VariableAttributes, want)
 	}
 	if len(back.Dropped) > 0 {
 		t.Errorf("Dropped = %q", back.Dropped)

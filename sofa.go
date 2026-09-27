@@ -937,7 +937,7 @@ func (f *File) collectRootAttributes() []rootAttribute {
 		{"AuthorContact", f.AuthorContact},
 		{"Organization", f.Organization},
 		{"License", or(f.License, defaultLicense)},
-		{"RoomType", or(f.RoomType, f.defaultRoomType())},
+		{"RoomType", f.savedRoomType()},
 	}
 	for _, opt := range []rootAttribute{
 		{"ApplicationName", f.ApplicationName},

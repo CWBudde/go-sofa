@@ -117,7 +117,7 @@ func TestSaveDelayLayouts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := minimalFIRFile()
-			f.SOFAConventions = "GeneralFIR" // SimpleFreeFieldHRIR requires R=2
+			f.SOFAConventions = "GeneralFIR" // SimpleFreeFieldHRIR warns about R != 2
 			f.M, f.R = tc.m, tc.r
 			f.ImpulseResponses = make([][][]float64, tc.m)
 			for m := range f.ImpulseResponses {

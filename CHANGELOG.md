@@ -21,7 +21,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   SingleRoomDRIR (FIR), and returns a `*ValidationError` for field
   `DataType` otherwise; these used to accept any DataType. The legacy SOFA
   1.0 name SimpleFreeFieldSOS is validated like SimpleFreeFieldHRSOS
-  (DataType SOS, R = 2, E = 1) and gets its mandatory global attributes.
+  (DataType SOS, E = 1) and gets its mandatory global attributes.
+- `Save` no longer rejects a SimpleFreeFieldHRIR, SimpleFreeFieldHRTF or
+  SimpleFreeFieldHRSOS file whose `R` is not 2: neither the SOFA Toolbox
+  tables nor sofar fix the receiver count (the SOFA wiki allows any), and
+  real databases such as Kayser2009 (R = 8) could not be re-saved.
+  `ConventionWarnings` reports it instead, since libmysofa rejects such
+  SimpleFreeFieldHRIR files.
 - `Save` writes an empty `RoomType` as the convention's default instead of
   `free field` for every convention: `reverberant` for SingleRoomDRIR, and
   `shoebox` for SingleRoomSRIR when `Variables` holds both `RoomCornerA`
@@ -57,6 +63,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   features in a file declaring `Version` below 2.0: the FreeFieldHRTF
   convention, DataType TF-E and a position `Type` of `spherical harmonics`.
   These are warnings only; `Save` still writes such files.
+
+- `ConventionWarnings` reports a `RoomType` other than `free field` in a
+  SimpleFreeFieldHRIR/HRTF/HRSOS or FreeFieldHRTF file (sofar rejects
+  those; the SOFA Toolbox tables do not restrict the value). A warning
+  only; `Save` still writes such files.
+
+- `Save` writes the `Reference` attribute FreeFieldDirectivityTF's table
+  makes mandatory on `SourcePosition`, `SourceView` and `SourceUp`, as `""`
+  where neither `VariableAttributes` nor the variable's own `Attributes`
+  set one. The `File` is not modified.
 
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
