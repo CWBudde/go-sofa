@@ -599,7 +599,8 @@ time as `DateModified` (and as `DateCreated` when that is empty). When the
 program in `ApplicationName`/`ApplicationVersion`. The save time is the
 current time, or `SOURCE_DATE_EPOCH` (seconds since the Unix epoch) when
 that environment variable is set: then saving the same `File` twice gives
-byte-identical files. A malformed `SOURCE_DATE_EPOCH` is an error.
+byte-identical files. A malformed `SOURCE_DATE_EPOCH`, the empty string
+included, is an error.
 
 The destination is created from scratch on
 each call; an existing file is overwritten only after validation

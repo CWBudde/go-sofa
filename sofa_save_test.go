@@ -51,9 +51,19 @@ func TestSaveDeterministic(t *testing.T) {
 // SOURCE_DATE_EPOCH the environment sets, which would take precedence.
 func pinSaveTime(t *testing.T, ts time.Time) {
 	t.Helper()
-	t.Setenv("SOURCE_DATE_EPOCH", "")
+	unsetSourceDateEpoch(t)
 	saveTime = func() time.Time { return ts }
 	t.Cleanup(func() { saveTime = time.Now })
+}
+
+// unsetSourceDateEpoch unsets SOURCE_DATE_EPOCH for the rest of the test
+// (an empty value is malformed, not unset); t.Setenv restores it after.
+func unsetSourceDateEpoch(t *testing.T) {
+	t.Helper()
+	t.Setenv("SOURCE_DATE_EPOCH", "")
+	if err := os.Unsetenv("SOURCE_DATE_EPOCH"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestSaveStampsEmptyDates checks that empty DateCreated/DateModified are
@@ -151,7 +161,8 @@ func TestSaveProvenance(t *testing.T) {
 
 // TestSaveSourceDateEpoch checks that SOURCE_DATE_EPOCH fixes the save
 // time, so output is byte-identical whatever the clock says, and that a
-// malformed value fails Save and WriteTo without writing anything.
+// malformed value, the empty string included, fails Save and WriteTo
+// without writing anything.
 func TestSaveSourceDateEpoch(t *testing.T) {
 	f := minimalFIRFile()
 	f.DateCreated, f.DateModified = "", ""
@@ -183,8 +194,8 @@ func TestSaveSourceDateEpoch(t *testing.T) {
 		t.Error("saves at different clock times differ despite SOURCE_DATE_EPOCH")
 	}
 
-	for _, bad := range []string{"soon", "-1", "1.5"} {
-		t.Run(bad, func(t *testing.T) {
+	for _, bad := range []string{"soon", "-1", "1.5", ""} {
+		t.Run(strconv.Quote(bad), func(t *testing.T) {
 			t.Setenv("SOURCE_DATE_EPOCH", bad)
 			dir := t.TempDir()
 			var numErr *strconv.NumError

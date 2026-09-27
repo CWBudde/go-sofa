@@ -920,10 +920,11 @@ var saveTime = time.Now
 // saveTimestamp returns the time Save records as DateModified: the
 // SOURCE_DATE_EPOCH environment variable (seconds since the Unix epoch,
 // the reproducible-builds convention) when set, else the current time. A
-// malformed SOURCE_DATE_EPOCH is an error, as the convention asks.
+// malformed SOURCE_DATE_EPOCH is an error, as the convention asks; so is
+// one set to the empty string, which is set but not a number.
 func saveTimestamp() (time.Time, error) {
-	epoch := os.Getenv("SOURCE_DATE_EPOCH")
-	if epoch == "" {
+	epoch, ok := os.LookupEnv("SOURCE_DATE_EPOCH")
+	if !ok {
 		return saveTime(), nil
 	}
 	sec, err := strconv.ParseUint(epoch, 10, 63)

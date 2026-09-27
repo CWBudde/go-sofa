@@ -47,8 +47,8 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 // ApplicationVersion to record your program.
 //
 // The save time is the current time, or the SOURCE_DATE_EPOCH environment
-// variable (seconds since the Unix epoch) when set; a malformed value is
-// an error. Output is otherwise deterministic: with SOURCE_DATE_EPOCH set,
+// variable (seconds since the Unix epoch) when set; a malformed value,
+// the empty string included, is an error. Output is otherwise deterministic: with SOURCE_DATE_EPOCH set,
 // saving the same File twice produces byte-identical files.
 //
 // All required SOFA attributes and datasets are written, along with optional

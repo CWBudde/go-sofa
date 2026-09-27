@@ -56,7 +56,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Save` and `WriteTo` honour the `SOURCE_DATE_EPOCH` environment variable
   (seconds since the Unix epoch, the reproducible-builds convention): it
   replaces the current time as the save time, so output is reproducible. A
-  malformed value is an error.
+  malformed value, the empty string included, is an error.
 - `Save` writes the `SourceView` and `SourceUp` variables that
   SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make mandatory
   when `Variables` lacks them, with the table's default: `[I,C]`,
