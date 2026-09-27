@@ -168,19 +168,13 @@ func zeroDirection(v Vector3, spherical bool) bool {
 
 // listenerOrientation returns the ListenerView and ListenerUp Save writes:
 // the File's, or the conventions' defaults (view along +x, up along +z) for
-// an unset, zero vector. In spherical coordinates the up default's
-// elevation follows the angle unit Save writes, so it is the zenith in
-// radians too.
+// an unset, zero vector; in spherical coordinates (0, 0, 1) and (0, 90, 1),
+// since Save accepts only degrees (see validateUnits).
 func (f *File) listenerOrientation() (view, up Vector3) {
 	view, up = f.ListenerView, f.ListenerUp
 	defView, defUp := Vector3{1, 0, 0}, Vector3{0, 0, 1}
 	if f.listenerViewSpherical() {
-		zenith := 90.0
-		_, units := f.listenerViewCoordinates()
-		if angleUnitIsRadian(units) {
-			zenith = math.Pi / 2
-		}
-		defView, defUp = Vector3{0, 0, 1}, Vector3{0, zenith, 1}
+		defView, defUp = Vector3{0, 0, 1}, Vector3{0, 90, 1}
 	}
 	if view == (Vector3{}) {
 		view = defView
@@ -191,13 +185,34 @@ func (f *File) listenerOrientation() (view, up Vector3) {
 	return view, up
 }
 
-// angleUnitIsRadian reports whether a spherical Units value such as
-// "radian, radian, metre" gives its angles in radians; the SOFA default is
-// degrees.
-func angleUnitIsRadian(units string) bool {
-	angle, _, _ := strings.Cut(units, ",")
-	angle = strings.ToLower(strings.TrimSpace(angle))
-	return angle == "rad" || strings.HasPrefix(angle, "radian")
+// sofaUnits holds the unit names Save accepts in each comma-separated part
+// of a position's or ListenerView's Units, lowercased: metre and degree
+// with the aliases of sofar (pyfar/sofa_conventions rules/unit_aliases.json)
+// and the SOFA Toolbox (SOFAdefinitions('units')). Neither knows radians.
+var sofaUnits = map[string]bool{
+	"metre": true, "metres": true, "meter": true, "meters": true,
+	"degree": true, "degrees": true,
+}
+
+// validateUnits checks that the Units Save writes on every position and on
+// ListenerView name only SOFA units (see sofaUnits), compared
+// case-insensitively; "furlong, parsec, cubit" or radians are rejected.
+func (f *File) validateUnits() error {
+	check := func(field, units string) error {
+		for _, part := range strings.Split(units, ",") {
+			if !sofaUnits[strings.ToLower(strings.TrimSpace(part))] {
+				return invalid(field, "%q names a unit other than metre or degree", units)
+			}
+		}
+		return nil
+	}
+	for _, p := range f.savedPositions() {
+		if err := check(p.name+"Units", p.units); err != nil {
+			return err
+		}
+	}
+	_, units := f.listenerViewCoordinates()
+	return check(datasetListenerView+"Units", units)
 }
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }

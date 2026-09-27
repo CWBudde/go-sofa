@@ -145,18 +145,8 @@ func (f *File) writtenVariables() map[string][]string {
 	for _, d := range sofaDimensions {
 		written[d] = nil
 	}
-	for _, p := range []struct {
-		name    string
-		written bool
-	}{
-		{datasetListenerPosition, len(f.ListenerPositions) > 0},
-		{datasetReceiverPosition, len(f.ReceiverPositions) > 0 || len(f.ReceiverPositionsM) > 0},
-		{datasetSourcePosition, len(f.SourcePositions) > 0},
-		{datasetEmitterPosition, len(f.EmitterPositions) > 0 || len(f.EmitterPositionsM) > 0},
-	} {
-		if p.written {
-			written[p.name] = typeUnits
-		}
+	for _, p := range f.savedPositions() {
+		written[p.name] = typeUnits
 	}
 	if f.RoomVolume != 0 {
 		written[datasetRoomVolume] = units

@@ -9,6 +9,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `Save` writes the global attributes a convention's SOFA Toolbox table
+  makes mandatory beyond the generic ones, as the empty default the table
+  gives them, when `Attributes` lacks them: `DatabaseName` and
+  `ListenerShortName` (SimpleFreeFieldHRIR/HRTF/HRSOS, FreeFieldHRTF),
+  `DatabaseName`, `SourceType` and `SourceManufacturer`
+  (FreeFieldDirectivityTF), `DatabaseName`, `ListenerShortName`,
+  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR), and
+  `DatabaseName` (SingleRoomSRIR). The `File` is not modified.
+
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
   and loads every generated file and every re-saved reference file with it.
@@ -45,6 +54,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Requires go-hdf5 v0.18.0, which writes new-style groups (the layout
   libmysofa reads), text attributes with the ASCII character set, and
   tracks attribute creation order as netCDF-C does.
+- **Breaking:** `Save` requires `ReceiverPositions` and `SourcePositions`,
+  which the SOFA conventions make mandatory without a usable default, and
+  writes an empty `ListenerPositions` or `EmitterPositions` as the
+  conventions' default, `[0 0 0]` cartesian in metres. The `File` is not
+  modified.
+- `Save` always writes the mandatory `Units` attribute of the four position
+  variables; empty `…PositionUnits` are written as the default for the
+  `Type`, `metre` for cartesian and `degree, degree, metre` for spherical
+  and spherical harmonics. An empty `Units` used to be left out.
+- **Breaking:** `UnitsCartesianMetres` is `"metre"`, the value of the SOFA
+  convention tables, instead of `"metre, metre, metre"`. `Open` still reads
+  either as it is stored.
+- **Breaking:** `Save` checks the `Units` of every position and of
+  `ListenerView`: each comma-separated part must be `metre` or `degree`
+  (also `meter`, `metres`, `meters`, `degrees`; any case), the names sofar
+  and the SOFA Toolbox accept. Other units, radians included, are a
+  `*ValidationError`; the default spherical `ListenerUp` for radian units
+  (elevation π/2) is gone. `Open` still reads such files.
 
 ## [v0.2.0] - 2026-09-26
 
