@@ -328,3 +328,61 @@ func TestSaveDRIRMandatoryGlobals(t *testing.T) {
 		t.Errorf("Attributes = %q, want %q", back.Attributes, want)
 	}
 }
+
+// TestSaveConventionRoomType checks the RoomType Save writes when the File
+// has none: shoebox for SingleRoomSRIR only when both room corners are
+// given (the corners define the shoebox), reverberant for SingleRoomDRIR,
+// and free field otherwise. An explicit RoomType is written as is, and the
+// File is not changed.
+func TestSaveConventionRoomType(t *testing.T) {
+	// A room corner is one cartesian point in metres, as sofar and the
+	// interop generator write it.
+	corner := func(name string) Variable {
+		return Variable{
+			Name: name, Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: []float64{0, 0, 0},
+			Attributes: []Attribute{{"Type", "cartesian"}, {"Units", "metre"}},
+		}
+	}
+	srir := func(roomType string, corners ...string) func() *File {
+		return func() *File {
+			f := srirTestFile(4)
+			f.RoomType = roomType
+			for _, name := range corners {
+				f.Variables = append(f.Variables, corner(name))
+			}
+			return f
+		}
+	}
+	drir := func(roomType string) func() *File {
+		return func() *File {
+			f := brirTestFile()
+			f.RoomType = roomType
+			return f
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		build func() *File
+		want  string
+	}{
+		{"SRIR without corners", srir(""), "free field"},
+		{"SRIR with RoomCornerA only", srir("", "RoomCornerA"), "free field"},
+		{"SRIR with both corners", srir("", "RoomCornerA", "RoomCornerB"), "shoebox"},
+		{"SRIR explicit", srir("dae"), "dae"},
+		{"SRIR explicit with corners", srir("reverberant", "RoomCornerA", "RoomCornerB"), "reverberant"},
+		{"DRIR", drir(""), "reverberant"},
+		{"DRIR explicit", drir("free field"), "free field"},
+		{"SimpleFreeFieldHRIR", minimalFIRFile, "free field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := tc.build()
+			set := f.RoomType
+			if got := roundTrip(t, f).RoomType; got != tc.want {
+				t.Errorf("RoomType = %q, want %q", got, tc.want)
+			}
+			if f.RoomType != set {
+				t.Errorf("Save changed the File's RoomType to %q", f.RoomType)
+			}
+		})
+	}
+}

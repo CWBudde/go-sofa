@@ -22,6 +22,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `DataType` otherwise; these used to accept any DataType. The legacy SOFA
   1.0 name SimpleFreeFieldSOS is validated like SimpleFreeFieldHRSOS
   (DataType SOS, R = 2, E = 1) and gets its mandatory global attributes.
+- `Save` writes an empty `RoomType` as the convention's default instead of
+  `free field` for every convention: `reverberant` for SingleRoomDRIR, and
+  `shoebox` for SingleRoomSRIR when `Variables` holds both `RoomCornerA`
+  and `RoomCornerB` (sofar requires the corners for a shoebox room; without
+  them SingleRoomSRIR keeps `free field`). An explicit `RoomType` is written
+  as is, and the `File` is not modified.
+- `Save` no longer rejects a SingleRoomDRIR file with an empty `RoomType`;
+  it writes the `reverberant` default instead.
 
 ### Added
 

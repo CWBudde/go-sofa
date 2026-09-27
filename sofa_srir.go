@@ -3,6 +3,7 @@ package sofa
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,12 @@ const (
 	datasetRoomTemperature = "RoomTemperature"
 	unitsRoomVolume        = "cubic metre"
 	unitsRoomTemperature   = "kelvin"
+)
+
+// Variables holding two opposite corners of a shoebox room.
+const (
+	variableRoomCornerA = "RoomCornerA"
+	variableRoomCornerB = "RoomCornerB"
 )
 
 // IsSRIR reports whether the file holds spatial room impulse responses, that
@@ -42,6 +49,21 @@ func (f *File) AmbisonicsOrder() (order int, ok bool) {
 		return 0, false
 	}
 	return root - 1, true
+}
+
+// srirRoomType is the RoomType Save writes for an SRIR file without one:
+// shoebox, the SingleRoomSRIR table's default, when Variables holds
+// RoomCornerA and RoomCornerB, and free field otherwise. The table leaves
+// the corners optional, but sofar requires them for a shoebox room, and a
+// shoebox without its corners says nothing.
+func srirRoomType(f *File) string {
+	hasCorner := func(name string) bool {
+		return slices.ContainsFunc(f.Variables, func(v Variable) bool { return v.Name == name })
+	}
+	if hasCorner(variableRoomCornerA) && hasCorner(variableRoomCornerB) {
+		return roomTypeShoebox
+	}
+	return roomTypeFreeField
 }
 
 // srirWarnings are advisory only: SRIR files without room metadata, or

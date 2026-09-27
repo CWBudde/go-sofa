@@ -73,6 +73,9 @@ type conventionRules struct {
 	// mandatoryVariables are variables Save writes, with these defaults,
 	// when Variables has none of that name.
 	mandatoryVariables []Variable
+	// roomType returns the RoomType Save writes when the File has none;
+	// nil means free field.
+	roomType func(f *File) string
 }
 
 // conventionRegistry maps SOFAConventions values to their specific rules.
@@ -96,13 +99,15 @@ var conventionRegistry = map[string]conventionRules{
 
 	conventionSingleRoomSRIR: {
 		dataType: DataTypeFIR, warnings: srirWarnings, mandatoryGlobals: globalsSRIR,
-		mandatoryVariables: sourceOrientation(Vector3{X: 1}),
+		mandatoryVariables: sourceOrientation(Vector3{X: 1}), roomType: srirRoomType,
 	},
 	// The (deprecated) SingleRoomDRIR table points the source at the
-	// listener: SourceView defaults to -x.
+	// listener (SourceView defaults to -x) and defaults RoomType to
+	// reverberant.
 	conventionSingleRoomDRIR: {
 		dataType: DataTypeFIR, validate: validateBRIR, mandatoryGlobals: globalsDRIR,
 		mandatoryVariables: sourceOrientation(Vector3{X: -1}),
+		roomType:           func(*File) string { return roomTypeReverberant },
 	},
 }
 
@@ -179,6 +184,17 @@ func (f *File) missingMandatoryVariables() []Variable {
 		}
 	}
 	return missing
+}
+
+// defaultRoomType returns the RoomType Save writes when f.RoomType is
+// empty: the default of the file's SOFAConventions, free field for
+// conventions without one.
+func (f *File) defaultRoomType() string {
+	rules, _ := rulesFor(f.SOFAConventions)
+	if rules.roomType == nil {
+		return roomTypeFreeField
+	}
+	return rules.roomType(f)
 }
 
 // savedVariables returns the extra variables Save writes: f.Variables, then

@@ -53,7 +53,9 @@ func openReader(r io.ReaderAt, size int64, lazy bool) (*File, error) {
 // Attributes lacks one. Likewise, the SourceView and SourceUp variables
 // that SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make
 // mandatory are written with the tables' defaults when Variables lacks
-// them.
+// them, and an empty RoomType as the convention's default: reverberant for
+// SingleRoomDRIR, shoebox for SingleRoomSRIR when Variables holds
+// RoomCornerA and RoomCornerB, free field otherwise.
 //
 // Returns an error if:
 //   - Validation fails (missing required fields, invalid dimensions, etc.)
