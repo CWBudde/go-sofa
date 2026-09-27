@@ -638,16 +638,28 @@ A 5.5 KB crafted file with 16 chunked, never-written "extra" variables of
 per read (max(256 MiB, fileSize × ratio)). There is no budget across one
 `Open`.
 
-- [ ] **P3.2a.** Add one element budget per `Open`/`OpenReader`, shared by
+- [x] **P3.2a.** Add one element budget per `Open`/`OpenReader`, shared by
       audio, positions and extras: default
       `max(64 Mi elements, 64 × fileSize/8)` (tune on the largest real file,
       Kayser2009 ~179 MB data); exceeding it returns a wrapped
       `ErrTooLarge` (new sentinel). Correct the "8 GiB" comment at
       `sofa.go:362`.
+      (2026-09-27) — `checkReadBudget` sums the element counts the root
+      datasets declare, before any read, against `max(64 Mi, 8 × fileSize)`
+      and fails with `ErrTooLarge`; the lazy functions skip the audio
+      variables they leave in the file. The `maxDataElements` comment now
+      calls it a per-variable bound. `TestOpenReadBudget` (3 × 2^25
+      never-written extras in a few KB, all four Open functions; opened
+      before) and `TestOpenReadBudgetLimit` (exact budget, one short, lazy
+      without audio). Headroom over the 27 local fixtures ≥ 52× (Kayser2009:
+      22.4 M elements, budget 1.17 G).
 - [ ] **P3.2b.** Char variables: `ReadStrings` builds a `[]string` of 1-byte
       strings (~18× amplification; a 3.4 KB file → 4.6 GiB transient). Read
       char arrays as raw bytes and split rows in go-sofa (or add a byte-level
       read to go-hdf5 if none exists).
+      (2026-09-27) — go-hdf5 v0.18.0 has none (`Dataset` offers `Read`,
+      `ReadStrings`, `ReadSlice`, `ReadCompound`); needs a raw-byte read and
+      a go-hdf5 release first.
 - [ ] **P3.2c.** _(optional)_ `OpenOptions{MaxElements int; SkipExtras bool}`
       if P7.1 introduces an options type anyway — do not add a new API only
       for this.
