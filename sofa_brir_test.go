@@ -23,7 +23,7 @@ func TestIsBRIR(t *testing.T) {
 		want       bool
 	}{
 		{conventionSingleRoomDRIR, true},
-		{conventionMultiSpeakerBRIR, true},
+		{"MultiSpeakerBRIR", false}, // DataType FIRE, not supported
 		{"SimpleFreeFieldHRIR", false},
 		{conventionSingleRoomSRIR, false},
 		{"", false},
@@ -38,23 +38,18 @@ func TestIsBRIR(t *testing.T) {
 	}
 }
 
-// TestBRIRMissingRoomType checks that Save refuses a BRIR file without a
-// RoomType and names the attribute in the error.
+// TestBRIRMissingRoomType checks that Save accepts a BRIR file without a
+// RoomType and writes the SingleRoomDRIR default, reverberant, leaving the
+// File unchanged.
 func TestBRIRMissingRoomType(t *testing.T) {
-	for _, convention := range []string{conventionSingleRoomDRIR, conventionMultiSpeakerBRIR} {
-		t.Run(convention, func(t *testing.T) {
-			f := brirTestFile()
-			f.SOFAConventions = convention
-			f.RoomType = ""
+	f := brirTestFile()
+	f.RoomType = ""
 
-			err := f.Save(filepath.Join(t.TempDir(), "brir.sofa"))
-			if err == nil || !strings.Contains(err.Error(), "RoomType") {
-				t.Fatalf("Save() error = %v, want error mentioning RoomType", err)
-			}
-			if ve := requireValidationError(t, err); ve.Field != "RoomType" {
-				t.Errorf("Field = %q, want RoomType", ve.Field)
-			}
-		})
+	if got := roundTrip(t, f).RoomType; got != "reverberant" {
+		t.Errorf("RoomType = %q, want reverberant", got)
+	}
+	if f.RoomType != "" {
+		t.Errorf("Save changed the File's RoomType to %q", f.RoomType)
 	}
 }
 

@@ -25,10 +25,10 @@ func srirTestFile(r int) *File {
 
 func TestIsSRIR(t *testing.T) {
 	for convention, want := range map[string]bool{
-		conventionSingleRoomSRIR:     true,
-		conventionSingleRoomMIMOSRIR: true,
-		conventionSingleRoomDRIR:     false,
-		"SimpleFreeFieldHRIR":        false,
+		conventionSingleRoomSRIR: true,
+		"SingleRoomMIMOSRIR":     false, // DataType FIR-E, not supported
+		conventionSingleRoomDRIR: false,
+		"SimpleFreeFieldHRIR":    false,
 	} {
 		f := &File{SOFAConventions: convention}
 		if got := f.IsSRIR(); got != want {
@@ -50,7 +50,7 @@ func TestAmbisonicsOrder(t *testing.T) {
 		{"order 0", conventionSingleRoomSRIR, 1, 0, true},
 		{"order 1", conventionSingleRoomSRIR, 4, 1, true},
 		{"order 2", conventionSingleRoomSRIR, 9, 2, true},
-		{"order 3 MIMO", conventionSingleRoomMIMOSRIR, 16, 3, true},
+		{"order 3", conventionSingleRoomSRIR, 16, 3, true},
 		{"raw 32-capsule array", conventionSingleRoomSRIR, 32, 0, false},
 		{"not SRIR", conventionSingleRoomDRIR, 4, 0, false},
 		{"no receivers", conventionSingleRoomSRIR, 0, 0, false},

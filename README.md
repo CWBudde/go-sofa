@@ -566,12 +566,24 @@ default, `[0 0 0]` cartesian in metres. Every position needs a `Type`; empty
 rejected. Global attributes a convention makes mandatory beyond the generic
 ones are written empty when `Attributes` lacks them:
 
-- SimpleFreeFieldHRIR/HRTF/HRSOS and FreeFieldHRTF: `DatabaseName`,
-  `ListenerShortName`
+- SimpleFreeFieldHRIR/HRTF/HRSOS (and the legacy SimpleFreeFieldSOS) and
+  FreeFieldHRTF: `DatabaseName`, `ListenerShortName`
 - FreeFieldDirectivityTF: `DatabaseName`, `SourceType`, `SourceManufacturer`
 - SimpleHeadphoneIR: `DatabaseName`, `ListenerShortName`,
   `ReceiverDescription`, `EmitterDescription`
 - SingleRoomSRIR: `DatabaseName`
+- SingleRoomDRIR: `RoomDescription`, `DatabaseName`
+
+SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF also make the
+`SourceView` and `SourceUp` variables mandatory. When `Variables` has none
+of that name, `Save` writes the table's default as `[I,C]`, cartesian in
+metres: `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and `SourceUp`
+`[0 0 1]`, plus any attributes `VariableAttributes` holds for that name
+(such as a `Reference`). An empty `RoomType` is written as the convention's default:
+`reverberant` for SingleRoomDRIR, `shoebox` for SingleRoomSRIR when
+`Variables` holds both `RoomCornerA` and `RoomCornerB` (sofar requires them
+for a shoebox room), and `free field` otherwise. The `File` itself is not
+changed.
 
 The destination is created from scratch on
 each call; an existing file is overwritten only after validation
@@ -617,18 +629,26 @@ This library supports SOFA files (AES69-2015) based on HDF5 with netCDF-4 conven
 
 ### Conventions
 
-Any AES69 convention name is accepted and written unchanged. A few
-conventions get extra behaviour: `Save` enforces their required
-metadata, and `(*File).ConventionWarnings() []string` reports
+Any AES69 convention name is accepted and written unchanged. The
+official conventions get extra behaviour: `Save` enforces their
+DataType, layout and required metadata, and `(*File).ConventionWarnings() []string` reports
 advisory findings that never block `Save` (`sofainfo` prints them).
+Besides the per-convention warnings in the table below, it reports a
+`SOFAConventionsVersion` that the SOFA Toolbox and pyfar tables do not
+list for an official convention (custom conventions are not checked), and,
+for any convention, SOFA 2.x features in a file whose `Version` is below
+2.0: the `FreeFieldHRTF` convention, DataType TF-E and a position `Type`
+of `"spherical harmonics"`.
 
-| Convention                                   | Accessors                                   | Checks                                                                                    |
-| -------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| BRIR: `SingleRoomDRIR`, `MultiSpeakerBRIR`   | `IsBRIR()`                                  | `Save` errors without a `RoomType` or with a zero `ListenerView`/`ListenerUp`             |
-| SRIR: `SingleRoomSRIR`, `SingleRoomMIMOSRIR` | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`  |
-| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`         | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`                                |
-| `FreeFieldHRTF`                              | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                           |
-| Directivity: e.g. `FreeFieldDirectivityTF`   | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation |
+| Convention                                 | Accessors                                   | Checks                                                                                                                             |
+| ------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`                     | `IsBRIR()`                                  | `Save` requires `DataType` FIR and errors with a zero `ListenerView`/`ListenerUp`; an empty `RoomType` is written as `reverberant` |
+| SRIR: `SingleRoomSRIR`                     | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | `Save` requires `DataType` FIR. Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`           |
+| `GeneralFIR`/`GeneralTF`/`GeneralTF-E`     | —                                           | `Save` requires `DataType` FIR/TF/TF-E                                                                                             |
+| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`       | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`; the legacy `SimpleFreeFieldSOS` is checked as `SimpleFreeFieldHRSOS`   |
+| `FreeFieldHRTF`                            | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                                                                    |
+| `SimpleHeadphoneIR`                        | —                                           | `Save` requires `DataType` FIR                                                                                                     |
+| Directivity: e.g. `FreeFieldDirectivityTF` | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation                                          |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
 read from their variables, or from root attributes of the same
@@ -658,6 +678,15 @@ To **write** an SH-encoded file, populate a `File` with
 a convention such as `FreeFieldHRTF`, and `E = (Lmax+1)²` SH
 coefficients per (measurement, receiver, frequency) tuple, then call
 `Save`.
+
+### Limitations
+
+- **FIR-E is not supported.** `Open` and `Save` fail with
+  `ErrUnsupportedDataType` for DataType `FIR-E` (per-emitter impulse
+  responses, GeneralFIR-E) and the legacy `FIRE`. Files of the
+  conventions built on it, such as `MultiSpeakerBRIR` and
+  `SingleRoomMIMOSRIR`, can therefore be neither read nor written, and
+  `IsBRIR`/`IsSRIR` do not match them.
 
 ## Interoperability
 

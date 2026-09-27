@@ -367,6 +367,15 @@ func (f *File) validateExtras() error {
 	}
 
 	written := f.writtenVariables()
+	// The defaults of missing mandatory variables are written too, and
+	// take VariableAttributes beyond the attributes they carry. They are
+	// not in writtenVariables, which Open uses to tell such a variable,
+	// read back as an ordinary one, apart.
+	for _, v := range f.missingMandatoryVariables() {
+		for _, a := range v.Attributes {
+			written[v.Name] = append(written[v.Name], a.Name)
+		}
+	}
 	names := make([]string, 0, len(f.VariableAttributes))
 	for name := range f.VariableAttributes {
 		names = append(names, name)

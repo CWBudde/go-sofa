@@ -871,7 +871,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	if err := f.writeAudioDatasets(nc); err != nil {
 		return fmt.Errorf("write audio data: %w", err)
 	}
-	if err := nc.writeExtraVariables(f.Variables); err != nil {
+	if err := nc.writeExtraVariables(f.savedVariables()); err != nil {
 		return err
 	}
 
@@ -891,10 +891,18 @@ type rootAttribute struct {
 // Defaults Save writes for mandatory global attributes left empty, taken
 // from the SOFA conventions' default values.
 const (
-	defaultAPIName  = "go-sofa"
-	defaultLicense  = "No license provided, ask the author for permission"
-	defaultRoomType = "free field"
-	sofaDateLayout  = "2006-01-02 15:04:05" // the SOFA Toolbox's date format
+	defaultAPIName = "go-sofa"
+	defaultLicense = "No license provided, ask the author for permission"
+	sofaDateLayout = "2006-01-02 15:04:05" // the SOFA Toolbox's date format
+)
+
+// RoomType values Save writes when the File has none (see
+// defaultRoomType): free field for every convention but SingleRoomDRIR
+// (reverberant) and SingleRoomSRIR with both room corners (shoebox).
+const (
+	roomTypeFreeField   = "free field"
+	roomTypeShoebox     = "shoebox"
+	roomTypeReverberant = "reverberant"
 )
 
 // saveTime returns the time Save stamps into empty DateCreated and
@@ -904,8 +912,9 @@ var saveTime = time.Now
 // collectRootAttributes returns the global attributes to write, in a
 // fixed order. The attributes AES69 makes mandatory are always emitted,
 // with defaults for empty APIName, APIVersion, dates, License and
-// RoomType (AuthorContact, Organization and Title may be empty); the File
-// itself is not changed. Optional attributes are skipped when empty.
+// RoomType (the convention's, see defaultRoomType); AuthorContact,
+// Organization and Title may be empty. The File itself is not changed.
+// Optional attributes are skipped when empty.
 func (f *File) collectRootAttributes() []rootAttribute {
 	or := func(v, def string) string {
 		if v == "" {
@@ -928,7 +937,7 @@ func (f *File) collectRootAttributes() []rootAttribute {
 		{"AuthorContact", f.AuthorContact},
 		{"Organization", f.Organization},
 		{"License", or(f.License, defaultLicense)},
-		{"RoomType", or(f.RoomType, defaultRoomType)},
+		{"RoomType", or(f.RoomType, f.defaultRoomType())},
 	}
 	for _, opt := range []rootAttribute{
 		{"ApplicationName", f.ApplicationName},

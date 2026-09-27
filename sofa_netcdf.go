@@ -90,7 +90,7 @@ func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, err
 		attrs:  f.VariableAttributes,
 	}
 	names := []string{dimM, dimR, dimE, dimN, dimC, dimI}
-	for _, v := range f.Variables {
+	for _, v := range f.savedVariables() {
 		for i, d := range v.Dims {
 			if _, ok := nc.sizes[d]; !ok {
 				nc.sizes[d] = v.Shape[i]

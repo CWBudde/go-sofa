@@ -461,14 +461,24 @@ dimensions, type, comment). Transcribe the needed rows by hand into
 
 ### P2.2 — Convention rules
 
-- [ ] **P2.2a. Rules for every official convention.** `layoutRules`
+- [x] **P2.2a. Rules for every official convention.** `layoutRules`
       currently cover only a few. Add DataType + required-variable rules for
       GeneralFIR, GeneralTF, GeneralTF-E, SimpleFreeFieldHRIR/HRTF/HRSOS,
       FreeFieldHRTF, SimpleHeadphoneIR, SingleRoomSRIR, SingleRoomDRIR,
       FreeFieldDirectivityTF. Minimum per rule: allowed DataType(s), required
       variables, `RoomType` default. Legacy name `SimpleFreeFieldSOS` maps to
       SimpleFreeFieldHRSOS for validation.
-- [ ] **P2.2b. Per-convention `RoomType` default.** `defaultRoomType =
+      (2026-09-27) — `conventionRules` is data (`dataType`, `r`, `e`,
+      mandatory globals/variables, `roomType`, `versions`) looked up through
+      `rulesFor`, which maps SimpleFreeFieldSOS to HRSOS. Every listed
+      convention requires its table's one DataType; Save writes the
+      SourceView/SourceUp defaults SRIR, DRIR (`[-1 0 0]`) and DirectivityTF
+      make mandatory, and DRIR's RoomDescription/DatabaseName, File
+      unchanged. RoomType default: P2.2b. `TestSaveConventionDataType`,
+      `TestSaveLegacySimpleFreeFieldSOS`,
+      `TestSaveConventionMandatoryVariables`, `TestSaveDRIRMandatoryGlobals`
+      (failed before: wrong DataTypes saved, no SourceView/SourceUp).
+- [x] **P2.2b. Per-convention `RoomType` default.** `defaultRoomType =
 "free field"` (`sofa.go:898`) is used for every convention. Take it from
       the registry: SingleRoomSRIR → `shoebox` (then `RoomCornerA/B` become
       mandatory per the CSV), SingleRoomDRIR → `reverberant` (verify).
@@ -476,12 +486,22 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       `RoomCornerA/B` `m`; sofar's rules require them for `shoebox`. The
       SOFA Toolbox has no SingleRoomDRIR table any more (deprecated in
       favour of SingleRoomSRIR; pyfar keeps 0.2/0.3 under `deprecated/`).
-- [ ] **P2.2c. Remove or implement dead registry entries.** MultiSpeakerBRIR
+      (2026-09-27) — DRIR → `reverberant` (verified in pyfar's deprecated
+      0.3 table). Decision: SRIR → `shoebox` only when Variables holds
+      RoomCornerA and RoomCornerB, else `free field`, so both the Toolbox
+      and sofar accept the file. DRIR no longer rejects an empty RoomType.
+      `TestSaveConventionRoomType` (8 cases), `TestBRIRMissingRoomType`
+      (failed before: DRIR error, SRIR with corners got `free field`).
+- [x] **P2.2c. Remove or implement dead registry entries.** MultiSpeakerBRIR
       and SingleRoomMIMOSRIR have rules (`sofa_conventions.go:26,28`) but their
       DataType (FIR-E / FIRE) is rejected on read (`sofa_accessors.go:23`), so
       the rules can never apply. Decision: **drop them now** and list FIR-E in
       README "Limitations"; FIR-E support is P7.3 _(optional)_.
-- [ ] **P2.2d. Version gating.** Reject (or warn via `ConventionWarnings`) SOFA
+      (2026-09-27) — both entries and constants dropped; `IsBRIR`/`IsSRIR`
+      match only SingleRoomDRIR/SingleRoomSRIR; README gained a
+      "Limitations" section (FIR-E/FIRE). `TestFIREConventionsUnregistered`,
+      `TestIsBRIR`, `TestIsSRIR` (failed before).
+- [x] **P2.2d. Version gating.** Reject (or warn via `ConventionWarnings`) SOFA
       2.x-only features in a file declaring `Version < 2.0`: FreeFieldHRTF,
       TF-E, `EmitterPosition:Type = "spherical harmonics"`. Accept only known
       `SOFAConventionsVersion` values per convention; unknown → warning, not
@@ -490,6 +510,26 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       1.0, SimpleHeadphoneIR 1.0 and SingleRoomSRIR 1.0 and raises on other
       `SOFAConventionsVersion` values, while the Toolbox's latest are 1.2,
       1.1 and 1.1.
+      (2026-09-27) — decision: warn only (neither the Toolbox nor sofar
+      gates on Version). `ConventionWarnings` reports a
+      SOFAConventionsVersion missing from the convention's Toolbox/pyfar
+      tables (current and deprecated; custom conventions unchecked), and
+      FreeFieldHRTF, TF-E and spherical-harmonics positions when Version
+      < 2.0; SOS is not flagged (SimpleFreeFieldSOS 1.0). No fixture in
+      testdata gets a new warning. `TestConventionVersionWarnings`,
+      `TestConventionSOFA2Warnings`,
+      `TestConventionVersionWarningsDoNotBlockSave` (failed before).
+- [ ] **P2.2e. Revisit the R = 2 rule of SimpleFreeField\*** (found
+      2026-09-27): no Toolbox/pyfar table and no sofar rule fixes R = 2
+      (sofar only fixes E = 1). Decide whether Save should keep rejecting
+      R ≠ 2.
+- [ ] **P2.2f. FreeFieldDirectivityTF `:Reference` attributes** (found
+      2026-09-27): the 1.1 table makes `SourcePosition:Reference`,
+      `SourceView:Reference` and `SourceUp:Reference` mandatory; Save does
+      not write them.
+- [ ] **P2.2g. RoomType restricted to `free field`** (found 2026-09-27):
+      sofar rejects any other RoomType for SimpleFreeField\* and
+      FreeFieldHRTF; go-sofa does not check it.
 
 ### P2.3 — Provenance on save
 

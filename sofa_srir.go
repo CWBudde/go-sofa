@@ -3,17 +3,17 @@ package sofa
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
 	hdf5 "github.com/cwbudde/go-hdf5"
 )
 
-// SOFAConventions values for spatial room impulse responses.
-const (
-	conventionSingleRoomSRIR     = "SingleRoomSRIR"
-	conventionSingleRoomMIMOSRIR = "SingleRoomMIMOSRIR"
-)
+// SOFAConventions value for spatial room impulse responses.
+// SingleRoomMIMOSRIR is not listed: its DataType FIR-E is rejected by Open
+// and Save.
+const conventionSingleRoomSRIR = "SingleRoomSRIR"
 
 // Room metadata variables and their units.
 const (
@@ -23,18 +23,17 @@ const (
 	unitsRoomTemperature   = "kelvin"
 )
 
-// srirRules are advisory only: SRIR files without room metadata, or recorded
-// with a raw microphone array instead of Ambisonics channels, are valid.
-var srirRules = conventionRules{warnings: srirWarnings}
+// Variables holding two opposite corners of a shoebox room.
+const (
+	variableRoomCornerA = "RoomCornerA"
+	variableRoomCornerB = "RoomCornerB"
+)
 
 // IsSRIR reports whether the file holds spatial room impulse responses, that
-// is, whether SOFAConventions is SingleRoomSRIR or SingleRoomMIMOSRIR.
+// is, whether SOFAConventions is SingleRoomSRIR. SingleRoomMIMOSRIR files
+// use DataType FIR-E, which is not supported.
 func (f *File) IsSRIR() bool {
-	switch f.SOFAConventions {
-	case conventionSingleRoomSRIR, conventionSingleRoomMIMOSRIR:
-		return true
-	}
-	return false
+	return f.SOFAConventions == conventionSingleRoomSRIR
 }
 
 // AmbisonicsOrder returns the Ambisonics order of an SRIR file, detected from
@@ -52,6 +51,24 @@ func (f *File) AmbisonicsOrder() (order int, ok bool) {
 	return root - 1, true
 }
 
+// srirRoomType is the RoomType Save writes for an SRIR file without one:
+// shoebox, the SingleRoomSRIR table's default, when Variables holds
+// RoomCornerA and RoomCornerB, and free field otherwise. The table leaves
+// the corners optional, but sofar requires them for a shoebox room, and a
+// shoebox without its corners says nothing.
+func srirRoomType(f *File) string {
+	hasCorner := func(name string) bool {
+		return slices.ContainsFunc(f.Variables, func(v Variable) bool { return v.Name == name })
+	}
+	if hasCorner(variableRoomCornerA) && hasCorner(variableRoomCornerB) {
+		return roomTypeShoebox
+	}
+	return roomTypeFreeField
+}
+
+// srirWarnings are advisory only: SRIR files without room metadata, or
+// recorded with a raw microphone array instead of Ambisonics channels, are
+// valid.
 func srirWarnings(f *File) []string {
 	var out []string
 	if f.RoomVolume == 0 {

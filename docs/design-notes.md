@@ -18,10 +18,12 @@ from the code. Open work is tracked in GitHub issues; the history is in
   byte-identical across runs only when `DateCreated`/`DateModified` are set.
 - **Defaults live in the file only.** Empty mandatory globals (`Title`,
   `DateCreated`, `DateModified`, `APIName`, `APIVersion`, `AuthorContact`,
-  `Organization`, `License`, `RoomType`) and an unset single
+  `Organization`, `License`, `RoomType` — the convention's, e.g.
+  `reverberant` for SingleRoomDRIR), an unset single
   `ListenerView`/`ListenerUp` (`[1 0 0]`/`[0 0 1]`, spherical
-  `(0,0,1)`/`(0,90,1)`) are written with SOFA Toolbox defaults; the `File`
-  is not changed. Dates are UTC `YYYY-MM-DD HH:MM:SS`.
+  `(0,0,1)`/`(0,90,1)`) and a convention's missing mandatory globals and
+  `SourceView`/`SourceUp` are written with SOFA Toolbox defaults; the
+  `File` is not changed. Dates are UTC `YYYY-MM-DD HH:MM:SS`.
 - **`Data.Delay` is always 2-D**: `[I,R]` or `[M,R]`, zeros when empty, SOS
   included. The M == R ambiguity is resolved with the layout `Open` found.
 - **TF-E is written `[M,R,N,E]`**, the order of the SOFA Toolbox convention

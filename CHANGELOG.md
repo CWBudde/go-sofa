@@ -7,7 +7,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `IsBRIR` reports true only for `SingleRoomDRIR` and
+  `IsSRIR` only for `SingleRoomSRIR`; neither matches `MultiSpeakerBRIR` or
+  `SingleRoomMIMOSRIR` any more, and the BRIR/SRIR rules for those two
+  conventions are dropped. They use DataType `FIRE` and `FIR-E`, which `Open` and
+  `Save` reject, so the rules could never apply. README "Limitations" lists
+  FIR-E as unsupported.
+- **Breaking:** `Save` requires the one DataType each official convention's
+  SOFA Toolbox table allows for GeneralFIR (FIR), GeneralTF (TF),
+  GeneralTF-E (TF-E), SimpleHeadphoneIR (FIR), SingleRoomSRIR (FIR) and
+  SingleRoomDRIR (FIR), and returns a `*ValidationError` for field
+  `DataType` otherwise; these used to accept any DataType. The legacy SOFA
+  1.0 name SimpleFreeFieldSOS is validated like SimpleFreeFieldHRSOS
+  (DataType SOS, R = 2, E = 1) and gets its mandatory global attributes.
+- `Save` writes an empty `RoomType` as the convention's default instead of
+  `free field` for every convention: `reverberant` for SingleRoomDRIR, and
+  `shoebox` for SingleRoomSRIR when `Variables` holds both `RoomCornerA`
+  and `RoomCornerB` (sofar requires the corners for a shoebox room; without
+  them SingleRoomSRIR keeps `free field`). An explicit `RoomType` is written
+  as is, and the `File` is not modified.
+- `Save` no longer rejects a SingleRoomDRIR file with an empty `RoomType`;
+  it writes the `reverberant` default instead.
+
 ### Added
+
+- `Save` writes the `SourceView` and `SourceUp` variables that
+  SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF make mandatory
+  when `Variables` lacks them, with the table's default: `[I,C]`, cartesian
+  in metres, `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and
+  `SourceUp` `[0 0 1]`, plus the attributes `VariableAttributes` holds for
+  that name. A `SourceView` or `SourceUp` in `Variables` is written as is. The `File` is not modified.
 
 - `Save` writes the global attributes a convention's SOFA Toolbox table
   makes mandatory beyond the generic ones, as the empty default the table
@@ -15,8 +46,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `ListenerShortName` (SimpleFreeFieldHRIR/HRTF/HRSOS, FreeFieldHRTF),
   `DatabaseName`, `SourceType` and `SourceManufacturer`
   (FreeFieldDirectivityTF), `DatabaseName`, `ListenerShortName`,
-  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR), and
-  `DatabaseName` (SingleRoomSRIR). The `File` is not modified.
+  `ReceiverDescription` and `EmitterDescription` (SimpleHeadphoneIR),
+  `DatabaseName` (SingleRoomSRIR), and `RoomDescription` and `DatabaseName`
+  (SingleRoomDRIR). The `File` is not modified.
+
+- `ConventionWarnings` reports a `SOFAConventionsVersion` that is not a
+  known version of the file's official convention (current and deprecated
+  SOFA Toolbox and pyfar tables; the legacy SimpleFreeFieldSOS is checked
+  against its own 1.0; custom conventions are not checked), and SOFA 2.x
+  features in a file declaring `Version` below 2.0: the FreeFieldHRTF
+  convention, DataType TF-E and a position `Type` of `spherical harmonics`.
+  These are warnings only; `Save` still writes such files.
 
 - libmysofa regression check: `just interop` (and the `test-interop` CI
   workflow) builds libmysofa's loader at a pinned commit (`just libmysofa`)
