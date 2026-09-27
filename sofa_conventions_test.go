@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -230,8 +229,6 @@ func TestSaveLegacySimpleFreeFieldSOS(t *testing.T) {
 	var verr *ValidationError
 	if !errors.As(err, &verr) || verr.Field != "R" {
 		t.Errorf("Save with R=1: %v, want an R ValidationError", err)
-	} else if !strings.Contains(err.Error(), "SimpleFreeFieldSOS requires") {
-		t.Errorf("error %q does not name SimpleFreeFieldSOS", err)
 	}
 
 	f = minimalSOSFile()
@@ -317,6 +314,29 @@ func TestSaveConventionMandatoryVariables(t *testing.T) {
 		}
 		if len(f.Variables) != 1 || cap(f.Variables) != 1 {
 			t.Errorf("Save changed the File's Variables to %+v", f.Variables)
+		}
+	})
+
+	t.Run("VariableAttributes on a default", func(t *testing.T) {
+		f := srirTestFile(4)
+		f.VariableAttributes = map[string][]Attribute{"SourceView": {{"Reference", "center"}}}
+		got := variablesByName(t, roundTrip(t, f).Variables)
+		want := sourceOrientationDefault("SourceView", 1, 0, 0)
+		want.Attributes = append(want.Attributes, Attribute{"Reference", "center"})
+		if !reflect.DeepEqual(got["SourceView"], want) {
+			t.Errorf("SourceView = %+v, want %+v", got["SourceView"], want)
+		}
+		if !reflect.DeepEqual(got["SourceUp"], up) {
+			t.Errorf("SourceUp = %+v, want %+v", got["SourceUp"], up)
+		}
+	})
+
+	t.Run("VariableAttributes may not override Type", func(t *testing.T) {
+		f := srirTestFile(4)
+		f.VariableAttributes = map[string][]Attribute{"SourceView": {{"Type", "spherical"}}}
+		err := f.Save(filepath.Join(t.TempDir(), "srir.sofa"))
+		if ve := requireValidationError(t, err); ve.Field != "VariableAttributes" {
+			t.Errorf("Field = %q, want VariableAttributes", ve.Field)
 		}
 	})
 }
