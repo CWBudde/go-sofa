@@ -282,6 +282,39 @@ func TestReadMeasurementErrors(t *testing.T) {
 	}
 }
 
+// A File from OpenLazy whose DataType or dimensions were changed afterwards
+// must fail to read, not panic or reshape the stored data to the new sizes.
+func TestReadMeasurementEditedLazyFile(t *testing.T) {
+	readFIR := func(f *File, m int) error { _, err := f.ReadMeasurement(m); return err }
+	readSOS := func(f *File, m int) error { _, err := f.ReadMeasurementSOS(m); return err }
+	readTFE := func(f *File, m int) error { _, _, err := f.ReadMeasurementTFE(m); return err }
+	for _, tc := range []struct {
+		name string
+		file func() *File
+		edit func(*File)
+		read func(*File, int) error
+		m    int
+		want error
+	}{
+		{"TF read as FIR", robustTFFile, func(f *File) { f.DataType = DataTypeFIR }, readFIR, 0, ErrUnsupportedDataType},
+		{"FIR read as SOS", func() *File { return streamFIRFile(3, 2, 6) }, func(f *File) { f.DataType = DataTypeSOS }, readSOS, 0, ErrUnsupportedDataType},
+		{"TF read as TF-E", robustTFFile, func(f *File) { f.DataType = DataTypeTFE }, readTFE, 0, ErrIndexOutOfRange},
+		{"FIR R raised", func() *File { return streamFIRFile(3, 2, 4) }, func(f *File) { f.R++ }, readFIR, 0, ErrIndexOutOfRange},
+		{"FIR N raised", func() *File { return streamFIRFile(3, 2, 4) }, func(f *File) { f.N++ }, readFIR, 0, ErrIndexOutOfRange},
+		{"FIR N lowered", func() *File { return streamFIRFile(3, 2, 4) }, func(f *File) { f.N-- }, readFIR, 0, ErrIndexOutOfRange},
+		{"FIR M raised", func() *File { return streamFIRFile(3, 2, 4) }, func(f *File) { f.M++ }, readFIR, 3, ErrIndexOutOfRange},
+		{"TF-E E raised", robustTFEFile, func(f *File) { f.E++ }, readTFE, 0, ErrIndexOutOfRange},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := openLazy(t, saveTemp(t, tc.file(), "lazy.sofa"))
+			tc.edit(f)
+			if err := tc.read(f, tc.m); !errors.Is(err, tc.want) {
+				t.Errorf("read(%d): %v, want %v", tc.m, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestOpenLazyNeedsExplicitReads(t *testing.T) {
 	f := openLazy(t, saveTemp(t, streamFIRFile(3, 2, 4), "fir.sofa"))
 	if f.ImpulseResponses != nil {
