@@ -2,6 +2,7 @@ package sofa
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -9,10 +10,10 @@ import (
 
 // SOFAConventions values of the official conventions not declared next to
 // their specific checks (SingleRoomSRIR in sofa_srir.go, SingleRoomDRIR in
-// sofa_brir.go). Each allows exactly one DataType, and the Simple* ones a
-// fixed layout, as given by the SOFA Toolbox convention tables: "Data"
-// dimensions mRn (R = 2 receivers, the ears) and "a single Emitter only"
-// (E = 1).
+// sofa_brir.go). Each allows exactly one DataType, as given by the SOFA
+// Toolbox convention tables, and the Simple* ones "a single Emitter only"
+// (E = 1). Their tables default to two receivers, the ears, but allow any
+// number.
 const (
 	conventionGeneralFIR             = "GeneralFIR"
 	conventionGeneralTF              = "GeneralTF"
@@ -56,6 +57,18 @@ var (
 	globalsDRIR          = []string{"RoomDescription", attrDatabaseName}
 )
 
+// attrReference is a variable attribute: a narrative description of the
+// spatial reference of a source position or orientation.
+const attrReference = "Reference"
+
+// referenceDirectivityTF are the Reference attributes the
+// FreeFieldDirectivityTF table makes mandatory.
+var referenceDirectivityTF = map[string][]string{
+	datasetSourcePosition: {attrReference},
+	"SourceView":          {attrReference},
+	"SourceUp":            {attrReference},
+}
+
 // sourceOrientation returns the SourceView and SourceUp variables with the
 // defaults the convention tables give them where they make them mandatory:
 // view (cartesian, in metres) as given, up along +z, one row for all
@@ -75,7 +88,9 @@ func sourceOrientation(view Vector3) []Variable {
 // checked by validate after the generic checks.
 type conventionRules struct {
 	dataType string // the one DataType allowed; "" means any
-	r, e     int    // the required receiver and emitter counts; 0 means any
+	// r is the receiver count renderers expect; another one gets a
+	// warning. e is the required emitter count. 0 means any.
+	r, e int
 	// versions are the known SOFAConventionsVersion values, current and
 	// deprecated, of the SOFA Toolbox and pyfar convention tables; another
 	// one gets a warning. nil means any.
@@ -90,9 +105,15 @@ type conventionRules struct {
 	// when Variables has none of that name. They are shared by every file
 	// of the convention: read-only.
 	mandatoryVariables []Variable
+	// mandatoryVariableAttributes names, per variable, attributes Save
+	// writes as "" when the variable has none of that name.
+	mandatoryVariableAttributes map[string][]string
 	// roomType returns the RoomType Save writes when the File has none;
 	// nil means free field.
 	roomType func(f *File) string
+	// freeFieldOnly means sofar rejects any RoomType but free field (the
+	// SOFA Toolbox tables do not restrict it); another one gets a warning.
+	freeFieldOnly bool
 }
 
 // conventionRegistry maps SOFAConventions values to their specific rules.
@@ -106,20 +127,23 @@ var conventionRegistry = map[string]conventionRules{
 
 	conventionSimpleFreeFieldHRIR: {
 		dataType: DataTypeFIR, r: 2, e: 1, versions: strings.Fields("0.4 1.0 1.1 1.2"),
-		mandatoryGlobals: globalsHRTF,
+		mandatoryGlobals: globalsHRTF, freeFieldOnly: true,
 	},
 	conventionSimpleFreeFieldHRTF: {
 		dataType: DataTypeTF, r: 2, e: 1, versions: strings.Fields("1.0 1.1 1.2"),
-		mandatoryGlobals: globalsHRTF,
+		mandatoryGlobals: globalsHRTF, freeFieldOnly: true,
 	},
 	conventionSimpleFreeFieldHRSOS: {
 		dataType: DataTypeSOS, r: 2, e: 1, versions: strings.Fields("1.0 1.1 1.2"),
-		mandatoryGlobals: globalsHRTF,
+		mandatoryGlobals: globalsHRTF, freeFieldOnly: true,
 	},
-	conventionFreeFieldHRTF: {dataType: DataTypeTFE, versions: strings.Fields("1.0"), mandatoryGlobals: globalsHRTF},
+	conventionFreeFieldHRTF: {
+		dataType: DataTypeTFE, versions: strings.Fields("1.0"),
+		mandatoryGlobals: globalsHRTF, freeFieldOnly: true,
+	},
 	conventionFreeFieldDirectivityTF: {
 		dataType: DataTypeTF, versions: strings.Fields("1.0 1.1"), mandatoryGlobals: globalsDirectivityTF,
-		mandatoryVariables: sourceOrientation(Vector3{X: 1}),
+		mandatoryVariables: sourceOrientation(Vector3{X: 1}), mandatoryVariableAttributes: referenceDirectivityTF,
 	},
 	conventionSimpleHeadphoneIR: {
 		dataType: DataTypeFIR, versions: strings.Fields("0.1 0.2 1.0 1.1"),
@@ -157,8 +181,8 @@ func rulesFor(convention string) (rules conventionRules, ok bool) {
 }
 
 // validateConvention checks f against the rules registered for its
-// SOFAConventions, if any: the DataType, then the receiver and emitter
-// counts, then the convention's own checks. Errors name f.SOFAConventions,
+// SOFAConventions, if any: the DataType, then the emitter count, then the
+// convention's own checks. Errors name f.SOFAConventions,
 // a legacy name included.
 func (f *File) validateConvention() error {
 	rules, ok := rulesFor(f.SOFAConventions)
@@ -167,9 +191,6 @@ func (f *File) validateConvention() error {
 	}
 	if rules.dataType != "" && f.DataType != rules.dataType {
 		return invalid("DataType", "%s requires %s, got %q", f.SOFAConventions, rules.dataType, f.DataType)
-	}
-	if rules.r != 0 && f.R != rules.r {
-		return invalid("R", "%s requires R=%d, got %d", f.SOFAConventions, rules.r, f.R)
 	}
 	if rules.e != 0 && f.E != rules.e {
 		return invalid("E", "%s requires E=%d, got %d", f.SOFAConventions, rules.e, f.E)
@@ -184,7 +205,9 @@ func (f *File) validateConvention() error {
 // conformance: SOFA 2.x features (the FreeFieldHRTF convention, DataType
 // TF-E, spherical-harmonics positions) in a file whose Version is below
 // 2.0, a SOFAConventionsVersion its registered convention does not know
-// (custom conventions are not checked), and the checks of the
+// (custom conventions are not checked), a SimpleFreeField* file with other
+// than two receivers (libmysofa rejects it), a free-field HRTF file whose
+// RoomType is not free field (sofar rejects it), and the checks of the
 // convention's own rules, such as missing optional room metadata. Unlike
 // validation errors they never stop Save; callers should surface them to
 // users.
@@ -197,6 +220,14 @@ func (f *File) ConventionWarnings() []string {
 	if v := strings.TrimSpace(f.SOFAConventionsVersion); v != "" && len(rules.versions) > 0 && !slices.Contains(rules.versions, v) {
 		out = append(out, fmt.Sprintf("SOFAConventionsVersion %q is not a known version of %s (known: %s)",
 			f.SOFAConventionsVersion, f.SOFAConventions, strings.Join(rules.versions, ", ")))
+	}
+	if rules.r != 0 && f.R > 0 && f.R != rules.r { // R <= 0 fails validation
+		out = append(out, fmt.Sprintf("%s expects R=%d receivers (the ears), got R=%d; two-ear renderers such as libmysofa reject it",
+			f.SOFAConventions, rules.r, f.R))
+	}
+	if roomType := f.savedRoomType(); rules.freeFieldOnly && roomType != roomTypeFreeField {
+		out = append(out, fmt.Sprintf("%s expects RoomType %q, got %q; sofar rejects it",
+			f.SOFAConventions, roomTypeFreeField, roomType))
 	}
 	if rules.warnings != nil {
 		out = append(out, rules.warnings(f)...)
@@ -269,15 +300,73 @@ func (f *File) defaultRoomType() string {
 	return rules.roomType(f)
 }
 
+// savedRoomType returns the RoomType Save writes: f.RoomType, or the
+// convention's default when it is empty.
+func (f *File) savedRoomType() string {
+	if f.RoomType != "" {
+		return f.RoomType
+	}
+	return f.defaultRoomType()
+}
+
 // savedVariables returns the extra variables Save writes: f.Variables, then
-// the defaults of the missing mandatory ones, each with the attributes
-// VariableAttributes holds for its name appended. f.Variables is not
-// changed.
+// the defaults of the missing mandatory ones with the attributes
+// VariableAttributes holds for their names appended, each completed by
+// withMandatoryAttributes. f.Variables is not changed.
 func (f *File) savedVariables() []Variable {
-	saved := slices.Clip(f.Variables)
-	for _, v := range f.missingMandatoryVariables() {
-		v.Attributes = append(slices.Clip(v.Attributes), f.VariableAttributes[v.Name]...)
+	missing := f.missingMandatoryVariables()
+	saved := make([]Variable, 0, len(f.Variables)+len(missing))
+	for _, v := range f.Variables {
+		v.Attributes = f.withMandatoryAttributes(v.Name, v.Attributes)
+		saved = append(saved, v)
+	}
+	for _, v := range missing {
+		attrs := append(slices.Clip(v.Attributes), f.VariableAttributes[v.Name]...)
+		v.Attributes = f.withMandatoryAttributes(v.Name, attrs)
 		saved = append(saved, v)
 	}
 	return saved
+}
+
+// savedVariableAttributes returns the VariableAttributes Save writes on the
+// variables it writes itself (see writtenVariables): f.VariableAttributes,
+// completed by withMandatoryAttributes. The variables of savedVariables
+// carry theirs. f.VariableAttributes is not changed.
+func (f *File) savedVariableAttributes() map[string][]Attribute {
+	rules, _ := rulesFor(f.SOFAConventions)
+	if len(rules.mandatoryVariableAttributes) == 0 {
+		return f.VariableAttributes
+	}
+	extra := f.savedVariables()
+	saved, cloned := f.VariableAttributes, false
+	for name := range rules.mandatoryVariableAttributes {
+		if slices.ContainsFunc(extra, func(v Variable) bool { return v.Name == name }) {
+			continue
+		}
+		attrs := f.withMandatoryAttributes(name, f.VariableAttributes[name])
+		if len(attrs) == len(f.VariableAttributes[name]) {
+			continue
+		}
+		if !cloned {
+			saved, cloned = maps.Clone(f.VariableAttributes), true
+			if saved == nil {
+				saved = map[string][]Attribute{}
+			}
+		}
+		saved[name] = attrs
+	}
+	return saved
+}
+
+// withMandatoryAttributes returns attrs, the attributes Save writes on
+// variable name, with the mandatory variable attributes of the file's
+// SOFAConventions that attrs lacks appended as "". attrs is not changed.
+func (f *File) withMandatoryAttributes(name string, attrs []Attribute) []Attribute {
+	rules, _ := rulesFor(f.SOFAConventions)
+	for _, a := range rules.mandatoryVariableAttributes[name] {
+		if !slices.ContainsFunc(attrs, func(have Attribute) bool { return have.Name == a }) {
+			attrs = append(slices.Clip(attrs), Attribute{Name: a, Value: ""})
+		}
+	}
+	return attrs
 }

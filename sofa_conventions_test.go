@@ -2,10 +2,12 @@ package sofa
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -218,17 +220,20 @@ func TestSaveConventionDataType(t *testing.T) {
 }
 
 // TestSaveLegacySimpleFreeFieldSOS checks that the SOFA 1.0 name
-// SimpleFreeFieldSOS is validated like SimpleFreeFieldHRSOS: R=2 and its
-// mandatory global attributes, and errors name the file's own convention.
+// SimpleFreeFieldSOS gets the rules of SimpleFreeFieldHRSOS: the expected
+// receiver count, whose warning names the file's own convention, and the
+// mandatory global attributes.
 func TestSaveLegacySimpleFreeFieldSOS(t *testing.T) {
 	f := minimalSOSFile()
 	f.SOFAConventions = "SimpleFreeFieldSOS"
 	f.R = 1
 	f.SOSCoefficients[0] = f.SOSCoefficients[0][:1]
-	err := f.Save(filepath.Join(t.TempDir(), "r1.sofa"))
-	var verr *ValidationError
-	if !errors.As(err, &verr) || verr.Field != "R" {
-		t.Errorf("Save with R=1: %v, want an R ValidationError", err)
+	wantWarnings := []string{receiverWarning("SimpleFreeFieldSOS", 1)}
+	if got := f.ConventionWarnings(); !reflect.DeepEqual(got, wantWarnings) {
+		t.Errorf("ConventionWarnings() with R=1 = %q, want %q", got, wantWarnings)
+	}
+	if err := f.Save(filepath.Join(t.TempDir(), "r1.sofa")); err != nil {
+		t.Errorf("Save with R=1: %v", err)
 	}
 
 	f = minimalSOSFile()
@@ -247,6 +252,13 @@ func sourceOrientationDefault(name string, values ...float64) Variable {
 		Name: name, Dims: []string{"I", "C"}, Shape: []int{1, 3}, Values: values,
 		Attributes: []Attribute{{"Type", "cartesian"}, {"Units", "metre"}},
 	}
+}
+
+// withReference returns v with a Reference attribute of the given value
+// appended.
+func withReference(v Variable, reference string) Variable {
+	v.Attributes = append(slices.Clip(v.Attributes), Attribute{"Reference", reference})
+	return v
 }
 
 // variablesByName indexes vars by name, failing on a duplicate.
@@ -276,7 +288,9 @@ func TestSaveConventionMandatoryVariables(t *testing.T) {
 	}{
 		{"SingleRoomSRIR", func() *File { return srirTestFile(4) }, []Variable{sourceOrientationDefault("SourceView", 1, 0, 0), up}},
 		{"SingleRoomDRIR", brirTestFile, []Variable{sourceOrientationDefault("SourceView", -1, 0, 0), up}},
-		{"FreeFieldDirectivityTF", minimalTFFile, []Variable{sourceOrientationDefault("SourceView", 1, 0, 0), up}},
+		{"FreeFieldDirectivityTF", minimalTFFile, []Variable{
+			withReference(sourceOrientationDefault("SourceView", 1, 0, 0), ""), withReference(up, ""),
+		}},
 		{"SimpleFreeFieldHRIR", minimalFIRFile, nil},
 		{"GeneralFIR", minimalFIRFile, nil},
 	} {
@@ -538,4 +552,196 @@ func TestConventionVersionWarningsDoNotBlockSave(t *testing.T) {
 	if got := back.ConventionWarnings(); len(got) != 4 {
 		t.Errorf("ConventionWarnings() after Open = %q, want 4 warnings", got)
 	}
+}
+
+// receiverWarning is the ConventionWarnings message for a Simple*
+// convention file with r receivers instead of the two ears.
+func receiverWarning(convention string, r int) string {
+	return fmt.Sprintf("%s expects R=2 receivers (the ears), got R=%d; two-ear renderers such as libmysofa reject it",
+		convention, r)
+}
+
+// firFileReceivers returns minimalFIRFile with r receivers.
+func firFileReceivers(r int) *File {
+	f := minimalFIRFile()
+	f.R = r
+	for m := range f.ImpulseResponses {
+		f.ImpulseResponses[m] = make([][]float64, r)
+		for i := range r {
+			f.ImpulseResponses[m][i] = make([]float64, f.N)
+		}
+	}
+	f.ReceiverPositions = make([]Vector3, r)
+	f.Delay = nil
+	return f
+}
+
+// TestConventionReceiverWarnings checks that a receiver count other than
+// the two ears the Simple* conventions expect is a warning, not an error:
+// neither the SOFA Toolbox tables nor sofar fix R, only libmysofa does.
+func TestConventionReceiverWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		convention string
+		r          int
+		want       []string
+	}{
+		{"SimpleFreeFieldHRIR", 2, nil},
+		{"SimpleFreeFieldHRIR", 0, nil}, // a validation error instead
+		{"SimpleFreeFieldHRIR", 1, []string{receiverWarning("SimpleFreeFieldHRIR", 1)}},
+		{"SimpleFreeFieldHRIR", 8, []string{receiverWarning("SimpleFreeFieldHRIR", 8)}},
+		{"SimpleFreeFieldHRTF", 3, []string{receiverWarning("SimpleFreeFieldHRTF", 3)}},
+		{"SimpleFreeFieldHRSOS", 1, []string{receiverWarning("SimpleFreeFieldHRSOS", 1)}},
+		{"SimpleFreeFieldSOS", 4, []string{receiverWarning("SimpleFreeFieldSOS", 4)}},
+		{"GeneralFIR", 8, nil},
+		{"FreeFieldHRTF", 8, nil},
+	} {
+		t.Run(fmt.Sprintf("%s R=%d", tc.convention, tc.r), func(t *testing.T) {
+			f := &File{Version: "2.1", SOFAConventions: tc.convention, R: tc.r}
+			if got := f.ConventionWarnings(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ConventionWarnings() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Kayser2009_Anechoic.sofa, a SimpleFreeFieldHRIR database, has R=8.
+	f := firFileReceivers(8)
+	back := roundTrip(t, f)
+	if back.R != 8 {
+		t.Errorf("R after Open = %d, want 8", back.R)
+	}
+	want := []string{receiverWarning("SimpleFreeFieldHRIR", 8)}
+	if got := back.ConventionWarnings(); !reflect.DeepEqual(got, want) {
+		t.Errorf("ConventionWarnings() after Open = %q, want %q", got, want)
+	}
+}
+
+// roomTypeWarning is the ConventionWarnings message for a free-field
+// convention file with RoomType roomType.
+func roomTypeWarning(convention, roomType string) string {
+	return fmt.Sprintf(`%s expects RoomType "free field", got %q; sofar rejects it`, convention, roomType)
+}
+
+// TestConventionRoomTypeWarnings checks that a RoomType other than free
+// field is a warning for the free-field HRTF conventions, which sofar
+// restricts to it, and for no other convention: the SOFA Toolbox tables do
+// not restrict the value.
+func TestConventionRoomTypeWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		convention, roomType string
+		want                 []string
+	}{
+		{"SimpleFreeFieldHRIR", "", nil}, // Save writes free field
+		{"SimpleFreeFieldHRIR", "free field", nil},
+		{"SimpleFreeFieldHRIR", "Anechoic", []string{roomTypeWarning("SimpleFreeFieldHRIR", "Anechoic")}},
+		{"SimpleFreeFieldHRTF", "reverberant", []string{roomTypeWarning("SimpleFreeFieldHRTF", "reverberant")}},
+		{"SimpleFreeFieldHRSOS", "shoebox", []string{roomTypeWarning("SimpleFreeFieldHRSOS", "shoebox")}},
+		{"SimpleFreeFieldSOS", "Free Field", []string{roomTypeWarning("SimpleFreeFieldSOS", "Free Field")}},
+		{"FreeFieldHRTF", "reverberant", []string{roomTypeWarning("FreeFieldHRTF", "reverberant")}},
+		{"FreeFieldDirectivityTF", "reverberant", nil},
+		{"SingleRoomSRIR", "shoebox", nil},
+		{"GeneralFIR", "reverberant", nil},
+		{"MyCustomConvention", "reverberant", nil},
+	} {
+		t.Run(tc.convention+" "+tc.roomType, func(t *testing.T) {
+			f := &File{Version: "2.1", SOFAConventions: tc.convention, R: 2, RoomType: tc.roomType}
+			if tc.convention == "FreeFieldHRTF" {
+				f.DataType = DataTypeTFE
+			}
+			got := slices.DeleteFunc(f.ConventionWarnings(), func(w string) bool { return !strings.Contains(w, "RoomType") })
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("ConventionWarnings() about RoomType = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Kayser2009_Anechoic.sofa, a SimpleFreeFieldHRIR database, has
+	// RoomType "Anechoic".
+	f := minimalFIRFile()
+	f.RoomType = "Anechoic"
+	back := roundTrip(t, f)
+	want := []string{roomTypeWarning("SimpleFreeFieldHRIR", "Anechoic")}
+	if got := back.ConventionWarnings(); back.RoomType != "Anechoic" || !reflect.DeepEqual(got, want) {
+		t.Errorf("after Open: RoomType %q, ConventionWarnings() = %q, want Anechoic, %q", back.RoomType, got, want)
+	}
+}
+
+// TestSaveDirectivityTFReference checks that Save writes the Reference
+// attributes FreeFieldDirectivityTF makes mandatory on SourcePosition,
+// SourceView and SourceUp: empty when the File sets none, the File's own
+// otherwise, and in the written file only. Other conventions get none.
+func TestSaveDirectivityTFReference(t *testing.T) {
+	directivity := func() *File {
+		f := minimalTFFile()
+		f.SOFAConventions = "FreeFieldDirectivityTF"
+		return f
+	}
+	up := sourceOrientationDefault("SourceUp", 0, 0, 1)
+
+	t.Run("defaults", func(t *testing.T) {
+		f := directivity()
+		back := roundTrip(t, f)
+		want := map[string][]Attribute{"SourcePosition": {{"Reference", ""}}}
+		if !reflect.DeepEqual(back.VariableAttributes, want) {
+			t.Errorf("VariableAttributes = %q, want %q", back.VariableAttributes, want)
+		}
+		got := variablesByName(t, back.Variables)
+		for _, w := range []Variable{withReference(sourceOrientationDefault("SourceView", 1, 0, 0), ""), withReference(up, "")} {
+			if !reflect.DeepEqual(got[w.Name], w) {
+				t.Errorf("%s = %+v, want %+v", w.Name, got[w.Name], w)
+			}
+		}
+		if f.VariableAttributes != nil || f.Variables != nil {
+			t.Errorf("Save changed the File: VariableAttributes %q, Variables %+v", f.VariableAttributes, f.Variables)
+		}
+	})
+
+	t.Run("set by the File", func(t *testing.T) {
+		f := directivity()
+		f.VariableAttributes = map[string][]Attribute{
+			"SourcePosition": {{"Reference", "The bell"}},
+			"SourceView":     {{"Reference", "Viewing direction of the bell"}},
+		}
+		ownUp := withReference(up, "Along the keys, keys up")
+		f.Variables = []Variable{ownUp}
+		setAttrs := maps.Clone(f.VariableAttributes)
+		back := roundTrip(t, f)
+		want := map[string][]Attribute{"SourcePosition": {{"Reference", "The bell"}}}
+		if !reflect.DeepEqual(back.VariableAttributes, want) {
+			t.Errorf("VariableAttributes = %q, want %q", back.VariableAttributes, want)
+		}
+		got := variablesByName(t, back.Variables)
+		wantView := withReference(sourceOrientationDefault("SourceView", 1, 0, 0), "Viewing direction of the bell")
+		for _, w := range []Variable{wantView, ownUp} {
+			if !reflect.DeepEqual(got[w.Name], w) {
+				t.Errorf("%s = %+v, want %+v", w.Name, got[w.Name], w)
+			}
+		}
+		if !reflect.DeepEqual(f.VariableAttributes, setAttrs) || len(f.Variables) != 1 || !reflect.DeepEqual(f.Variables[0], ownUp) {
+			t.Errorf("Save changed the File: VariableAttributes %q, Variables %+v", f.VariableAttributes, f.Variables)
+		}
+	})
+
+	t.Run("caller SourceView without Reference", func(t *testing.T) {
+		f := directivity()
+		own := sourceOrientationDefault("SourceView", 0, 1, 0)
+		f.Variables = []Variable{own}
+		got := variablesByName(t, roundTrip(t, f).Variables)
+		if want := withReference(own, ""); !reflect.DeepEqual(got["SourceView"], want) {
+			t.Errorf("SourceView = %+v, want %+v", got["SourceView"], want)
+		}
+		if len(f.Variables[0].Attributes) != 2 {
+			t.Errorf("Save changed the File's SourceView attributes to %q", f.Variables[0].Attributes)
+		}
+	})
+
+	t.Run("SingleRoomSRIR", func(t *testing.T) {
+		back := roundTrip(t, srirTestFile(4))
+		if back.VariableAttributes != nil {
+			t.Errorf("VariableAttributes = %q, want none", back.VariableAttributes)
+		}
+		got := variablesByName(t, back.Variables)
+		if !reflect.DeepEqual(got["SourceUp"], up) {
+			t.Errorf("SourceUp = %+v, want %+v", got["SourceUp"], up)
+		}
+	})
 }

@@ -459,7 +459,7 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       (2026-09-27) — done; the snippet, extracted verbatim and run, failed
       before with `ListenerPositionType: is required` and now saves a file.
 
-### P2.2 — Convention rules
+### P2.2 — Convention rules — ✅ DONE (2026-09-27)
 
 - [x] **P2.2a. Rules for every official convention.** `layoutRules`
       currently cover only a few. Add DataType + required-variable rules for
@@ -519,17 +519,33 @@ dimensions, type, comment). Transcribe the needed rows by hand into
       testdata gets a new warning. `TestConventionVersionWarnings`,
       `TestConventionSOFA2Warnings`,
       `TestConventionVersionWarningsDoNotBlockSave` (failed before).
-- [ ] **P2.2e. Revisit the R = 2 rule of SimpleFreeField\*** (found
+- [x] **P2.2e. Revisit the R = 2 rule of SimpleFreeField\*** (found
       2026-09-27): no Toolbox/pyfar table and no sofar rule fixes R = 2
       (sofar only fixes E = 1). Decide whether Save should keep rejecting
       R ≠ 2.
-- [ ] **P2.2f. FreeFieldDirectivityTF `:Reference` attributes** (found
+      (2026-09-27) — decision: warn. Only libmysofa rejects R ≠ 2 (for
+      SimpleFreeFieldHRIR); the SOFA wiki allows any receiver count. Save
+      no longer rejects it; `ConventionWarnings` reports it (R ≤ 0 stays a
+      validation error). Kayser2009 (R = 8) now re-saves.
+      `TestConventionReceiverWarnings`, `TestSaveLegacySimpleFreeFieldSOS`,
+      `TestConventionConstraints` (failed before: R ValidationError).
+- [x] **P2.2f. FreeFieldDirectivityTF `:Reference` attributes** (found
       2026-09-27): the 1.1 table makes `SourcePosition:Reference`,
       `SourceView:Reference` and `SourceUp:Reference` mandatory; Save does
       not write them.
-- [ ] **P2.2g. RoomType restricted to `free field`** (found 2026-09-27):
+      (2026-09-27) — `conventionRules.mandatoryVariableAttributes`; Save
+      writes `Reference = ""` where neither `VariableAttributes` nor the
+      variable's own `Attributes` set one, File unchanged. sofar's verify
+      rejected a go-sofa DirectivityTF file before ("missing mandatory
+      data: SourcePosition_Reference, …") and accepts it now.
+      `TestSaveDirectivityTFReference` (failed before).
+- [x] **P2.2g. RoomType restricted to `free field`** (found 2026-09-27):
       sofar rejects any other RoomType for SimpleFreeField\* and
       FreeFieldHRTF; go-sofa does not check it.
+      (2026-09-27) — decision: warn (the Toolbox does not restrict the
+      value; Kayser2009 has "Anechoic"). `ConventionWarnings` reports the
+      RoomType Save writes when it is not `free field`.
+      `TestConventionRoomTypeWarnings` (failed before).
 
 ### P2.3 — Provenance on save
 

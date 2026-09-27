@@ -73,7 +73,7 @@ type netcdfDimensions struct {
 	fw     *hdf5.FileWriter
 	sizes  map[string]int
 	scales map[string]*hdf5.DatasetWriter
-	attrs  map[string][]Attribute // File.VariableAttributes, added to every variable written by name
+	attrs  map[string][]Attribute // File.savedVariableAttributes, added to every variable written by name
 }
 
 // writeDimensionScales writes one dimension-scale dataset per SOFA
@@ -87,7 +87,7 @@ func (f *File) writeDimensionScales(fw *hdf5.FileWriter) (*netcdfDimensions, err
 		fw:     fw,
 		sizes:  map[string]int{dimM: f.M, dimR: f.R, dimE: f.E, dimN: f.N, dimC: 3, dimI: 1},
 		scales: map[string]*hdf5.DatasetWriter{},
-		attrs:  f.VariableAttributes,
+		attrs:  f.savedVariableAttributes(),
 	}
 	names := []string{dimM, dimR, dimE, dimN, dimC, dimI}
 	for _, v := range f.savedVariables() {

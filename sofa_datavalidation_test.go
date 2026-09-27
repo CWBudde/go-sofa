@@ -179,11 +179,11 @@ func TestConventionConstraints(t *testing.T) {
 		want string // substring of the error; empty means valid
 	}{
 		{"SimpleFreeFieldHRIR", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 2, E: 1}, ""},
-		{"SimpleFreeFieldHRIR one receiver", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 1, E: 1}, "R=2"},
+		{"SimpleFreeFieldHRIR one receiver", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 1, E: 1}, ""}, // a warning only
 		{"SimpleFreeFieldHRIR two emitters", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeFIR, R: 2, E: 2}, "E=1"},
 		{"SimpleFreeFieldHRIR as TF", File{SOFAConventions: "SimpleFreeFieldHRIR", DataType: DataTypeTF, R: 2, E: 1}, "DataType"},
 		{"SimpleFreeFieldHRTF", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: DataTypeTF, R: 2, E: 1}, ""},
-		{"SimpleFreeFieldHRTF three receivers", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: DataTypeTF, R: 3, E: 1}, "R=2"},
+		{"SimpleFreeFieldHRTF three receivers", File{SOFAConventions: "SimpleFreeFieldHRTF", DataType: DataTypeTF, R: 3, E: 1}, ""}, // a warning only
 		{"SimpleFreeFieldHRSOS", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: DataTypeSOS, R: 2, E: 1}, ""},
 		{"SimpleFreeFieldHRSOS as FIR", File{SOFAConventions: "SimpleFreeFieldHRSOS", DataType: DataTypeFIR, R: 2, E: 1}, "DataType"},
 		{"FreeFieldHRTF SH", File{SOFAConventions: "FreeFieldHRTF", DataType: DataTypeTFE, R: 2, E: 16}, ""},

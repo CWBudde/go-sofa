@@ -579,7 +579,11 @@ SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF also make the
 of that name, `Save` writes the table's default as `[I,C]`, cartesian in
 metres: `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and `SourceUp`
 `[0 0 1]`, plus any attributes `VariableAttributes` holds for that name
-(such as a `Reference`). An empty `RoomType` is written as the convention's default:
+(such as a `Reference`). FreeFieldDirectivityTF also makes a `Reference`
+attribute (a narrative description of the spatial reference) mandatory on
+`SourcePosition`, `SourceView` and `SourceUp`: `Save` writes it as `""`
+where neither `VariableAttributes` nor the variable's own `Attributes` set
+one. An empty `RoomType` is written as the convention's default:
 `reverberant` for SingleRoomDRIR, `shoebox` for SingleRoomSRIR when
 `Variables` holds both `RoomCornerA` and `RoomCornerB` (sofar requires them
 for a shoebox room), and `free field` otherwise. The `File` itself is not
@@ -640,15 +644,15 @@ for any convention, SOFA 2.x features in a file whose `Version` is below
 2.0: the `FreeFieldHRTF` convention, DataType TF-E and a position `Type`
 of `"spherical harmonics"`.
 
-| Convention                                 | Accessors                                   | Checks                                                                                                                             |
-| ------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| BRIR: `SingleRoomDRIR`                     | `IsBRIR()`                                  | `Save` requires `DataType` FIR and errors with a zero `ListenerView`/`ListenerUp`; an empty `RoomType` is written as `reverberant` |
-| SRIR: `SingleRoomSRIR`                     | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | `Save` requires `DataType` FIR. Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`           |
-| `GeneralFIR`/`GeneralTF`/`GeneralTF-E`     | —                                           | `Save` requires `DataType` FIR/TF/TF-E                                                                                             |
-| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`       | —                                           | `Save` requires `DataType` FIR/TF/SOS, `R = 2` and `E = 1`; the legacy `SimpleFreeFieldSOS` is checked as `SimpleFreeFieldHRSOS`   |
-| `FreeFieldHRTF`                            | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E                                                                                                    |
-| `SimpleHeadphoneIR`                        | —                                           | `Save` requires `DataType` FIR                                                                                                     |
-| Directivity: e.g. `FreeFieldDirectivityTF` | `IsDirectivity()`                           | `Save` requires `DataType` TF; more needs an example file. `M` indexes source orientation                                          |
+| Convention                                 | Accessors                                   | Checks                                                                                                                                                                                                                       |
+| ------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BRIR: `SingleRoomDRIR`                     | `IsBRIR()`                                  | `Save` requires `DataType` FIR and errors with a zero `ListenerView`/`ListenerUp`; an empty `RoomType` is written as `reverberant`                                                                                           |
+| SRIR: `SingleRoomSRIR`                     | `IsSRIR()`, `AmbisonicsOrder() (int, bool)` | `Save` requires `DataType` FIR. Warns when `RoomVolume` or `RoomTemperature` is missing, or when `R` is not `(order+1)²`                                                                                                     |
+| `GeneralFIR`/`GeneralTF`/`GeneralTF-E`     | —                                           | `Save` requires `DataType` FIR/TF/TF-E                                                                                                                                                                                       |
+| `SimpleFreeFieldHRIR`/`HRTF`/`HRSOS`       | —                                           | `Save` requires `DataType` FIR/TF/SOS and `E = 1`; the legacy `SimpleFreeFieldSOS` is checked as `SimpleFreeFieldHRSOS`. Warns when `R` is not 2 (libmysofa rejects it) or `RoomType` is not `free field` (sofar rejects it) |
+| `FreeFieldHRTF`                            | `SHOrder()` for SH-encoded files            | `Save` requires `DataType` TF-E. Warns when `RoomType` is not `free field` (sofar rejects it)                                                                                                                                |
+| `SimpleHeadphoneIR`                        | —                                           | `Save` requires `DataType` FIR                                                                                                                                                                                               |
+| Directivity: e.g. `FreeFieldDirectivityTF` | `IsDirectivity()`                           | `Save` requires `DataType` TF and writes the mandatory `Reference` attributes; more needs an example file. `M` indexes source orientation                                                                                    |
 
 `RoomVolume` (cubic metres) and `RoomTemperature` (kelvin) are
 read from their variables, or from root attributes of the same
