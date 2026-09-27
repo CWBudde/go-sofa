@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -794,7 +795,11 @@ func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
 // writer is closed. The writer's Close error is returned, joined with any
 // earlier error.
 func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, error), commit func()) (err error) {
-	rootAttrs := f.collectRootAttributes()
+	now, err := saveTimestamp()
+	if err != nil {
+		return err
+	}
+	rootAttrs := f.collectRootAttributes(now)
 
 	// Global attributes go into the root object header at creation;
 	// go-hdf5 emits them in option order, so output stays deterministic.
@@ -888,8 +893,8 @@ type rootAttribute struct {
 	name, value string
 }
 
-// Defaults Save writes for mandatory global attributes left empty, taken
-// from the SOFA conventions' default values.
+// The APIName Save writes, and the defaults it writes for mandatory global
+// attributes left empty, taken from the SOFA conventions' default values.
 const (
 	defaultAPIName = "go-sofa"
 	defaultLicense = "No license provided, ask the author for permission"
@@ -905,24 +910,43 @@ const (
 	roomTypeReverberant = "reverberant"
 )
 
-// saveTime returns the time Save stamps into empty DateCreated and
-// DateModified attributes; tests replace it.
+// saveTime returns the time Save stamps into DateModified (and an empty
+// DateCreated) unless SOURCE_DATE_EPOCH is set; tests replace it.
 var saveTime = time.Now
 
+// saveTimestamp returns the time Save records as DateModified: the
+// SOURCE_DATE_EPOCH environment variable (seconds since the Unix epoch,
+// the reproducible-builds convention) when set, else the current time. A
+// malformed SOURCE_DATE_EPOCH is an error, as the convention asks.
+func saveTimestamp() (time.Time, error) {
+	epoch := os.Getenv("SOURCE_DATE_EPOCH")
+	if epoch == "" {
+		return saveTime(), nil
+	}
+	sec, err := strconv.ParseUint(epoch, 10, 63)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("SOURCE_DATE_EPOCH: %w", err)
+	}
+	return time.Unix(int64(sec), 0), nil
+}
+
 // collectRootAttributes returns the global attributes to write, in a
-// fixed order. The attributes AES69 makes mandatory are always emitted,
-// with defaults for empty APIName, APIVersion, dates, License and
-// RoomType (the convention's, see defaultRoomType); AuthorContact,
-// Organization and Title may be empty. The File itself is not changed.
-// Optional attributes are skipped when empty.
-func (f *File) collectRootAttributes() []rootAttribute {
+// fixed order. The attributes AES69 makes mandatory are always emitted.
+// As SOFAsave does, the provenance is Save's own: APIName and APIVersion
+// are go-sofa's, DateModified is now, and an empty DateCreated is now
+// too; History gains a line naming the File's APIName and APIVersion when
+// they are another API's (see resaveHistory). License and RoomType get
+// defaults when empty (the convention's, see defaultRoomType);
+// AuthorContact, Organization and Title may be empty. The File itself is
+// not changed. Optional attributes are skipped when empty.
+func (f *File) collectRootAttributes(now time.Time) []rootAttribute {
 	or := func(v, def string) string {
 		if v == "" {
 			return def
 		}
 		return v
 	}
-	now := saveTime().UTC().Format(sofaDateLayout)
+	stamp := now.UTC().Format(sofaDateLayout)
 	attrs := []rootAttribute{
 		{"Conventions", f.Conventions},
 		{"Version", f.Version},
@@ -930,10 +954,10 @@ func (f *File) collectRootAttributes() []rootAttribute {
 		{"SOFAConventionsVersion", f.SOFAConventionsVersion},
 		{"DataType", f.DataType},
 		{"Title", f.Title},
-		{"DateCreated", or(f.DateCreated, now)},
-		{"DateModified", or(f.DateModified, now)},
-		{"APIName", or(f.APIName, defaultAPIName)},
-		{"APIVersion", or(f.APIVersion, moduleVersion())},
+		{"DateCreated", or(f.DateCreated, stamp)},
+		{"DateModified", stamp},
+		{"APIName", defaultAPIName},
+		{"APIVersion", moduleVersion()},
 		{"AuthorContact", f.AuthorContact},
 		{"Organization", f.Organization},
 		{"License", or(f.License, defaultLicense)},
@@ -943,7 +967,7 @@ func (f *File) collectRootAttributes() []rootAttribute {
 		{"ApplicationName", f.ApplicationName},
 		{"ApplicationVersion", f.ApplicationVersion},
 		{"Comment", f.Comment},
-		{"History", f.History},
+		{"History", f.resaveHistory()},
 		{"References", f.References},
 		{"Origin", f.Origin},
 	} {
@@ -952,6 +976,22 @@ func (f *File) collectRootAttributes() []rootAttribute {
 		}
 	}
 	return attrs
+}
+
+// resaveHistory returns the History Save writes: the File's, plus a line
+// "resaved by go-sofa <version> from <APIName> <APIVersion>" when the File
+// names an API other than this go-sofa version, so the file keeps a
+// record of the API that wrote it before.
+func (f *File) resaveHistory() string {
+	version := moduleVersion()
+	if f.APIName == "" || (f.APIName == defaultAPIName && f.APIVersion == version) {
+		return f.History
+	}
+	line := strings.TrimSpace("resaved by " + defaultAPIName + " " + version + " from " + f.APIName + " " + f.APIVersion)
+	if f.History == "" {
+		return line
+	}
+	return f.History + "\n" + line
 }
 
 // validate checks that the File struct contains all required fields

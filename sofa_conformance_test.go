@@ -515,7 +515,7 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		}
 	})
 
-	t.Run("set values kept", func(t *testing.T) {
+	t.Run("set values kept, provenance stamped", func(t *testing.T) {
 		f := minimalFIRFile()
 		f.APIName, f.APIVersion = "MyTool", "3.1"
 		f.DateCreated, f.DateModified = "2020-01-02 03:04:05", "2021-01-02 03:04:05"
@@ -527,8 +527,8 @@ func TestSaveMandatoryGlobalAttributes(t *testing.T) {
 		}
 		got := readRoot(t, path)
 		for name, want := range map[string]string{
-			"APIName": f.APIName, "APIVersion": f.APIVersion,
-			"DateCreated": f.DateCreated, "DateModified": f.DateModified,
+			"APIName": "go-sofa", "APIVersion": moduleVersion(),
+			"DateCreated": f.DateCreated, "DateModified": "2026-09-25 12:30:00",
 			"License": f.License, "RoomType": f.RoomType, "Title": f.Title,
 			"AuthorContact": f.AuthorContact, "Organization": f.Organization,
 		} {
