@@ -578,7 +578,8 @@ SingleRoomSRIR, SingleRoomDRIR and FreeFieldDirectivityTF also make the
 `SourceView` and `SourceUp` variables mandatory. When `Variables` has none
 of that name, `Save` writes the table's default as `[I,C]`, cartesian in
 metres: `SourceView` `[1 0 0]` (SingleRoomDRIR: `[-1 0 0]`) and `SourceUp`
-`[0 0 1]`. An empty `RoomType` is written as the convention's default:
+`[0 0 1]`, plus any attributes `VariableAttributes` holds for that name
+(such as a `Reference`). An empty `RoomType` is written as the convention's default:
 `reverberant` for SingleRoomDRIR, `shoebox` for SingleRoomSRIR when
 `Variables` holds both `RoomCornerA` and `RoomCornerB` (sofar requires them
 for a shoebox room), and `free field` otherwise. The `File` itself is not

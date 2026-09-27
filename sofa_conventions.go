@@ -270,7 +270,14 @@ func (f *File) defaultRoomType() string {
 }
 
 // savedVariables returns the extra variables Save writes: f.Variables, then
-// the defaults of the missing mandatory ones. f.Variables is not changed.
+// the defaults of the missing mandatory ones, each with the attributes
+// VariableAttributes holds for its name appended. f.Variables is not
+// changed.
 func (f *File) savedVariables() []Variable {
-	return append(slices.Clip(f.Variables), f.missingMandatoryVariables()...)
+	saved := slices.Clip(f.Variables)
+	for _, v := range f.missingMandatoryVariables() {
+		v.Attributes = append(slices.Clip(v.Attributes), f.VariableAttributes[v.Name]...)
+		saved = append(saved, v)
+	}
+	return saved
 }
