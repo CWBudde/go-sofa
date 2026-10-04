@@ -7,8 +7,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-10-04
+
 ### Changed
 
+- Requires go-hdf5 v0.18.1. v0.18.0 writes new-style groups (the layout
+  libmysofa reads), text attributes with the ASCII character set, and
+  tracks attribute creation order as netCDF-C does.
+- **Breaking:** `Save` requires `ReceiverPositions` and `SourcePositions`,
+  which the SOFA conventions make mandatory without a usable default, and
+  writes an empty `ListenerPositions` or `EmitterPositions` as the
+  conventions' default, `[0 0 0]` cartesian in metres. The `File` is not
+  modified.
+- `Save` always writes the mandatory `Units` attribute of the four position
+  variables; empty `…PositionUnits` are written as the default for the
+  `Type`, `metre` for cartesian and `degree, degree, metre` for spherical
+  and spherical harmonics. An empty `Units` used to be left out.
+- **Breaking:** `UnitsCartesianMetres` is `"metre"`, the value of the SOFA
+  convention tables, instead of `"metre, metre, metre"`. `Open` still reads
+  either as it is stored.
+- **Breaking:** `Save` checks the `Units` of every position and of
+  `ListenerView`: each comma-separated part must be `metre` or `degree`
+  (also `meter`, `metres`, `meters`, `degrees`; any case), the names sofar
+  and the SOFA Toolbox accept. Other units, radians included, are a
+  `*ValidationError`; the default spherical `ListenerUp` for radian units
+  (elevation π/2) is gone. `Open` still reads such files.
 - `Save` and `WriteTo` deflate the audio data at level 4
   (`DefaultDeflateLevel`) by default, so re-saved files are about the size
   of their netCDF-C originals instead of up to 57× larger. Read with go-hdf5
@@ -167,30 +190,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   with E == N now reads transposed; nothing in such a file tells the two
   orders apart. Labelled files, including every file saved by v0.2.0 and
   later, and files with E ≠ N are unaffected.
-
-### Changed
-
-- Requires go-hdf5 v0.18.0, which writes new-style groups (the layout
-  libmysofa reads), text attributes with the ASCII character set, and
-  tracks attribute creation order as netCDF-C does.
-- **Breaking:** `Save` requires `ReceiverPositions` and `SourcePositions`,
-  which the SOFA conventions make mandatory without a usable default, and
-  writes an empty `ListenerPositions` or `EmitterPositions` as the
-  conventions' default, `[0 0 0]` cartesian in metres. The `File` is not
-  modified.
-- `Save` always writes the mandatory `Units` attribute of the four position
-  variables; empty `…PositionUnits` are written as the default for the
-  `Type`, `metre` for cartesian and `degree, degree, metre` for spherical
-  and spherical harmonics. An empty `Units` used to be left out.
-- **Breaking:** `UnitsCartesianMetres` is `"metre"`, the value of the SOFA
-  convention tables, instead of `"metre, metre, metre"`. `Open` still reads
-  either as it is stored.
-- **Breaking:** `Save` checks the `Units` of every position and of
-  `ListenerView`: each comma-separated part must be `metre` or `degree`
-  (also `meter`, `metres`, `meters`, `degrees`; any case), the names sofar
-  and the SOFA Toolbox accept. Other units, radians included, are a
-  `*ValidationError`; the default spherical `ListenerUp` for radian units
-  (elevation π/2) is gone. `Open` still reads such files.
 
 ## [v0.2.0] - 2026-09-26
 
