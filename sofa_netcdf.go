@@ -190,9 +190,7 @@ func (nc *netcdfDimensions) writeData(name string, data []float64, dims ...strin
 		}
 	}
 	chunk[1] = 1
-	if parts := (chunk[0]*perM + maxDataChunkBytes - 1) / maxDataChunkBytes; parts > 1 {
-		chunk[0] = (chunk[0] + parts - 1) / parts
-	}
+	chunk[0] = max(1, min(chunk[0], maxDataChunkBytes/perM))
 	return nc.writeVariableWithAttrs(name, data, dims, []hdf5.DatasetOption{
 		hdf5.WithChunkDims(chunk), hdf5.WithShuffle(), hdf5.WithGZIPCompression(nc.deflate),
 	})

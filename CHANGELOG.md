@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** `Save` is `Save(path string, opts ...SaveOption) error`
+  (see `WithDeflate` below). Calls compile unchanged, but an interface
+  declaring `Save(string) error` no longer matches `*File`, and the method
+  value `f.Save` has a new type.
+
 - `Open`, `OpenReader`, `OpenLazy` and `OpenLazyReader` refuse, before
   reading any data, a file whose variables together declare more than
   64 Mi elements or eight elements per byte of the file, whichever is more,

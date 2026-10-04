@@ -108,22 +108,33 @@ func TestSaveDeflateLevelOutOfRange(t *testing.T) {
 	}
 }
 
-// TestSaveDeflateChunkCap checks that chunks of one receiver hold fewer
-// measurements when all of them would exceed maxDataChunkBytes.
+// TestSaveDeflateChunkCap checks that chunks of one receiver hold only as
+// many measurements as fit in maxDataChunkBytes, and at least one.
 func TestSaveDeflateChunkCap(t *testing.T) {
-	// 1100 measurements of 512 samples: 4.3 MiB per receiver, so two
-	// chunks of 550 measurements each.
-	f := robustBase("FIR", 1100, 2, 1, 512)
-	f.ImpulseResponses = ramp3D(1100, 2, 512, 0.001)
-	f.SourcePositions = make([]Vector3, 1100)
-	f.SamplingRate = []float64{48000}
-	f.Delay = []float64{0}
-	path := filepath.Join(t.TempDir(), "large.sofa")
-	if err := f.Save(path, WithDeflate(1)); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if chunk, _ := dataChunkShape(t, path, "Data.IR"); !slices.Equal(chunk, []uint64{550, 1, 512}) {
-		t.Errorf("chunk shape = %v, want [550 1 512]", chunk)
+	for _, tc := range []struct {
+		name string
+		m, n int
+		want uint64 // measurements per chunk
+	}{
+		// 4 KiB per measurement, 4.3 MiB per receiver.
+		{"many measurements", 1100, 512, 1024},
+		// 2.1 MiB per measurement: two would exceed 4 MiB.
+		{"long measurements", 3, 280000, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := robustBase("FIR", tc.m, 2, 1, tc.n)
+			f.ImpulseResponses = ramp3D(tc.m, 2, tc.n, 0.001)
+			f.SamplingRate = []float64{48000}
+			f.Delay = []float64{0}
+			path := filepath.Join(t.TempDir(), "large.sofa")
+			if err := f.Save(path, WithDeflate(1)); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			want := []uint64{tc.want, 1, uint64(tc.n)} //nolint:gosec // small test size
+			if chunk, _ := dataChunkShape(t, path, "Data.IR"); !slices.Equal(chunk, want) {
+				t.Errorf("chunk shape = %v, want %v", chunk, want)
+			}
+		})
 	}
 }
 
