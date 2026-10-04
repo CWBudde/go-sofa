@@ -794,8 +794,9 @@ MIT_KEMAR 1.17 MB → 5.85 MB.
 - [x] **P4.3b.** Level 4 is the default (`DefaultDeflateLevel`,
       `WithDeflate(0)` opts out) for `Save` and `WriteTo`. Deflated data
       never takes more than 64 chunks: libmysofa reads only single-node
-      chunk B-trees (65 chunks: load error 10000), so big files get chunks
-      above 4 MiB and more than 64 receivers share chunks.
+      chunk B-trees (65 chunks: load error 10000), so big files group
+      receivers first (keeping the chunks one measurement spans within the
+      256 MiB lazy-read cache) and only then put more measurements in a chunk.
 
 ### P4.4 — Small items (low, optional)
 

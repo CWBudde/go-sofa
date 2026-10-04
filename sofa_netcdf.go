@@ -197,20 +197,24 @@ func (nc *netcdfDimensions) writeData(name string, data []float64, dims ...strin
 
 // dataChunk returns the chunk shape of deflated audio data of the given
 // shape ([M, R, ...]): one receiver across as many measurements as fit in
-// maxDataChunkBytes (at least one), but no more than maxDataChunks chunks
-// in all, which makes chunks larger for big files. With more than
-// maxDataChunks receivers, a chunk holds all measurements of several.
+// maxDataChunkBytes (at least one). When that takes more than
+// maxDataChunks chunks, a chunk holds several receivers, so the chunks one
+// measurement spans (all a lazy read of it keeps cached) stay as small as
+// possible; only when all receivers in one chunk are still too many chunks
+// does a chunk hold more measurements.
 func dataChunk(shape []uint64) []uint64 {
 	m, r := shape[0], shape[1]
 	perM := uint64(8) // bytes of one measurement of one receiver
 	for _, n := range shape[2:] {
 		perM *= n
 	}
-	mc, rc := max(1, min(m, maxDataChunkBytes/perM)), uint64(1)
-	if r > maxDataChunks {
-		mc, rc = m, (r+maxDataChunks-1)/maxDataChunks
-	} else if perR := maxDataChunks / r; (m+mc-1)/mc > perR {
-		mc = (m + perR - 1) / perR
+	mc := max(1, min(m, maxDataChunkBytes/perM))
+	var rc uint64
+	if blocks := (m + mc - 1) / mc; blocks <= maxDataChunks {
+		perBlock := maxDataChunks / blocks // receiver chunks per block of mc measurements
+		rc = (r + perBlock - 1) / perBlock
+	} else {
+		mc, rc = (m+maxDataChunks-1)/maxDataChunks, r
 	}
 	return append([]uint64{mc, rc}, shape[2:]...)
 }

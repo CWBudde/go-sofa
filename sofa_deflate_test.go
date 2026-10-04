@@ -109,7 +109,8 @@ func TestSaveDefaultDeflate(t *testing.T) {
 
 // TestDataChunk checks the chunk shapes of deflated audio data: one
 // receiver across the measurements that fit in 4 MiB, but never more than
-// 64 chunks, which libmysofa cannot index.
+// 64 chunks, which libmysofa cannot index, and receivers grouped before
+// chunks grow along M, so a lazy read of a measurement fits its cache.
 func TestDataChunk(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -119,11 +120,14 @@ func TestDataChunk(t *testing.T) {
 		{"4 MiB cap", []uint64{1100, 2, 512}, []uint64{1024, 1, 512}},
 		{"long measurements", []uint64{3, 2, 280000}, []uint64{1, 1, 280000}},
 		{"TF-E", []uint64{4, 2, 3, 5}, []uint64{4, 1, 3, 5}},
-		// 32 chunks of 1024 measurements per receiver would be 64 in all.
-		{"many measurements", []uint64{40000, 2, 512}, []uint64{1250, 1, 512}},
+		// 40 blocks of 1024 measurements: both receivers share a chunk.
+		{"many measurements", []uint64{40000, 2, 512}, []uint64{1024, 2, 512}},
 		{"64 receivers", []uint64{100, 64, 4096}, []uint64{100, 1, 4096}},
 		{"many receivers", []uint64{100, 130, 1024}, []uint64{100, 3, 1024}},
-		{"many receivers, long", []uint64{5000, 40, 1024}, []uint64{5000, 1, 1024}},
+		// 10 blocks of 512 measurements, 6 receiver chunks each.
+		{"many receivers, many measurements", []uint64{5000, 40, 1024}, []uint64{512, 7, 1024}},
+		// 100 blocks of 1024 even with all receivers in one chunk.
+		{"huge", []uint64{102400, 2, 512}, []uint64{1600, 2, 512}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := dataChunk(tc.shape)
@@ -136,6 +140,15 @@ func TestDataChunk(t *testing.T) {
 			}
 			if chunks > maxDataChunks {
 				t.Errorf("%d chunks, more than %d", chunks, maxDataChunks)
+			}
+			// The chunks one measurement spans, all a lazy read caches.
+			span := got[0] * (tc.shape[1] + got[1] - 1) / got[1] * got[1] * 8
+			for _, n := range tc.shape[2:] {
+				span *= n
+			}
+			if span > maxChunkCacheBytes {
+				t.Errorf("one measurement spans %d MiB of chunks, more than the %d MiB lazy-read cache",
+					span>>20, maxChunkCacheBytes>>20)
 			}
 		})
 	}

@@ -15,8 +15,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   v0.18.1 or later, HDF5/netCDF-C and libmysofa. `WithDeflate(0)` writes
   the uncompressed, contiguous layout of earlier versions. Deflated data
   never takes more than 64 chunks, the most libmysofa can index: big files
-  get chunks above 4 MiB, and files with more than 64 receivers store
-  several receivers per chunk.
+  store several receivers per chunk, and only files with more than 64
+  blocks of 4 MiB per receiver get chunks with more measurements.
 
 - **Breaking:** `Save` is `Save(path string, opts ...SaveOption) error`
   (see `WithDeflate` below). Calls compile unchanged, but an interface

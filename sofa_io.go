@@ -214,7 +214,8 @@ func newSaveOptions(opts []SaveOption) (saveOptions, error) {
 // across all measurements, the layout of most SOFA files written by
 // netCDF-C. Chunks hold fewer measurements when that exceeds 4 MiB, but
 // there are never more than 64 chunks (one B-tree node, all libmysofa
-// reads), so chunks of large files can be bigger.
+// reads): large files store several receivers per chunk, and only very
+// large ones more measurements.
 //
 // Level 4 shrinks typical HRIR sets to about the size of their netCDF-C
 // originals (MIT KEMAR: 5.9 MB uncompressed, 1.1 MB deflated, 1.2 MB
