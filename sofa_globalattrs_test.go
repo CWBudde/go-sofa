@@ -81,7 +81,7 @@ func TestOpenReadsEveryGlobalField(t *testing.T) {
 	create := func(opts []interface{}) (*hdf5.FileWriter, error) {
 		return hdf5.CreateForWriteTo(&buf, opts...)
 	}
-	if err := f.writeHDF5(create, nil); err != nil {
+	if err := f.writeHDF5(create, nil, saveOptions{}); err != nil {
 		t.Fatalf("writeHDF5: %v", err)
 	}
 	g, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))

@@ -781,14 +781,18 @@ per measurement → every `ReadMeasurement` evicts and re-inflates all of them.
 Writes are contiguous and uncompressed: `tester.sofa` 91 KB → 5.2 MB (57×),
 MIT_KEMAR 1.17 MB → 5.85 MB.
 
-- [ ] **P4.3a.** Change to `Save(path string, opts ...SaveOption)` and
-      `WriteTo` keeps its `io.WriterTo` signature (add
-      `WriteToWithOptions(w, opts...)` only if needed). First option:
-      `WithDeflate(level int)` using go-hdf5's `WithChunkDims` +
-      `WithGZIPCompression` (+ `WithShuffle`), one measurement row per chunk
-      (`[1, R, N]`, capped). Variadic keeps `Save` source-compatible. Verify
-      libmysofa and netCDF-C read the compressed output (P1.3 harness). Decide
-      after measuring whether deflate level 4 becomes the default.
+- [x] **P4.3a.** `Save(path string, opts ...SaveOption)` with
+      `WithDeflate(level int)`; `WriteTo` keeps its `io.WriterTo` signature
+      and stays uncompressed. Chunks are one receiver across all
+      measurements (`[M, 1, N]`, fewer measurements when above 4 MiB),
+      shuffled, then deflated: measured at level 4, KEMAR 1.10 MB, CIPIC 3.53 MB
+      (original 3.57), Mesh2HRTF 8.08 MB (8.02), tester 73 KB (91 KB). The
+      proposed `[1, R, N]` rows were 6–19% larger (tester 2.7×) and slower
+      to save; level 9 saves only 1–4% more at ~10× the time. libmysofa
+      needed go-hdf5's final chunk key fix (CWBudde/go-hdf5#13);
+      `just interop` checks deflated copies with h5py, netCDF4 and libmysofa.
+- [ ] **P4.3b.** Make level 4 the default (`WithDeflate(0)` opts out) and
+      compress `WriteTo` the same way.
 
 ### P4.4 — Small items (low, optional)
 

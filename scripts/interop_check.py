@@ -17,7 +17,8 @@ in the same layout as the generator's expectations, then check them:
     python3 scripts/interop_check.py DIR
 
 When DIR/resaved/ exists (the generator re-saves testdata/sofar/, files
-written by sofar through netCDF-C), each re-saved file is also compared with
+written by sofar through netCDF-C; DIR/resaved-deflate/ holds the same
+re-saved with sofa.WithDeflate), each re-saved file is also compared with
 its original: same global attributes (apart from the provenance Save
 stamps, checked separately) and, per variable, the same values, read with
 both h5py and netCDF4.
@@ -208,9 +209,9 @@ def _check_provenance(errors: list[str], orig: dict, got: dict) -> None:
         errors.append(f"attribute History = {got.get('History')!r}, want {history!r}")
 
 
-def check_resaved(directory: str) -> bool:
-    """Compare DIR/resaved/*.sofa with the originals in testdata/sofar/."""
-    with open(os.path.join(directory, "resaved", "resaved.json"), encoding="utf-8") as fh:
+def check_resaved(directory: str, sub: str) -> bool:
+    """Compare DIR/SUB/*.sofa with the originals in testdata/sofar/."""
+    with open(os.path.join(directory, sub, "resaved.json"), encoding="utf-8") as fh:
         resaved = json.load(fh)
     failed = False
     for fname in sorted(resaved):
@@ -218,7 +219,7 @@ def check_resaved(directory: str) -> bool:
             errors: list[str] = []
             try:
                 want_attrs, want_vars = _read_all(os.path.join(SOFAR_DIR, fname), label)
-                got_path = os.path.join(directory, "resaved", fname)
+                got_path = os.path.join(directory, sub, fname)
                 got_attrs, got_vars = _read_all(got_path, label)
                 if label == "h5py":
                     with h5py.File(got_path, "r") as f:
@@ -237,11 +238,11 @@ def check_resaved(directory: str) -> bool:
                 errors.append("cannot read: " + traceback.format_exception_only(type(exc), exc)[-1].strip())
             if errors:
                 failed = True
-                print(f"FAIL {label:7} resaved/{fname}")
+                print(f"FAIL {label:7} {sub}/{fname}")
                 for e in errors:
                     print(f"     {e}")
             else:
-                print(f"ok   {label:7} resaved/{fname} (same as the sofar original)")
+                print(f"ok   {label:7} {sub}/{fname} (same as the sofar original)")
     return failed
 
 
@@ -317,8 +318,9 @@ def main() -> int:
                 n = len(expected[fname]["datasets"])
                 print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
 
-    if os.path.isdir(os.path.join(args.dir, "resaved")):
-        failed = check_resaved(args.dir) or failed
+    for sub in ("resaved", "resaved-deflate"):
+        if os.path.isdir(os.path.join(args.dir, sub)):
+            failed = check_resaved(args.dir, sub) or failed
 
     if failed:
         print("interop check FAILED", file=sys.stderr)

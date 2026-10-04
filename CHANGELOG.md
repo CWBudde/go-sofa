@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Breaking:** `Save` is `Save(path string, opts ...SaveOption) error`
+  (see `WithDeflate` below). Calls compile unchanged, but an interface
+  declaring `Save(string) error` no longer matches `*File`, and the method
+  value `f.Save` has a new type.
+
 - `Open`, `OpenReader`, `OpenLazy` and `OpenLazyReader` refuse, before
   reading any data, a file whose variables together declare more than
   64 Mi elements or eight elements per byte of the file, whichever is more,
@@ -61,6 +66,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `Save` takes options: `Save(path, sofa.WithDeflate(level))` stores the
+  audio data (`Data.IR`, `Data.Real`/`Data.Imag`, `Data.SOS`) shuffled and
+  deflated in chunks of one receiver across all measurements (capped at
+  4 MiB), as netCDF-C files usually are. Level 4 re-saves MIT KEMAR in
+  1.10 MB instead of 5.85 MB (original: 1.17 MB) and `tester.sofa` in 73 KB
+  instead of 5.2 MB. Without the option `Save` writes the same bytes as
+  before; `WriteTo` stays uncompressed. libmysofa loads the deflated files
+  with go-hdf5 v0.18.1, whose chunk index it can read (CWBudde/go-hdf5#13).
+  `just interop` checks a deflated copy of every generated and re-saved file.
 - `Save` and `WriteTo` honour the `SOURCE_DATE_EPOCH` environment variable
   (seconds since the Unix epoch, the reproducible-builds convention): it
   replaces the current time as the save time, so output is reproducible. A

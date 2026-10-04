@@ -4,10 +4,11 @@
 //
 //   - every <dir>/*.sofa written by internal/interop/gen, held to a rule per
 //     convention and DataType (see expectFor);
-//   - every file gen re-saved from testdata/sofar/ into <dir>/resaved/, and
-//     every further original given on the command line (re-saved here into
-//     <dir>/resaved-extra/), each of which must get exactly the result its
-//     original gets.
+//   - every file gen re-saved from testdata/sofar/ into <dir>/resaved/ and
+//     <dir>/resaved-deflate/, and every further original given on the
+//     command line (re-saved here into <dir>/resaved-extra/, and deflated
+//     into <dir>/resaved-extra-deflate/), each of which must get exactly the
+//     result its original gets.
 //
 // It is internal and not a supported tool. Run it from the repository root.
 //
@@ -156,16 +157,26 @@ func run(load, dir string, originals []string) (failed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	resaved, err := sofarResaves(dir)
-	if err != nil {
-		return false, err
+	for _, sub := range []string{"resaved", "resaved-deflate"} {
+		resaved, err := sofarResaves(dir, sub)
+		if err != nil {
+			return false, err
+		}
+		checks = append(checks, resaved...)
 	}
-	extra, err := resaveOriginals(filepath.Join(dir, "resaved-extra"), originals)
-	if err != nil {
-		return false, err
+	for _, r := range []struct {
+		sub  string
+		opts []sofa.SaveOption
+	}{
+		{"resaved-extra", nil},
+		{"resaved-extra-deflate", []sofa.SaveOption{sofa.WithDeflate(4)}},
+	} {
+		extra, err := resaveOriginals(filepath.Join(dir, r.sub), originals, r.opts...)
+		if err != nil {
+			return false, err
+		}
+		checks = append(checks, extra...)
 	}
-	checks = append(checks, resaved...)
-	checks = append(checks, extra...)
 
 	paths := make([]string, 0, 2*len(checks))
 	for _, c := range checks {
@@ -225,10 +236,10 @@ func generatedChecks(dir string) ([]check, error) {
 	return checks, nil
 }
 
-// sofarResaves returns one check per file gen re-saved from testdata/sofar/,
-// as listed in <dir>/resaved/resaved.json.
-func sofarResaves(dir string) ([]check, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "resaved", "resaved.json")) //nolint:gosec // dir from CLI arg (dev tool)
+// sofarResaves returns one check per file gen re-saved from testdata/sofar/
+// into <dir>/<sub>/, as listed in its resaved.json.
+func sofarResaves(dir, sub string) ([]check, error) {
+	data, err := os.ReadFile(filepath.Join(dir, sub, "resaved.json")) //nolint:gosec // dir from CLI arg (dev tool)
 	if err != nil {
 		return nil, err
 	}
@@ -239,17 +250,17 @@ func sofarResaves(dir string) ([]check, error) {
 	checks := make([]check, 0, len(names))
 	for _, name := range names {
 		checks = append(checks, check{
-			path:     filepath.Join(dir, "resaved", name),
-			label:    "resaved/" + name,
+			path:     filepath.Join(dir, sub, name),
+			label:    sub + "/" + name,
 			original: filepath.Join("testdata", "sofar", name),
 		})
 	}
 	return checks, nil
 }
 
-// resaveOriginals opens each original, saves it into dst and returns one
-// check per file.
-func resaveOriginals(dst string, originals []string) ([]check, error) {
+// resaveOriginals opens each original, saves it into dst with opts and
+// returns one check per file.
+func resaveOriginals(dst string, originals []string, opts ...sofa.SaveOption) ([]check, error) {
 	if len(originals) == 0 {
 		return nil, nil
 	}
@@ -266,12 +277,12 @@ func resaveOriginals(dst string, originals []string) ([]check, error) {
 			return nil, fmt.Errorf("open %s: %w", p, err)
 		}
 		out := filepath.Join(dst, filepath.Base(p))
-		err = f.Save(out)
+		err = f.Save(out, opts...)
 		f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("save %s: %w", out, err)
 		}
-		checks = append(checks, check{path: out, label: "resaved-extra/" + filepath.Base(p), original: p})
+		checks = append(checks, check{path: out, label: filepath.Base(dst) + "/" + filepath.Base(p), original: p})
 	}
 	return checks, nil
 }
