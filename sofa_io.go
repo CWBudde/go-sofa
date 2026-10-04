@@ -92,7 +92,8 @@ func open(path string, lazy bool) (*File, error) {
 // SingleRoomDRIR, shoebox for SingleRoomSRIR when Variables holds
 // RoomCornerA and RoomCornerB, free field otherwise.
 //
-// The audio data is written uncompressed unless opts include WithDeflate.
+// The audio data is deflated at level DefaultDeflateLevel; WithDeflate
+// sets another level, WithDeflate(0) writes it uncompressed.
 //
 // Returns an error if:
 //   - Validation fails (missing required fields, invalid dimensions, etc.)
@@ -158,8 +159,9 @@ func (f *File) Save(path string, opts ...SaveOption) (err error) {
 }
 
 // WriteTo writes the SOFA file to w, as Save writes it to a file without
-// options: it validates f first and produces the same bytes. It returns the number of
-// bytes written, and implements io.WriterTo.
+// options (audio data deflated at DefaultDeflateLevel): it validates f
+// first and produces the same bytes. It returns the number of bytes
+// written, and implements io.WriterTo.
 //
 // The file is assembled in memory (HDF5 needs random access while writing)
 // and handed to w in one Write only once it is complete, so a validation
@@ -176,7 +178,7 @@ func (f *File) WriteTo(w io.Writer) (n int64, err error) {
 	create := func(opts []interface{}) (*hdf5.FileWriter, error) {
 		return hdf5.CreateForWriteTo(sink, opts...)
 	}
-	err = f.writeHDF5(create, func() { sink.committed = true }, saveOptions{})
+	err = f.writeHDF5(create, func() { sink.committed = true }, saveOptions{deflate: DefaultDeflateLevel})
 	return sink.n, err
 }
 
@@ -188,9 +190,13 @@ type saveOptions struct {
 	deflate int // deflate level of the audio data, 0 for none
 }
 
-// newSaveOptions applies opts and checks the result.
+// DefaultDeflateLevel is the deflate level Save and WriteTo compress the
+// audio data with unless WithDeflate sets another.
+const DefaultDeflateLevel = 4
+
+// newSaveOptions applies opts to the defaults and checks the result.
 func newSaveOptions(opts []SaveOption) (saveOptions, error) {
-	var o saveOptions
+	o := saveOptions{deflate: DefaultDeflateLevel}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -201,17 +207,19 @@ func newSaveOptions(opts []SaveOption) (saveOptions, error) {
 }
 
 // WithDeflate stores the audio data (Data.IR, Data.Real and Data.Imag, or
-// Data.SOS) compressed with deflate at level 1 (fastest) to 9 (smallest);
-// 0 stores it uncompressed, as Save does by default. The data is split
-// into chunks of one receiver across all measurements (fewer measurements
-// per chunk when that exceeds 4 MiB) and byte-shuffled before deflating,
-// the layout of most SOFA files written by netCDF-C.
+// Data.SOS) deflated at level 1 (fastest) to 9 (smallest) instead of
+// DefaultDeflateLevel; 0 stores it uncompressed and contiguous.
+//
+// Deflated data is byte-shuffled and split into chunks of one receiver
+// across all measurements, the layout of most SOFA files written by
+// netCDF-C. Chunks hold fewer measurements when that exceeds 4 MiB, but
+// there are never more than 64 chunks (one B-tree node, all libmysofa
+// reads): large files store several receivers per chunk, and only very
+// large ones more measurements.
 //
 // Level 4 shrinks typical HRIR sets to about the size of their netCDF-C
 // originals (MIT KEMAR: 5.9 MB uncompressed, 1.1 MB deflated, 1.2 MB
 // original); higher levels save little more and take much longer.
-// libmysofa reads deflated files whose data has at most 64 chunks (one
-// B-tree node); its reader does not follow deeper chunk indexes.
 func WithDeflate(level int) SaveOption {
 	return func(o *saveOptions) { o.deflate = level }
 }

@@ -9,6 +9,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `Save` and `WriteTo` deflate the audio data at level 4
+  (`DefaultDeflateLevel`) by default, so re-saved files are about the size
+  of their netCDF-C originals instead of up to 57× larger. Read with go-hdf5
+  v0.18.1 or later, HDF5/netCDF-C and libmysofa. `WithDeflate(0)` writes
+  the uncompressed, contiguous layout of earlier versions. Deflated data
+  never takes more than 64 chunks, the most libmysofa can index: big files
+  store several receivers per chunk, and only files with more than 64
+  blocks of 4 MiB per receiver get chunks with more measurements.
+
 - **Breaking:** `Save` is `Save(path string, opts ...SaveOption) error`
   (see `WithDeflate` below). Calls compile unchanged, but an interface
   declaring `Save(string) error` no longer matches `*File`, and the method
@@ -66,15 +75,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- `Save` takes options: `Save(path, sofa.WithDeflate(level))` stores the
-  audio data (`Data.IR`, `Data.Real`/`Data.Imag`, `Data.SOS`) shuffled and
-  deflated in chunks of one receiver across all measurements (capped at
-  4 MiB), as netCDF-C files usually are. Level 4 re-saves MIT KEMAR in
-  1.10 MB instead of 5.85 MB (original: 1.17 MB) and `tester.sofa` in 73 KB
-  instead of 5.2 MB. Without the option `Save` writes the same bytes as
-  before; `WriteTo` stays uncompressed. libmysofa loads the deflated files
-  with go-hdf5 v0.18.1, whose chunk index it can read (CWBudde/go-hdf5#13).
-  `just interop` checks a deflated copy of every generated and re-saved file.
+- `Save` takes options. `WithDeflate(level)` sets the deflate level of the
+  audio data (`Data.IR`, `Data.Real`/`Data.Imag`, `Data.SOS`), stored
+  shuffled in chunks of one receiver across all measurements (at most
+  4 MiB, see Changed for the 64-chunk limit), as netCDF-C files usually
+  are; 0 stores it uncompressed. Level 4 re-saves MIT KEMAR in 1.10 MB
+  instead of 5.85 MB (original: 1.17 MB) and `tester.sofa` in 73 KB
+  instead of 5.2 MB. libmysofa loads the deflated files with go-hdf5
+  v0.18.1, whose chunk index it can read (CWBudde/go-hdf5#13).
+  `just interop` checks every generated and re-saved file both deflated
+  and uncompressed.
 - `Save` and `WriteTo` honour the `SOURCE_DATE_EPOCH` environment variable
   (seconds since the Unix epoch, the reproducible-builds convention): it
   replaces the current time as the save time, so output is reproducible. A

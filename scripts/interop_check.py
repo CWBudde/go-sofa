@@ -17,8 +17,8 @@ in the same layout as the generator's expectations, then check them:
     python3 scripts/interop_check.py DIR
 
 When DIR/resaved/ exists (the generator re-saves testdata/sofar/, files
-written by sofar through netCDF-C; DIR/resaved-deflate/ holds the same
-re-saved with sofa.WithDeflate), each re-saved file is also compared with
+written by sofar through netCDF-C; DIR/resaved-uncompressed/ holds the same
+re-saved with sofa.WithDeflate(0)), each re-saved file is also compared with
 its original: same global attributes (apart from the provenance Save
 stamps, checked separately) and, per variable, the same values, read with
 both h5py and netCDF4.
@@ -318,7 +318,7 @@ def main() -> int:
                 n = len(expected[fname]["datasets"])
                 print(f"ok   {label:7} {fname} ({n} datasets, {len(expected[fname]['attributes'])} attributes)")
 
-    for sub in ("resaved", "resaved-deflate"):
+    for sub in ("resaved", "resaved-uncompressed"):
         if os.path.isdir(os.path.join(args.dir, sub)):
             failed = check_resaved(args.dir, sub) or failed
 

@@ -4,12 +4,13 @@
 // drive the interoperability check in scripts/interop_check.py (h5py and
 // netCDF4); it is internal and not a supported tool.
 //
-// Every file is also written deflated (sofa.WithDeflate) as
-// <name>-deflate.sofa, with the same expectations.
+// Save deflates the audio data by default; every file is also written
+// uncompressed (sofa.WithDeflate(0)) as <name>-uncompressed.sofa, with the
+// same expectations.
 //
 // It also re-saves every file in testdata/sofar/ (written by sofar through
-// netCDF-C) into <outdir>/resaved/, and deflated into
-// <outdir>/resaved-deflate/, so that the check can compare go-sofa's output
+// netCDF-C) into <outdir>/resaved/, and uncompressed into
+// <outdir>/resaved-uncompressed/, so that the check can compare go-sofa's output
 // with the original writer's. Run it from the repository root.
 //
 // Usage: go run ./internal/interop/gen <outdir>
@@ -75,12 +76,12 @@ func run(dir string) error {
 	expected := make(map[string]expectation, len(builders))
 	for name, build := range builders {
 		f, data := build()
-		deflated := strings.TrimSuffix(name, ".sofa") + "-deflate.sofa"
+		raw := strings.TrimSuffix(name, ".sofa") + "-uncompressed.sofa"
 		if err := f.Save(filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("save %s: %w", name, err)
 		}
-		if err := f.Save(filepath.Join(dir, deflated), sofa.WithDeflate(4)); err != nil {
-			return fmt.Errorf("save %s: %w", deflated, err)
+		if err := f.Save(filepath.Join(dir, raw), sofa.WithDeflate(0)); err != nil {
+			return fmt.Errorf("save %s: %w", raw, err)
 		}
 		for k, v := range positionDatasets(f) {
 			data[k] = v
@@ -112,8 +113,8 @@ func run(dir string) error {
 			exp.Attributes[a.Name] = fmt.Sprint(a.Value)
 		}
 		expected[name] = exp
-		expected[deflated] = exp
-		fmt.Println("wrote", filepath.Join(dir, name), "and", deflated)
+		expected[raw] = exp
+		fmt.Println("wrote", filepath.Join(dir, name), "and", raw)
 	}
 
 	out, err := json.MarshalIndent(expected, "", "  ")
@@ -127,7 +128,7 @@ func run(dir string) error {
 	if err := resaveSofar(sofar, filepath.Join(dir, "resaved")); err != nil {
 		return err
 	}
-	return resaveSofar(sofar, filepath.Join(dir, "resaved-deflate"), sofa.WithDeflate(4))
+	return resaveSofar(sofar, filepath.Join(dir, "resaved-uncompressed"), sofa.WithDeflate(0))
 }
 
 // resaveSofar opens every .sofa file in src and saves it into dst with
