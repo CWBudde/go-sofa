@@ -1,6 +1,7 @@
 package sofa
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -67,32 +68,76 @@ func TestSaveDeflateRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSaveDeflateZeroIsUncompressed checks that WithDeflate(0) writes the
-// same bytes as Save without options.
-func TestSaveDeflateZeroIsUncompressed(t *testing.T) {
+// TestSaveDefaultDeflate checks that Save without options and WriteTo
+// write the bytes of WithDeflate(DefaultDeflateLevel), and that
+// WithDeflate(0) stores the data contiguous.
+func TestSaveDefaultDeflate(t *testing.T) {
 	t.Setenv("SOURCE_DATE_EPOCH", "1790000000")
 	dir := t.TempDir()
 	f := robustFIRFile()
-	plain, zero := filepath.Join(dir, "plain.sofa"), filepath.Join(dir, "zero.sofa")
-	if err := f.Save(plain); err != nil {
+	save := func(name string, opts ...SaveOption) []byte {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := f.Save(path, opts...); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	plain := save("plain.sofa")
+	if !slices.Equal(plain, save("level.sofa", WithDeflate(DefaultDeflateLevel))) {
+		t.Error("Save without options differs from WithDeflate(DefaultDeflateLevel)")
+	}
+	var buf bytes.Buffer
+	if _, err := f.WriteTo(&buf); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Save(zero, WithDeflate(0)); err != nil {
-		t.Fatal(err)
+	if !slices.Equal(plain, buf.Bytes()) {
+		t.Error("WriteTo differs from Save without options")
 	}
-	a, err := os.ReadFile(plain)
-	if err != nil {
-		t.Fatal(err)
+	if _, chunked := dataChunkShape(t, filepath.Join(dir, "plain.sofa"), "Data.IR"); !chunked {
+		t.Error("Data.IR is not chunked by default")
 	}
-	b, err := os.ReadFile(zero)
-	if err != nil {
-		t.Fatal(err)
+	save("zero.sofa", WithDeflate(0))
+	if _, chunked := dataChunkShape(t, filepath.Join(dir, "zero.sofa"), "Data.IR"); chunked {
+		t.Error("Data.IR is chunked with WithDeflate(0)")
 	}
-	if !slices.Equal(a, b) {
-		t.Error("WithDeflate(0) output differs from Save without options")
-	}
-	if _, chunked := dataChunkShape(t, zero, "Data.IR"); chunked {
-		t.Error("Data.IR is chunked without deflate")
+}
+
+// TestDataChunk checks the chunk shapes of deflated audio data: one
+// receiver across the measurements that fit in 4 MiB, but never more than
+// 64 chunks, which libmysofa cannot index.
+func TestDataChunk(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		shape, chunk []uint64
+	}{
+		{"KEMAR", []uint64{710, 2, 512}, []uint64{710, 1, 512}},
+		{"4 MiB cap", []uint64{1100, 2, 512}, []uint64{1024, 1, 512}},
+		{"long measurements", []uint64{3, 2, 280000}, []uint64{1, 1, 280000}},
+		{"TF-E", []uint64{4, 2, 3, 5}, []uint64{4, 1, 3, 5}},
+		// 32 chunks of 1024 measurements per receiver would be 64 in all.
+		{"many measurements", []uint64{40000, 2, 512}, []uint64{1250, 1, 512}},
+		{"64 receivers", []uint64{100, 64, 4096}, []uint64{100, 1, 4096}},
+		{"many receivers", []uint64{100, 130, 1024}, []uint64{100, 3, 1024}},
+		{"many receivers, long", []uint64{5000, 40, 1024}, []uint64{5000, 1, 1024}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := dataChunk(tc.shape)
+			if !slices.Equal(got, tc.chunk) {
+				t.Errorf("dataChunk(%v) = %v, want %v", tc.shape, got, tc.chunk)
+			}
+			chunks := uint64(1)
+			for i := range 2 {
+				chunks *= (tc.shape[i] + got[i] - 1) / got[i]
+			}
+			if chunks > maxDataChunks {
+				t.Errorf("%d chunks, more than %d", chunks, maxDataChunks)
+			}
+		})
 	}
 }
 

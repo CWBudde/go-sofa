@@ -5,10 +5,10 @@
 //   - every <dir>/*.sofa written by internal/interop/gen, held to a rule per
 //     convention and DataType (see expectFor);
 //   - every file gen re-saved from testdata/sofar/ into <dir>/resaved/ and
-//     <dir>/resaved-deflate/, and every further original given on the
-//     command line (re-saved here into <dir>/resaved-extra/, and deflated
-//     into <dir>/resaved-extra-deflate/), each of which must get exactly the
-//     result its original gets.
+//     <dir>/resaved-uncompressed/, and every further original given on the
+//     command line (re-saved here into <dir>/resaved-extra/, and
+//     uncompressed into <dir>/resaved-extra-uncompressed/), each of which
+//     must get exactly the result its original gets.
 //
 // It is internal and not a supported tool. Run it from the repository root.
 //
@@ -157,7 +157,7 @@ func run(load, dir string, originals []string) (failed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	for _, sub := range []string{"resaved", "resaved-deflate"} {
+	for _, sub := range []string{"resaved", "resaved-uncompressed"} {
 		resaved, err := sofarResaves(dir, sub)
 		if err != nil {
 			return false, err
@@ -169,7 +169,7 @@ func run(load, dir string, originals []string) (failed bool, err error) {
 		opts []sofa.SaveOption
 	}{
 		{"resaved-extra", nil},
-		{"resaved-extra-deflate", []sofa.SaveOption{sofa.WithDeflate(4)}},
+		{"resaved-extra-uncompressed", []sofa.SaveOption{sofa.WithDeflate(0)}},
 	} {
 		extra, err := resaveOriginals(filepath.Join(dir, r.sub), originals, r.opts...)
 		if err != nil {

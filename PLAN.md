@@ -791,8 +791,11 @@ MIT_KEMAR 1.17 MB → 5.85 MB.
       to save; level 9 saves only 1–4% more at ~10× the time. libmysofa
       needed go-hdf5's final chunk key fix (CWBudde/go-hdf5#13);
       `just interop` checks deflated copies with h5py, netCDF4 and libmysofa.
-- [ ] **P4.3b.** Make level 4 the default (`WithDeflate(0)` opts out) and
-      compress `WriteTo` the same way.
+- [x] **P4.3b.** Level 4 is the default (`DefaultDeflateLevel`,
+      `WithDeflate(0)` opts out) for `Save` and `WriteTo`. Deflated data
+      never takes more than 64 chunks: libmysofa reads only single-node
+      chunk B-trees (65 chunks: load error 10000), so big files get chunks
+      above 4 MiB and more than 64 receivers share chunks.
 
 ### P4.4 — Small items (low, optional)
 
@@ -944,8 +947,8 @@ from godoc.
       statement (line 617) against the standard; the reviewer could not find
       such a convention. If it does not exist, fix the text and the "SH"
       substring heuristic in `sofa_sh.go` that relies on the name.
-- [ ] **P6.1c. Add "Limitations"**: FIR-E/FIRE not supported; writes are
-      uncompressed unless `WithDeflate` (P4.3); all sample data is `float64`
+- [ ] **P6.1c. Add "Limitations"**: FIR-E/FIRE not supported; writes deflate
+      the audio data only, at most 64 chunks (P4.3); all sample data is `float64`
       (float32 files double in memory); extra integer variables round-trip as
       float64; `NC_STRING` variables are listed in `Dropped`; Directivity only
       partial; pre-1.0 API.

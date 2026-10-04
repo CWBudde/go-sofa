@@ -170,30 +170,49 @@ func (nc *netcdfDimensions) writeVariable(name string, data []float64, dims ...s
 	return nc.writeVariableWithAttrs(name, data, dims, nil)
 }
 
-// maxDataChunkBytes caps the size of one chunk of deflated audio data.
+// maxDataChunkBytes caps the size of one chunk of deflated audio data,
+// unless that would take more than maxDataChunks chunks.
 const maxDataChunkBytes = 4 << 20
+
+// maxDataChunks is the number of chunks one leaf of go-hdf5's chunk B-tree
+// indexes (2K, K = 32). libmysofa reads only single-node chunk indexes, so
+// deflated audio data never takes more chunks than that.
+const maxDataChunks = 64
 
 // writeData writes an audio data variable, whose first dimensions are M
 // and R, like writeVariable. With nc.deflate set it is stored in shuffled,
-// deflated chunks of one receiver across all measurements, or across as
-// many measurements as fit in maxDataChunkBytes.
+// deflated chunks (see dataChunk).
 func (nc *netcdfDimensions) writeData(name string, data []float64, dims ...string) error {
 	if nc.deflate == 0 {
 		return nc.writeVariableWithAttrs(name, data, dims, nil)
 	}
-	chunk := make([]uint64, len(dims))
-	perM := uint64(8) // bytes of one measurement of one receiver
+	shape := make([]uint64, len(dims))
 	for i, d := range dims {
-		chunk[i] = uint64(nc.sizes[d]) //nolint:gosec // sizes > 0 by validate()
-		if i >= 2 {
-			perM *= chunk[i]
-		}
+		shape[i] = uint64(nc.sizes[d]) //nolint:gosec // sizes > 0 by validate()
 	}
-	chunk[1] = 1
-	chunk[0] = max(1, min(chunk[0], maxDataChunkBytes/perM))
 	return nc.writeVariableWithAttrs(name, data, dims, []hdf5.DatasetOption{
-		hdf5.WithChunkDims(chunk), hdf5.WithShuffle(), hdf5.WithGZIPCompression(nc.deflate),
+		hdf5.WithChunkDims(dataChunk(shape)), hdf5.WithShuffle(), hdf5.WithGZIPCompression(nc.deflate),
 	})
+}
+
+// dataChunk returns the chunk shape of deflated audio data of the given
+// shape ([M, R, ...]): one receiver across as many measurements as fit in
+// maxDataChunkBytes (at least one), but no more than maxDataChunks chunks
+// in all, which makes chunks larger for big files. With more than
+// maxDataChunks receivers, a chunk holds all measurements of several.
+func dataChunk(shape []uint64) []uint64 {
+	m, r := shape[0], shape[1]
+	perM := uint64(8) // bytes of one measurement of one receiver
+	for _, n := range shape[2:] {
+		perM *= n
+	}
+	mc, rc := max(1, min(m, maxDataChunkBytes/perM)), uint64(1)
+	if r > maxDataChunks {
+		mc, rc = m, (r+maxDataChunks-1)/maxDataChunks
+	} else if perR := maxDataChunks / r; (m+mc-1)/mc > perR {
+		mc = (m + perR - 1) / perR
+	}
+	return append([]uint64{mc, rc}, shape[2:]...)
 }
 
 // writeVariableTestHook, when non-nil, is called with the variable's name
