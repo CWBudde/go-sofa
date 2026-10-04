@@ -74,6 +74,9 @@ type netcdfDimensions struct {
 	sizes  map[string]int
 	scales map[string]*hdf5.DatasetWriter
 	attrs  map[string][]Attribute // File.savedVariableAttributes, added to every variable written by name
+	// deflate is the deflate level writeData compresses with, 0 for none
+	// (WithDeflate).
+	deflate int
 }
 
 // writeDimensionScales writes one dimension-scale dataset per SOFA
@@ -165,6 +168,34 @@ func writeFrequencyDimension(fw *hdf5.FileWriter, freqs []float64, id int, extra
 // netCDF-4 readers see named (not phony) dimensions.
 func (nc *netcdfDimensions) writeVariable(name string, data []float64, dims ...string) error {
 	return nc.writeVariableWithAttrs(name, data, dims, nil)
+}
+
+// maxDataChunkBytes caps the size of one chunk of deflated audio data.
+const maxDataChunkBytes = 4 << 20
+
+// writeData writes an audio data variable, whose first dimensions are M
+// and R, like writeVariable. With nc.deflate set it is stored in shuffled,
+// deflated chunks of one receiver across all measurements, or across as
+// many measurements as fit in maxDataChunkBytes.
+func (nc *netcdfDimensions) writeData(name string, data []float64, dims ...string) error {
+	if nc.deflate == 0 {
+		return nc.writeVariableWithAttrs(name, data, dims, nil)
+	}
+	chunk := make([]uint64, len(dims))
+	perM := uint64(8) // bytes of one measurement of one receiver
+	for i, d := range dims {
+		chunk[i] = uint64(nc.sizes[d]) //nolint:gosec // sizes > 0 by validate()
+		if i >= 2 {
+			perM *= chunk[i]
+		}
+	}
+	chunk[1] = 1
+	if parts := (chunk[0]*perM + maxDataChunkBytes - 1) / maxDataChunkBytes; parts > 1 {
+		chunk[0] = (chunk[0] + parts - 1) / parts
+	}
+	return nc.writeVariableWithAttrs(name, data, dims, []hdf5.DatasetOption{
+		hdf5.WithChunkDims(chunk), hdf5.WithShuffle(), hdf5.WithGZIPCompression(nc.deflate),
+	})
 }
 
 // writeVariableTestHook, when non-nil, is called with the variable's name

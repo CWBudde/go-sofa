@@ -802,7 +802,7 @@ func reshape4D(flat []float64, m, r, e, n int) [][][][]float64 {
 // written without error, commit (if non-nil) is called just before the
 // writer is closed. The writer's Close error is returned, joined with any
 // earlier error.
-func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, error), commit func()) (err error) {
+func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, error), commit func(), o saveOptions) (err error) {
 	now, err := saveTimestamp()
 	if err != nil {
 		return err
@@ -838,6 +838,7 @@ func (f *File) writeHDF5(create func(opts []interface{}) (*hdf5.FileWriter, erro
 	if err != nil {
 		return err
 	}
+	nc.deflate = o.deflate
 
 	// Write spatial position datasets; per-measurement receiver and
 	// emitter positions, when set, replace the shared ones.
@@ -1324,7 +1325,7 @@ func (f *File) writeAudioDatasets(nc *netcdfDimensions) error {
 // writeFIRAudioDatasets writes Data.IR [M,R,N], Data.SamplingRate, and
 // Data.Delay.
 func (f *File) writeFIRAudioDatasets(nc *netcdfDimensions) error {
-	if err := nc.writeVariable("/Data.IR", flattenIR(f.ImpulseResponses), dimM, dimR, dimN); err != nil {
+	if err := nc.writeData("/Data.IR", flattenIR(f.ImpulseResponses), dimM, dimR, dimN); err != nil {
 		return err
 	}
 	return f.writeSamplingRateAndDelay(nc)
@@ -1391,10 +1392,10 @@ func delayDims(n, m, r int) []string {
 // The frequency vector is written as the /N coordinate variable (see
 // writeDimensionScales).
 func (f *File) writeTFAudioDatasets(nc *netcdfDimensions) error {
-	if err := nc.writeVariable("/Data.Real", flattenIR(f.TFReal), dimM, dimR, dimN); err != nil {
+	if err := nc.writeData("/Data.Real", flattenIR(f.TFReal), dimM, dimR, dimN); err != nil {
 		return err
 	}
-	return nc.writeVariable("/Data.Imag", flattenIR(f.TFImag), dimM, dimR, dimN)
+	return nc.writeData("/Data.Imag", flattenIR(f.TFImag), dimM, dimR, dimN)
 }
 
 // writeTFEAudioDatasets writes Data.Real / Data.Imag for DataType ==
@@ -1407,7 +1408,7 @@ func (f *File) writeTFEAudioDatasets(nc *netcdfDimensions) error {
 		data [][][][]float64
 	}{{"/Data.Real", f.TFRealE}, {"/Data.Imag", f.TFImagE}} {
 		flat := swapLastAxes(flatten4D(v.data), f.M*f.R, f.E, f.N)
-		if err := nc.writeVariable(v.name, flat, layoutMRNE...); err != nil {
+		if err := nc.writeData(v.name, flat, layoutMRNE...); err != nil {
 			return err
 		}
 	}
@@ -1417,7 +1418,7 @@ func (f *File) writeTFEAudioDatasets(nc *netcdfDimensions) error {
 // writeSOSAudioDatasets writes Data.SOS as [M][R][N] biquad
 // coefficients along with Data.SamplingRate and (optional) Data.Delay.
 func (f *File) writeSOSAudioDatasets(nc *netcdfDimensions) error {
-	if err := nc.writeVariable("/Data.SOS", flattenIR(f.SOSCoefficients), dimM, dimR, dimN); err != nil {
+	if err := nc.writeData("/Data.SOS", flattenIR(f.SOSCoefficients), dimM, dimR, dimN); err != nil {
 		return err
 	}
 	return f.writeSamplingRateAndDelay(nc)

@@ -4,9 +4,13 @@
 // drive the interoperability check in scripts/interop_check.py (h5py and
 // netCDF4); it is internal and not a supported tool.
 //
+// Every file is also written deflated (sofa.WithDeflate) as
+// <name>-deflate.sofa, with the same expectations.
+//
 // It also re-saves every file in testdata/sofar/ (written by sofar through
-// netCDF-C) into <outdir>/resaved/, so that the check can compare go-sofa's
-// output with the original writer's. Run it from the repository root.
+// netCDF-C) into <outdir>/resaved/, and deflated into
+// <outdir>/resaved-deflate/, so that the check can compare go-sofa's output
+// with the original writer's. Run it from the repository root.
 //
 // Usage: go run ./internal/interop/gen <outdir>
 package main
@@ -16,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	sofa "github.com/CWBudde/go-sofa"
 )
@@ -70,8 +75,12 @@ func run(dir string) error {
 	expected := make(map[string]expectation, len(builders))
 	for name, build := range builders {
 		f, data := build()
+		deflated := strings.TrimSuffix(name, ".sofa") + "-deflate.sofa"
 		if err := f.Save(filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("save %s: %w", name, err)
+		}
+		if err := f.Save(filepath.Join(dir, deflated), sofa.WithDeflate(4)); err != nil {
+			return fmt.Errorf("save %s: %w", deflated, err)
 		}
 		for k, v := range positionDatasets(f) {
 			data[k] = v
@@ -103,7 +112,8 @@ func run(dir string) error {
 			exp.Attributes[a.Name] = fmt.Sprint(a.Value)
 		}
 		expected[name] = exp
-		fmt.Println("wrote", filepath.Join(dir, name))
+		expected[deflated] = exp
+		fmt.Println("wrote", filepath.Join(dir, name), "and", deflated)
 	}
 
 	out, err := json.MarshalIndent(expected, "", "  ")
@@ -113,12 +123,16 @@ func run(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "expected.json"), append(out, '\n'), 0o600); err != nil { //nolint:gosec // output dir from CLI arg (dev tool)
 		return err
 	}
-	return resaveSofar(filepath.Join("testdata", "sofar"), filepath.Join(dir, "resaved"))
+	sofar := filepath.Join("testdata", "sofar")
+	if err := resaveSofar(sofar, filepath.Join(dir, "resaved")); err != nil {
+		return err
+	}
+	return resaveSofar(sofar, filepath.Join(dir, "resaved-deflate"), sofa.WithDeflate(4))
 }
 
-// resaveSofar opens every .sofa file in src and saves it into dst. It writes
-// dst/resaved.json listing the re-saved file names.
-func resaveSofar(src, dst string) error {
+// resaveSofar opens every .sofa file in src and saves it into dst with
+// opts. It writes dst/resaved.json listing the re-saved file names.
+func resaveSofar(src, dst string, opts ...sofa.SaveOption) error {
 	names, err := filepath.Glob(filepath.Join(src, "*.sofa"))
 	if err != nil {
 		return err
@@ -137,7 +151,7 @@ func resaveSofar(src, dst string) error {
 			return fmt.Errorf("open %s: %w", p, err)
 		}
 		out := filepath.Join(dst, name)
-		if err := f.Save(out); err != nil {
+		if err := f.Save(out, opts...); err != nil {
 			return fmt.Errorf("save %s: %w", out, err)
 		}
 		resaved = append(resaved, name)

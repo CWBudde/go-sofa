@@ -217,6 +217,16 @@ SOFA file. All required AES69 fields and array shapes are validated
 before any bytes are written, so a failed `Save` leaves the target
 path untouched.
 
+`Save` stores the audio data uncompressed unless you pass
+`sofa.WithDeflate(level)`, which deflates it in chunks of one receiver
+across all measurements, the layout netCDF-C files usually have. Level 4
+re-saves MIT KEMAR in 1.1 MB, against 5.9 MB uncompressed and 1.2 MB for
+the original:
+
+```go
+err := f.Save("kemar.sofa", sofa.WithDeflate(4))
+```
+
 #### Creating a file from scratch
 
 ```go
@@ -459,7 +469,7 @@ memory for `Save`; such a `File` holds no open file handle. A `File` from
 - `Close() error` — Releases the file handle of a `File` from `OpenLazy` (idempotent); does nothing and returns nil for any other `File`
 - `ReadMeasurement(m int) ([][]float64, error)` — FIR impulse responses `[R][N]` of measurement m; `ReadMeasurementTF` (TF), `ReadMeasurementTFE` (TF-E, `[R][E][N]`) and `ReadMeasurementSOS` (SOS) are the siblings for the other DataTypes
 - `RangeMeasurements(fn func(m int, ir [][]float64) error) error` — Calls fn for every measurement in order, stopping at the first error; `RangeMeasurementsTF` for TF
-- `Save(path string) error` — Validates the `File` and writes it to disk as a SOFA file
+- `Save(path string, opts ...SaveOption) error` — Validates the `File` and writes it to disk as a SOFA file; `WithDeflate(level)` compresses the audio data
 - `WriteTo(w io.Writer) (int64, error)` — Validates the `File` and writes the bytes `Save` would write to `w` (`io.WriterTo`)
 - `SamplingRateScalar() (float64, error)` — Returns the single sampling rate;
   `ErrNoSamplingRate` when none is stored, `ErrVaryingSamplingRate` when the
@@ -548,7 +558,7 @@ Like `Open`, for a SOFA file of `size` bytes read from `r`, such as a
 f, err := sofa.OpenReader(bytes.NewReader(data), int64(len(data)))
 ```
 
-#### `(*File).Save(path string) error`
+#### `(*File).Save(path string, opts ...SaveOption) error`
 
 Validates the `File` against AES69 requirements (required attributes,
 positive dimensions, consistent array shapes) and its values (every number
