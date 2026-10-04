@@ -792,7 +792,7 @@ MIT_KEMAR 1.17 MB → 5.85 MB.
       needed go-hdf5's final chunk key fix (CWBudde/go-hdf5#13);
       `just interop` checks deflated copies with h5py, netCDF4 and libmysofa.
 - [ ] **P4.3b.** Make level 4 the default (`WithDeflate(0)` opts out) and
-      compress `WriteTo` the same way; bump go-hdf5 to v0.18.1 once released.
+      compress `WriteTo` the same way.
 
 ### P4.4 — Small items (low, optional)
 
