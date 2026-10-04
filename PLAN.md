@@ -789,8 +789,8 @@ MIT_KEMAR 1.17 MB → 5.85 MB.
       (original 3.57), Mesh2HRTF 8.08 MB (8.02), tester 73 KB (91 KB). The
       proposed `[1, R, N]` rows were 6–19% larger (tester 2.7×) and slower
       to save; level 9 saves only 1–4% more at ~10× the time. libmysofa
-      needed go-hdf5's final chunk key fix (CWBudde/go-hdf5#13); `just
-    interop` checks deflated copies with h5py, netCDF4 and libmysofa.
+      needed go-hdf5's final chunk key fix (CWBudde/go-hdf5#13);
+      `just interop` checks deflated copies with h5py, netCDF4 and libmysofa.
 - [ ] **P4.3b.** Make level 4 the default (`WithDeflate(0)` opts out) and
       compress `WriteTo` the same way; bump go-hdf5 to v0.18.1 once released.
 
